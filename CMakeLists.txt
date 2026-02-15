@@ -7,6 +7,16 @@ option(LIBIPC_BUILD_SHARED_LIBS "Build shared libraries (DLLs)."                
 option(LIBIPC_USE_STATIC_CRT    "Set to ON to build with static CRT on Windows (/MT)."  OFF)
 option(LIBIPC_CODECOV           "Build with unit test coverage."                        OFF)
 
+# Shorten POSIX shm/semaphore names via hashing when they exceed this limit.
+# Set to 0 to disable (zero cost). Auto-enabled on macOS (PSHMNAMLEN = 31).
+if(NOT DEFINED LIBIPC_SHM_NAME_MAX)
+    if(APPLE)
+        set(LIBIPC_SHM_NAME_MAX 31 CACHE STRING "Max POSIX shm name length (0 = no limit).")
+    else()
+        set(LIBIPC_SHM_NAME_MAX 0  CACHE STRING "Max POSIX shm name length (0 = no limit).")
+    endif()
+endif()
+
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG")

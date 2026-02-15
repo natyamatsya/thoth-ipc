@@ -18,6 +18,8 @@
 #include "libipc/mem/resource.h"
 #include "libipc/mem/new.h"
 
+#include "shm_name.h"
+
 namespace {
 
 struct info_t {
@@ -50,14 +52,7 @@ id_t acquire(char const * name, std::size_t size, unsigned mode) {
         log.error("fail acquire: name is empty");
         return nullptr;
     }
-    // For portable use, a shared memory object should be identified by name of the form /somename.
-    // see: https://man7.org/linux/man-pages/man3/shm_open.3.html
-    std::string op_name;
-    if (name[0] == '/') {
-        op_name = name;
-    } else {
-        op_name = std::string{"/"} + name;
-    }
+    std::string op_name = ipc::posix_::detail::make_shm_name(name);
     // Open the object for read-write access.
     int flag = O_RDWR;
     switch (mode) {
@@ -150,9 +145,42 @@ void * get_mem(id_t id, std::size_t * size) {
     else {
         ii->size_ = calc_size(ii->size_);
         if (::ftruncate(fd, static_cast<off_t>(ii->size_)) != 0) {
-            log.error("fail ftruncate[", errno, "]: ", ii->name_, ", size = ", ii->size_);
-            return nullptr;
+#if defined(LIBIPC_OS_APPLE)
+            // macOS returns EINVAL when ftruncate is called on an already-sized
+            // shm object. Check if the existing size is compatible.
+            if (errno == EINVAL) {
+                struct stat st;
+                if (::fstat(fd, &st) == 0
+                    && static_cast<std::size_t>(st.st_size) == ii->size_) {
+                    goto ftruncate_ok; // existing object already has the correct size
+                }
+                // Size mismatch — stale object from a previous run.
+                // Unlink it, recreate, and retry ftruncate.
+                ::close(fd);
+                ii->fd_ = -1;
+                ::shm_unlink(ii->name_.c_str());
+                fd = ::shm_open(ii->name_.c_str(), O_RDWR | O_CREAT, 
+                                S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+                if (fd == -1) {
+                    log.error("fail shm_open (recreate)[", errno, "]: ", ii->name_);
+                    return nullptr;
+                }
+                ii->fd_ = fd;
+                if (::ftruncate(fd, static_cast<off_t>(ii->size_)) != 0) {
+                    log.error("fail ftruncate (retry)[", errno, "]: ", ii->name_, ", size = ", ii->size_);
+                    return nullptr;
+                }
+            } else
+#endif
+            {
+                log.error("fail ftruncate[", errno, "]: ", ii->name_, ", size = ", ii->size_);
+                return nullptr;
+            }
         }
+#if defined(LIBIPC_OS_APPLE)
+        ftruncate_ok:
+#endif
+        (void)0;
     }
     void* mem = ::mmap(nullptr, ii->size_, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (mem == MAP_FAILED) {
@@ -215,13 +243,7 @@ void remove(char const * name) noexcept {
         log.error("fail remove: name is empty");
         return;
     }
-    // For portable use, a shared memory object should be identified by name of the form /somename.
-    std::string op_name;
-    if (name[0] == '/') {
-        op_name = name;
-    } else {
-        op_name = std::string{"/"} + name;
-    }
+    std::string op_name = ipc::posix_::detail::make_shm_name(name);
     int unlink_ret = ::shm_unlink(op_name.c_str());
     if (unlink_ret == -1) {
         log.error("fail shm_unlink[", errno, "]: ", op_name);

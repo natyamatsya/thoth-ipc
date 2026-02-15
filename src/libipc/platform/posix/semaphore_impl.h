@@ -11,6 +11,7 @@
 #include "libipc/shm.h"
 
 #include "get_wait_time.h"
+#include "shm_name.h"
 
 namespace ipc {
 namespace detail {
@@ -40,13 +41,10 @@ public:
             log.error("[open_semaphore] fail shm.acquire: ", name);
             return false;
         }
-        // POSIX semaphore names must start with "/" on some platforms (e.g., FreeBSD)
-        // Use a separate namespace for semaphores to avoid conflicts with shm
-        if (name[0] == '/') {
-            sem_name_ = std::string(name) + "_sem";
-        } else {
-            sem_name_ = std::string("/") + name + "_sem";
-        }
+        // Use a separate namespace for semaphores to avoid conflicts with shm.
+        // Append "_s" before hashing so the hash differs from the shm name.
+        std::string raw = std::string(name) + "_s";
+        sem_name_ = ipc::posix_::detail::make_shm_name(raw.c_str());
         h_ = ::sem_open(sem_name_.c_str(), O_CREAT, 0666, static_cast<unsigned>(count));
         if (h_ == SEM_FAILED) {
             log.error("fail sem_open[", errno, "]: ", sem_name_);
@@ -88,13 +86,8 @@ public:
     }
 
     static void clear_storage(char const *name) noexcept {
-        // Construct the semaphore name same way as open() does
-        std::string sem_name;
-        if (name[0] == '/') {
-            sem_name = std::string(name) + "_sem";
-        } else {
-            sem_name = std::string("/") + name + "_sem";
-        }
+        std::string raw = std::string(name) + "_s";
+        std::string sem_name = ipc::posix_::detail::make_shm_name(raw.c_str());
         ::sem_unlink(sem_name.c_str());
         ipc::shm::handle::clear_storage(name);
     }
