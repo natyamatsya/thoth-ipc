@@ -39,6 +39,8 @@ void *new_delete_resource::allocate(std::size_t bytes, std::size_t alignment) no
 #if defined(LIBIPC_CPP_17) && !defined(LIBIPC_CC_MSVC) && !defined(__MINGW32__) && !defined(__WEBOS__)
   /// \see https://en.cppreference.com/w/cpp/memory/c/aligned_alloc
   /// \remark The size parameter must be an integral multiple of alignment.
+  /// macOS requires alignment >= sizeof(void*).
+  if (alignment < sizeof(void*)) alignment = sizeof(void*);
   return std::aligned_alloc(alignment, ipc::round_up(bytes, alignment));
 #else
   if (alignment <= alignof(std::max_align_t)) {

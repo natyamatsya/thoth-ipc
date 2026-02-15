@@ -57,8 +57,15 @@ id_t acquire(char const * name, std::size_t size, unsigned mode) {
     int flag = O_RDWR;
     switch (mode) {
     case open:
+#if defined(LIBIPC_OS_APPLE)
+        // On macOS, fstat returns page-rounded sizes which would place the
+        // ref counter at the wrong offset. Keep the caller's size if provided
+        // so get_mem uses calc_size consistently with the creator.
+        break;
+#else
         size = 0;
         break;
+#endif
     // The check for the existence of the object, 
     // and its creation if it does not exist, are performed atomically.
     case create:
