@@ -151,7 +151,7 @@ void * get_mem(id_t id, std::size_t * size) {
             if (errno == EINVAL) {
                 struct stat st;
                 if (::fstat(fd, &st) == 0
-                    && static_cast<std::size_t>(st.st_size) == ii->size_) {
+                    && static_cast<std::size_t>(st.st_size) >= ii->size_) {
                     goto ftruncate_ok; // existing object already has the correct size
                 }
                 // Size mismatch — stale object from a previous run.

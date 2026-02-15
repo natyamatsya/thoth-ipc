@@ -2,11 +2,17 @@
 
 #include <cstdint>
 #include <string>
+#include <thread>
+#include <chrono>
 
-#include <dispatch/dispatch.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <semaphore.h>
+#include <errno.h>
 
 #include "libipc/imp/log.h"
 #include "libipc/shm.h"
+#include "libipc/platform/posix/shm_name.h"
 
 namespace ipc {
 namespace detail {
@@ -14,7 +20,8 @@ namespace sync {
 
 class semaphore {
     ipc::shm::handle shm_;
-    dispatch_semaphore_t h_ = nullptr;
+    sem_t *h_ = SEM_FAILED;
+    std::string sem_name_;
 
 public:
     semaphore() = default;
@@ -25,7 +32,7 @@ public:
     }
 
     bool valid() const noexcept {
-        return h_ != nullptr;
+        return h_ != SEM_FAILED;
     }
 
     bool open(char const *name, std::uint32_t count) noexcept {
@@ -35,13 +42,12 @@ public:
             log.error("[open_semaphore] fail shm.acquire: ", name);
             return false;
         }
-        // dispatch_semaphore is process-local, but we use shm for cross-process
-        // coordination of the name. For true cross-process semaphore on macOS,
-        // we use dispatch_semaphore as a local primitive — this is sufficient
-        // when combined with shared memory for the IPC channel signaling.
-        h_ = dispatch_semaphore_create(static_cast<intptr_t>(count));
-        if (h_ == nullptr) {
-            log.error("fail dispatch_semaphore_create");
+        // Use a separate namespace for semaphores to avoid conflicts with shm.
+        std::string raw = std::string(name) + "_s";
+        sem_name_ = ipc::posix_::detail::make_shm_name(raw.c_str());
+        h_ = ::sem_open(sem_name_.c_str(), O_CREAT, 0666, static_cast<unsigned>(count));
+        if (h_ == SEM_FAILED) {
+            log.error("fail sem_open[", errno, "]: ", sem_name_);
             return false;
         }
         return true;
@@ -50,12 +56,12 @@ public:
     void close() noexcept {
         LIBIPC_LOG();
         if (!valid()) return;
-        // Release the dispatch semaphore
-        // Note: dispatch objects are reference-counted via ARC or dispatch_release
-#if !__has_feature(objc_arc)
-        dispatch_release(h_);
-#endif
-        h_ = nullptr;
+        ::sem_close(h_);
+        h_ = SEM_FAILED;
+        if (!sem_name_.empty()) {
+            ::sem_unlink(sem_name_.c_str());
+            sem_name_.clear();
+        }
         if (shm_.name() != nullptr)
             shm_.release();
     }
@@ -63,34 +69,56 @@ public:
     void clear() noexcept {
         LIBIPC_LOG();
         if (valid()) {
-#if !__has_feature(objc_arc)
-            dispatch_release(h_);
-#endif
-            h_ = nullptr;
+            ::sem_close(h_);
+            h_ = SEM_FAILED;
+        }
+        if (!sem_name_.empty()) {
+            ::sem_unlink(sem_name_.c_str());
+            sem_name_.clear();
         }
         shm_.clear();
     }
 
     static void clear_storage(char const *name) noexcept {
+        std::string raw = std::string(name) + "_s";
+        std::string sem_name = ipc::posix_::detail::make_shm_name(raw.c_str());
+        ::sem_unlink(sem_name.c_str());
         ipc::shm::handle::clear_storage(name);
     }
 
     bool wait(std::uint64_t tm) noexcept {
         LIBIPC_LOG();
         if (!valid()) return false;
-        dispatch_time_t timeout;
-        if (tm == invalid_value)
-            timeout = DISPATCH_TIME_FOREVER;
-        else
-            timeout = dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(tm) * 1000000LL); // ms to ns
-        return dispatch_semaphore_wait(h_, timeout) == 0;
+        if (tm == invalid_value) {
+            if (::sem_wait(h_) != 0) {
+                log.error("fail sem_wait[", errno, "]");
+                return false;
+            }
+            return true;
+        }
+        // macOS lacks sem_timedwait — emulate with polling.
+        auto deadline = std::chrono::steady_clock::now()
+                      + std::chrono::milliseconds(tm);
+        for (;;) {
+            if (::sem_trywait(h_) == 0) return true;
+            if (errno != EAGAIN) {
+                log.error("fail sem_trywait[", errno, "]");
+                return false;
+            }
+            if (std::chrono::steady_clock::now() >= deadline) return false;
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
     }
 
     bool post(std::uint32_t count) noexcept {
         LIBIPC_LOG();
         if (!valid()) return false;
-        for (std::uint32_t i = 0; i < count; ++i)
-            dispatch_semaphore_signal(h_);
+        for (std::uint32_t i = 0; i < count; ++i) {
+            if (::sem_post(h_) != 0) {
+                log.error("fail sem_post[", errno, "]");
+                return false;
+            }
+        }
         return true;
     }
 };
