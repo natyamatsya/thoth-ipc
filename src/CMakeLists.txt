@@ -51,7 +51,7 @@ target_include_directories(${PROJECT_NAME}
 if(NOT MSVC)
   target_link_libraries(${PROJECT_NAME} PUBLIC
     $<$<NOT:$<STREQUAL:${CMAKE_SYSTEM_NAME},QNX>>:pthread>
-    $<$<NOT:$<OR:$<STREQUAL:${CMAKE_SYSTEM_NAME},Windows>,$<STREQUAL:${CMAKE_SYSTEM_NAME},QNX>>>:rt>)
+    $<$<NOT:$<OR:$<STREQUAL:${CMAKE_SYSTEM_NAME},Windows>,$<STREQUAL:${CMAKE_SYSTEM_NAME},QNX>,$<STREQUAL:${CMAKE_SYSTEM_NAME},Darwin>>>:rt>)
 endif()
 
 install(

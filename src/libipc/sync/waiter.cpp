@@ -7,6 +7,8 @@
 #include "libipc/platform/linux/mutex.h"
 #elif defined(LIBIPC_OS_QNX) || defined(LIBIPC_OS_FREEBSD)
 #include "libipc/platform/posix/mutex.h"
+#elif defined(LIBIPC_OS_APPLE)
+#include "libipc/platform/apple/mutex.h"
 #else/*IPC_OS*/
 #   error "Unsupported platform."
 #endif

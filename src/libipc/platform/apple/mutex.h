@@ -1,0 +1,236 @@
+#pragma once
+
+#include <cstring>
+#include <cassert>
+#include <cstdint>
+#include <system_error>
+#include <mutex>
+#include <atomic>
+#include <chrono>
+#include <thread>
+
+#include <pthread.h>
+
+#include "libipc/platform/detail.h"
+#include "libipc/imp/log.h"
+#include "libipc/utility/scope_guard.h"
+#include "libipc/mem/resource.h"
+#include "libipc/shm.h"
+
+#include "libipc/platform/posix/get_wait_time.h"
+
+namespace ipc {
+namespace detail {
+namespace sync {
+
+class mutex {
+    ipc::shm::handle *shm_ = nullptr;
+    std::atomic<std::int32_t> *ref_ = nullptr;
+    pthread_mutex_t *mutex_ = nullptr;
+
+    struct curr_prog {
+        struct shm_data {
+            ipc::shm::handle shm;
+            std::atomic<std::int32_t> ref;
+
+            struct init {
+                char const *name;
+                std::size_t size;
+            };
+            shm_data(init arg)
+                : shm{arg.name, arg.size}, ref{0} {}
+        };
+        ipc::map<std::string, shm_data> mutex_handles;
+        std::mutex lock;
+
+        static curr_prog &get() {
+            static curr_prog info;
+            return info;
+        }
+    };
+
+    pthread_mutex_t *acquire_mutex(char const *name) {
+        if (name == nullptr) return nullptr;
+        auto &info = curr_prog::get();
+        LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+        auto it = info.mutex_handles.find(name);
+        if (it == info.mutex_handles.end()) {
+          it = info.mutex_handles
+                   .emplace(std::piecewise_construct,
+                            std::forward_as_tuple(name),
+                            std::forward_as_tuple(curr_prog::shm_data::init{
+                                name, sizeof(pthread_mutex_t)}))
+                   .first;
+        }
+        shm_ = &it->second.shm;
+        ref_ = &it->second.ref;
+        if (shm_ == nullptr) return nullptr;
+        return static_cast<pthread_mutex_t *>(shm_->get());
+    }
+
+    template <typename F>
+    static void release_mutex(std::string const &name, F &&clear) {
+        if (name.empty()) return;
+        auto &info = curr_prog::get();
+        LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+        auto it = info.mutex_handles.find(name);
+        if (it == info.mutex_handles.end()) return;
+        if (clear())
+            info.mutex_handles.erase(it);
+    }
+
+    static pthread_mutex_t const &zero_mem() {
+        static const pthread_mutex_t tmp{};
+        return tmp;
+    }
+
+public:
+    mutex() = default;
+    ~mutex() = default;
+
+    static void init() {
+        zero_mem();
+        curr_prog::get();
+    }
+
+    pthread_mutex_t const *native() const noexcept {
+        return mutex_;
+    }
+
+    pthread_mutex_t *native() noexcept {
+        return mutex_;
+    }
+
+    bool valid() const noexcept {
+        return (shm_ != nullptr) && (ref_ != nullptr) && (mutex_ != nullptr)
+            && (std::memcmp(&zero_mem(), mutex_, sizeof(pthread_mutex_t)) != 0);
+    }
+
+    bool open(char const *name) noexcept {
+        LIBIPC_LOG();
+        close();
+        if ((mutex_ = acquire_mutex(name)) == nullptr) return false;
+        auto self_ref = ref_->fetch_add(1, std::memory_order_relaxed);
+        if (shm_->ref() > 1 || self_ref > 0) return valid();
+        ::pthread_mutex_destroy(mutex_);
+        auto finally = ipc::guard([this] { close(); });
+        int eno;
+        pthread_mutexattr_t mutex_attr;
+        if ((eno = ::pthread_mutexattr_init(&mutex_attr)) != 0) {
+            log.error("fail pthread_mutexattr_init[", eno, "]");
+            return false;
+        }
+        LIBIPC_UNUSED auto guard_mutex_attr = guard([&mutex_attr] { ::pthread_mutexattr_destroy(&mutex_attr); });
+        if ((eno = ::pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED)) != 0) {
+            log.error("fail pthread_mutexattr_setpshared[", eno, "]");
+            return false;
+        }
+        // macOS does not support robust mutexes (pthread_mutexattr_setrobust)
+        *mutex_ = PTHREAD_MUTEX_INITIALIZER;
+        if ((eno = ::pthread_mutex_init(mutex_, &mutex_attr)) != 0) {
+            log.error("fail pthread_mutex_init[", eno, "]");
+            return false;
+        }
+        finally.dismiss();
+        return valid();
+    }
+
+    void close() noexcept {
+        LIBIPC_LOG();
+        if ((ref_ != nullptr) && (shm_ != nullptr) && (mutex_ != nullptr)) {
+            if (shm_->name() != nullptr) {
+                release_mutex(shm_->name(), [this, &log] {
+                    auto self_ref = ref_->fetch_sub(1, std::memory_order_relaxed);
+                    if ((shm_->ref() <= 1) && (self_ref <= 1)) {
+                        ::pthread_mutex_unlock(mutex_);
+                        int eno;
+                        if ((eno = ::pthread_mutex_destroy(mutex_)) != 0)
+                            log.error("fail pthread_mutex_destroy[", eno, "]");
+                        return true;
+                    }
+                    return false;
+                });
+            } else shm_->release();
+        }
+        shm_   = nullptr;
+        ref_   = nullptr;
+        mutex_ = nullptr;
+    }
+
+    void clear() noexcept {
+        LIBIPC_LOG();
+        if ((shm_ != nullptr) && (mutex_ != nullptr)) {
+            if (shm_->name() != nullptr) {
+                release_mutex(shm_->name(), [this, &log] {
+                    ::pthread_mutex_unlock(mutex_);
+                    int eno;
+                    if ((eno = ::pthread_mutex_destroy(mutex_)) != 0)
+                        log.error("fail pthread_mutex_destroy[", eno, "]");
+                    shm_->clear();
+                    return true;
+                });
+            } else shm_->clear();
+        }
+        shm_   = nullptr;
+        ref_   = nullptr;
+        mutex_ = nullptr;
+    }
+
+    static void clear_storage(char const *name) noexcept {
+        if (name == nullptr) return;
+        release_mutex(name, [] { return true; });
+        ipc::shm::handle::clear_storage(name);
+    }
+
+    // macOS lacks pthread_mutex_timedlock — emulate with polling
+    bool lock(std::uint64_t tm) noexcept {
+        LIBIPC_LOG();
+        if (!valid()) return false;
+        if (tm == invalid_value) {
+            int eno = ::pthread_mutex_lock(mutex_);
+            if (eno != 0) {
+                log.error("fail pthread_mutex_lock[", eno, "]");
+                return false;
+            }
+            return true;
+        }
+        // Timed lock via polling
+        using clock = std::chrono::steady_clock;
+        auto deadline = clock::now() + std::chrono::milliseconds(tm);
+        for (;;) {
+            int eno = ::pthread_mutex_trylock(mutex_);
+            if (eno == 0) return true;
+            if (eno != EBUSY) {
+                log.error("fail pthread_mutex_trylock[", eno, "]");
+                return false;
+            }
+            if (clock::now() >= deadline) return false;
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+    }
+
+    bool try_lock() noexcept(false) {
+        LIBIPC_LOG();
+        if (!valid()) return false;
+        int eno = ::pthread_mutex_trylock(mutex_);
+        if (eno == 0) return true;
+        if (eno == EBUSY) return false;
+        log.error("fail pthread_mutex_trylock[", eno, "]");
+        throw std::system_error{eno, std::system_category()};
+    }
+
+    bool unlock() noexcept {
+        LIBIPC_LOG();
+        if (!valid()) return false;
+        int eno;
+        if ((eno = ::pthread_mutex_unlock(mutex_)) != 0) {
+            log.error("fail pthread_mutex_unlock[", eno, "]");
+            return false;
+        }
+        return true;
+    }
+};
+
+} // namespace sync
+} // namespace detail
+} // namespace ipc
