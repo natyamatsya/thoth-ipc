@@ -11,25 +11,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
     - name: cmake
-      run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON .
+      run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_BUILD_PROTO=ON .
     - name: make
       run: make -j
     - name: test
       run: export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH && ./bin/test-ipc
+    - name: verify Rust service
+      run: test -x ./bin/rt_audio_service_rs
 
   build-macos:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
     - name: cmake
-      run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_BUILD_BENCHMARKS=ON .
+      run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_BUILD_BENCHMARKS=ON -DLIBIPC_BUILD_PROTO=ON .
     - name: make
       run: make -j
     - name: test
       run: ./bin/test-ipc
     - name: benchmark
       run: ./bin/bench_ipc 4
+    - name: verify Rust service
+      run: test -x ./bin/rt_audio_service_rs
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    - name: cmake
+      run: cmake -B build -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_BUILD_PROTO=ON
+    - name: build
+      run: cmake --build build --config Release
+    - name: test
+      run: build\bin\Release\test-ipc.exe
+    - name: verify Rust service
+      run: if (!(Test-Path build\bin\Release\rt_audio_service_rs.exe)) { exit 1 }
 
   build-macos-file-shm:
     runs-on: macos-latest
