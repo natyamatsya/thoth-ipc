@@ -18,6 +18,39 @@
 #include "libipc/mem/resource.h"
 #include "libipc/mem/new.h"
 
+#include "shm_name.h"
+
+#if defined(LIBIPC_USE_FILE_SHM)
+#include <string>
+namespace {
+
+constexpr char const file_shm_dir[] = "/tmp/cpp-ipc";
+
+inline std::string make_file_path(char const *name) {
+    std::string path = file_shm_dir;
+    path += '/';
+    // Replace '/' in name with '_' to flatten into a single directory
+    for (char const *p = name; *p; ++p)
+        path += (*p == '/') ? '_' : *p;
+    return path;
+}
+
+inline void ensure_dir() {
+    ::mkdir(file_shm_dir, 0777);
+}
+
+inline int file_shm_open(char const *path, int flags, mode_t mode) {
+    ensure_dir();
+    return ::open(path, flags, mode);
+}
+
+inline int file_shm_unlink(char const *path) {
+    return ::unlink(path);
+}
+
+} // internal-linkage
+#endif
+
 namespace {
 
 struct info_t {
@@ -50,20 +83,24 @@ id_t acquire(char const * name, std::size_t size, unsigned mode) {
         log.error("fail acquire: name is empty");
         return nullptr;
     }
-    // For portable use, a shared memory object should be identified by name of the form /somename.
-    // see: https://man7.org/linux/man-pages/man3/shm_open.3.html
-    std::string op_name;
-    if (name[0] == '/') {
-        op_name = name;
-    } else {
-        op_name = std::string{"/"} + name;
-    }
+#if defined(LIBIPC_USE_FILE_SHM)
+    std::string op_name = make_file_path(name);
+#else
+    std::string op_name = ipc::posix_::detail::make_shm_name(name);
+#endif
     // Open the object for read-write access.
     int flag = O_RDWR;
     switch (mode) {
     case open:
+#if defined(LIBIPC_OS_APPLE) && !defined(LIBIPC_USE_FILE_SHM)
+        // On macOS, fstat returns page-rounded sizes which would place the
+        // ref counter at the wrong offset. Keep the caller's size if provided
+        // so get_mem uses calc_size consistently with the creator.
+        break;
+#else
         size = 0;
         break;
+#endif
     // The check for the existence of the object, 
     // and its creation if it does not exist, are performed atomically.
     case create:
@@ -74,9 +111,12 @@ id_t acquire(char const * name, std::size_t size, unsigned mode) {
         flag |= O_CREAT;
         break;
     }
-    int fd = ::shm_open(op_name.c_str(), flag, S_IRUSR | S_IWUSR | 
-                                               S_IRGRP | S_IWGRP | 
-                                               S_IROTH | S_IWOTH);
+    constexpr auto perms = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
+#if defined(LIBIPC_USE_FILE_SHM)
+    int fd = file_shm_open(op_name.c_str(), flag, perms);
+#else
+    int fd = ::shm_open(op_name.c_str(), flag, perms);
+#endif
     if (fd == -1) {
         // only open shm not log error when file not exist
         if (open != mode || ENOENT != errno) {
@@ -84,9 +124,7 @@ id_t acquire(char const * name, std::size_t size, unsigned mode) {
         }
         return nullptr;
     }
-    ::fchmod(fd, S_IRUSR | S_IWUSR | 
-                 S_IRGRP | S_IWGRP | 
-                 S_IROTH | S_IWOTH);
+    ::fchmod(fd, perms);
     auto ii = mem::$new<id_info_t>();
     ii->fd_   = fd;
     ii->size_ = size;
@@ -150,9 +188,48 @@ void * get_mem(id_t id, std::size_t * size) {
     else {
         ii->size_ = calc_size(ii->size_);
         if (::ftruncate(fd, static_cast<off_t>(ii->size_)) != 0) {
-            log.error("fail ftruncate[", errno, "]: ", ii->name_, ", size = ", ii->size_);
-            return nullptr;
+#if defined(LIBIPC_OS_APPLE)
+            // macOS returns EINVAL when ftruncate is called on an already-sized
+            // shm object. Check if the existing size is compatible.
+            if (errno == EINVAL) {
+                struct stat st;
+                if (::fstat(fd, &st) == 0
+                    && static_cast<std::size_t>(st.st_size) >= ii->size_) {
+                    goto ftruncate_ok; // existing object already has the correct size
+                }
+                // Size mismatch — stale object from a previous run.
+                // Unlink it, recreate, and retry ftruncate.
+                ::close(fd);
+                ii->fd_ = -1;
+#if defined(LIBIPC_USE_FILE_SHM)
+                file_shm_unlink(ii->name_.c_str());
+                fd = file_shm_open(ii->name_.c_str(), O_RDWR | O_CREAT,
+                                   S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+#else
+                ::shm_unlink(ii->name_.c_str());
+                fd = ::shm_open(ii->name_.c_str(), O_RDWR | O_CREAT, 
+                                S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+#endif
+                if (fd == -1) {
+                    log.error("fail shm_open (recreate)[", errno, "]: ", ii->name_);
+                    return nullptr;
+                }
+                ii->fd_ = fd;
+                if (::ftruncate(fd, static_cast<off_t>(ii->size_)) != 0) {
+                    log.error("fail ftruncate (retry)[", errno, "]: ", ii->name_, ", size = ", ii->size_);
+                    return nullptr;
+                }
+            } else
+#endif
+            {
+                log.error("fail ftruncate[", errno, "]: ", ii->name_, ", size = ", ii->size_);
+                return nullptr;
+            }
         }
+#if defined(LIBIPC_OS_APPLE)
+        ftruncate_ok:
+#endif
+        (void)0;
     }
     void* mem = ::mmap(nullptr, ii->size_, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (mem == MAP_FAILED) {
@@ -181,7 +258,11 @@ std::int32_t release(id_t id) noexcept {
     else if ((ret = acc_of(ii->mem_, ii->size_).fetch_sub(1, std::memory_order_acq_rel)) <= 1) {
         ::munmap(ii->mem_, ii->size_);
         if (!ii->name_.empty()) {
+#if defined(LIBIPC_USE_FILE_SHM)
+            int unlink_ret = file_shm_unlink(ii->name_.c_str());
+#else
             int unlink_ret = ::shm_unlink(ii->name_.c_str());
+#endif
             if (unlink_ret == -1) {
                 log.error("fail shm_unlink[", errno, "]: ", ii->name_);
             }
@@ -202,7 +283,11 @@ void remove(id_t id) noexcept {
     auto name = std::move(ii->name_);
     release(id);
     if (!name.empty()) {
+#if defined(LIBIPC_USE_FILE_SHM)
+        int unlink_ret = file_shm_unlink(name.c_str());
+#else
         int unlink_ret = ::shm_unlink(name.c_str());
+#endif
         if (unlink_ret == -1) {
             log.error("fail shm_unlink[", errno, "]: ", name);
         }
@@ -215,14 +300,13 @@ void remove(char const * name) noexcept {
         log.error("fail remove: name is empty");
         return;
     }
-    // For portable use, a shared memory object should be identified by name of the form /somename.
-    std::string op_name;
-    if (name[0] == '/') {
-        op_name = name;
-    } else {
-        op_name = std::string{"/"} + name;
-    }
+#if defined(LIBIPC_USE_FILE_SHM)
+    std::string op_name = make_file_path(name);
+    int unlink_ret = file_shm_unlink(op_name.c_str());
+#else
+    std::string op_name = ipc::posix_::detail::make_shm_name(name);
     int unlink_ret = ::shm_unlink(op_name.c_str());
+#endif
     if (unlink_ret == -1) {
         log.error("fail shm_unlink[", errno, "]: ", op_name);
     }

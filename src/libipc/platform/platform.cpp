@@ -2,7 +2,7 @@
 #include "libipc/platform/detail.h"
 #if defined(LIBIPC_OS_WIN)
 #include "libipc/platform/win/shm_win.cpp"
-#elif defined(LIBIPC_OS_LINUX) || defined(LIBIPC_OS_QNX) || defined(LIBIPC_OS_FREEBSD)
+#elif defined(LIBIPC_OS_LINUX) || defined(LIBIPC_OS_QNX) || defined(LIBIPC_OS_FREEBSD) || defined(LIBIPC_OS_APPLE)
 #include "libipc/platform/posix/shm_posix.cpp"
 #else/*IPC_OS*/
 #   error "Unsupported platform."

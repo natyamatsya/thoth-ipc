@@ -9,6 +9,8 @@
 #include "libipc/platform/win/semaphore.h"
 #elif defined(LIBIPC_OS_LINUX) || defined(LIBIPC_OS_QNX) || defined(LIBIPC_OS_FREEBSD)
 #include "libipc/platform/posix/semaphore_impl.h"
+#elif defined(LIBIPC_OS_APPLE)
+#include "libipc/platform/apple/semaphore_impl.h"
 #else/*IPC_OS*/
 #   error "Unsupported platform."
 #endif

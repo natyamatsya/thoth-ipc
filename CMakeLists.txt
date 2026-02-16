@@ -1,11 +1,24 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.30)
 project(cpp-ipc VERSION 1.4.1)
 
 option(LIBIPC_BUILD_TESTS       "Build all of libipc's own tests."                      OFF)
 option(LIBIPC_BUILD_DEMOS       "Build all of libipc's own demos."                      OFF)
+option(LIBIPC_BUILD_BENCHMARKS  "Build IPC benchmarks."                                 OFF)
 option(LIBIPC_BUILD_SHARED_LIBS "Build shared libraries (DLLs)."                        OFF)
 option(LIBIPC_USE_STATIC_CRT    "Set to ON to build with static CRT on Windows (/MT)."  OFF)
 option(LIBIPC_CODECOV           "Build with unit test coverage."                        OFF)
+
+# Shorten POSIX shm/semaphore names via hashing when they exceed this limit.
+# Set to 0 to disable (zero cost). Auto-enabled on macOS (PSHMNAMLEN = 31).
+if(NOT DEFINED LIBIPC_SHM_NAME_MAX)
+    if(APPLE)
+        set(LIBIPC_SHM_NAME_MAX 31 CACHE STRING "Max POSIX shm name length (0 = no limit).")
+    else()
+        set(LIBIPC_SHM_NAME_MAX 0  CACHE STRING "Max POSIX shm name length (0 = no limit).")
+    endif()
+endif()
+
+option(LIBIPC_USE_FILE_SHM      "Use file-backed mmap instead of shm_open (avoids PSHMNAMLEN)." OFF)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -52,13 +65,18 @@ add_definitions(-DUNICODE -D_UNICODE)
 add_subdirectory(src)
 
 if (LIBIPC_BUILD_TESTS)
-    set(GOOGLETEST_VERSION 1.10.0)
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.17.0
+    )
     if (LIBIPC_USE_STATIC_CRT)
-        set(gtest_force_shared_crt OFF)
+        set(gtest_force_shared_crt OFF CACHE BOOL "" FORCE)
     else()
-        set(gtest_force_shared_crt ON)
+        set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     endif()
-    add_subdirectory(3rdparty/gtest)
+    FetchContent_MakeAvailable(googletest)
     add_subdirectory(test)
 endif()
 
@@ -73,6 +91,10 @@ if (LIBIPC_BUILD_DEMOS)
         add_subdirectory(demo/linux_service/service)
         add_subdirectory(demo/linux_service/client)
     endif()
+endif()
+
+if (LIBIPC_BUILD_BENCHMARKS)
+    add_subdirectory(bench)
 endif()
 
 install(

@@ -1,17 +1,18 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
+#include <thread>
+#include <chrono>
 
-#include <fcntl.h>      /* For O_* constants */
-#include <sys/stat.h>   /* For mode constants */
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <semaphore.h>
 #include <errno.h>
 
 #include "libipc/imp/log.h"
 #include "libipc/shm.h"
-
-#include "get_wait_time.h"
-#include "shm_name.h"
+#include "libipc/platform/posix/shm_name.h"
 
 namespace ipc {
 namespace detail {
@@ -20,13 +21,13 @@ namespace sync {
 class semaphore {
     ipc::shm::handle shm_;
     sem_t *h_ = SEM_FAILED;
-    std::string sem_name_;  // Store the actual semaphore name used
+    std::string sem_name_;
 
 public:
     semaphore() = default;
     ~semaphore() noexcept = default;
 
-    sem_t *native() const noexcept {
+    void *native() const noexcept {
         return h_;
     }
 
@@ -42,7 +43,6 @@ public:
             return false;
         }
         // Use a separate namespace for semaphores to avoid conflicts with shm.
-        // Append "_s" before hashing so the hash differs from the shm name.
         std::string raw = std::string(name) + "_s";
         sem_name_ = ipc::posix_::detail::make_shm_name(raw.c_str());
         h_ = ::sem_open(sem_name_.c_str(), O_CREAT, 0666, static_cast<unsigned>(count));
@@ -56,33 +56,27 @@ public:
     void close() noexcept {
         LIBIPC_LOG();
         if (!valid()) return;
-        if (::sem_close(h_) != 0) {
-            log.error("fail sem_close[", errno, "]");
-        }
+        ::sem_close(h_);
         h_ = SEM_FAILED;
-        if (!sem_name_.empty() && shm_.name() != nullptr) {
-            if (shm_.release() <= 1) {
-                if (::sem_unlink(sem_name_.c_str()) != 0) {
-                    log.error("fail sem_unlink[", errno, "]: ", sem_name_);
-                }
-            }
+        if (!sem_name_.empty()) {
+            ::sem_unlink(sem_name_.c_str());
+            sem_name_.clear();
         }
-        sem_name_.clear();
+        if (shm_.name() != nullptr)
+            shm_.release();
     }
 
     void clear() noexcept {
         LIBIPC_LOG();
         if (valid()) {
-            if (::sem_close(h_) != 0) {
-                log.error("fail sem_close[", errno, "]");
-            }
+            ::sem_close(h_);
             h_ = SEM_FAILED;
         }
         if (!sem_name_.empty()) {
             ::sem_unlink(sem_name_.c_str());
             sem_name_.clear();
         }
-        shm_.clear(); // Make sure the storage is cleaned up.
+        shm_.clear();
     }
 
     static void clear_storage(char const *name) noexcept {
@@ -100,16 +94,20 @@ public:
                 log.error("fail sem_wait[", errno, "]");
                 return false;
             }
-        } else {
-            auto ts = posix_::detail::make_timespec(tm);
-            if (::sem_timedwait(h_, &ts) != 0) {
-                if (errno != ETIMEDOUT) {
-                    log.error("fail sem_timedwait[", errno, "]: tm = ", tm, ", tv_sec = ", ts.tv_sec, ", tv_nsec = ", ts.tv_nsec);
-                }
+            return true;
+        }
+        // macOS lacks sem_timedwait — emulate with polling.
+        auto deadline = std::chrono::steady_clock::now()
+                      + std::chrono::milliseconds(tm);
+        for (;;) {
+            if (::sem_trywait(h_) == 0) return true;
+            if (errno != EAGAIN) {
+                log.error("fail sem_trywait[", errno, "]");
                 return false;
             }
+            if (std::chrono::steady_clock::now() >= deadline) return false;
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
-        return true;
     }
 
     bool post(std::uint32_t count) noexcept {
