@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors -->
+
 # Typed Protocol Layer
 
 The `libipc/proto/` headers provide a generic, header-only layer that combines

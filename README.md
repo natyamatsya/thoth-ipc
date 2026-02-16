@@ -105,6 +105,26 @@ Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [
 * **[macOS Technical Notes](doc/macos-technical-notes.md)** — platform-specific implementation details for macOS (semaphores, mutexes, shared memory)
 * **[Audio Service Demo](demo/audio_service/)** — complete example with FlatBuffers protocol, redundancy, crash recovery, and auto-reconnect
 
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+The original library is copyright © 2018 mutouyun. The macOS port, protocol
+layer, orchestration utilities, and documentation are copyright © 2025–2026
+natyamatsya contributors. Both are distributed under the same MIT license.
+
+All source files carry [SPDX](https://spdx.dev/) headers that identify the
+license and copyright holders:
+
+```text
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2018 mutouyun (http://orzz.org)          ← upstream code
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors       ← additions
+```
+
+Files created entirely by natyamatsya contributors carry only the natyamatsya
+copyright line. Modified upstream files carry both.
+
 ## Reference
 
 * [Lock-Free Data Structures | Dr Dobb's](http://www.drdobbs.com/lock-free-data-structures/184401865)

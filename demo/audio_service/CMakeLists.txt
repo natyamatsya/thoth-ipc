@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+
 project(audio_service_demo)
 
 # Generate C++ header from FlatBuffers schema

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+
 project(bench_ipc)
 
 include_directories(

@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2018 mutouyun (http://orzz.org)
+# SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+
 cmake_minimum_required(VERSION 3.30)
 project(cpp-ipc VERSION 1.4.1)
 

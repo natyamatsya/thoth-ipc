@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors -->
+
 # Process Orchestration & Service Discovery
 
 The `libipc/proto/` headers include utilities for managing service lifecycles:

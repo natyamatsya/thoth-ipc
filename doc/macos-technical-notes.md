@@ -1,4 +1,7 @@
-# macOS Port — Technical Notes
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors -->
+
+# macOS Port
 
 This document records the platform-specific behaviors encountered while porting
 `cpp-ipc` to macOS (Darwin / Apple Silicon + Intel). Each section describes the

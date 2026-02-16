@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors -->
+
 # Audio Service Demo
 
 A complete example of a redundant audio compute service using the cpp-ipc

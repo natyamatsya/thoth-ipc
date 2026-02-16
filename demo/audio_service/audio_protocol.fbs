@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+
 // Audio compute service protocol definition.
 // Compile with: flatc --cpp audio_protocol.fbs
 

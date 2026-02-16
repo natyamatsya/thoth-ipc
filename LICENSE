@@ -1,6 +1,7 @@
-cpp-ipc(libipc) - A high-performance inter-process communication using shared memory on Linux/Windows.
+cpp-ipc(libipc) - A high-performance inter-process communication using shared memory on Linux/Windows/macOS.
 
-Copyright (c) 2018 mutouyun (http://orzz.org)
+Copyright (c) 2018 mutouyun (<http://orzz.org>)
+Copyright (c) 2025-2026 natyamatsya contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

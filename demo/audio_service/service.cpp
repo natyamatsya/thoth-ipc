@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+
 #include <cstdio>
 #include <csignal>
 #include <atomic>
