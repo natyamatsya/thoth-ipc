@@ -134,15 +134,64 @@ host: shutting down...
 host: done
 ```
 
+## Multi-Language Services
+
+Process separation means the service can be implemented in *any* language that
+can link against the C FFI wrapper. This demo includes three service
+implementations — all interchangeable, all spawned by the same C++ host:
+
+| Binary                   | Language    | Standard    | IPC mechanism           |
+| ------------------------ | ----------- | ----------- | ----------------------- |
+| `rt_audio_service`       | C++         | C++23       | proto headers (direct)  |
+| `rt_audio_service_rs`    | Rust        | 2024 edition| proto via C FFI wrapper |
+
+### Running the Rust service
+
+```bash
+./build/bin/rt_audio_host ./build/bin/rt_audio_service_rs
+```
+
+The C++ host doesn't know or care what language the service is written in — it
+spawns the binary, discovers it via the service registry, and communicates
+through the same shared memory ring buffer and atomic shared state.
+
+### FFI wrapper
+
+The C FFI layer (`rt_audio_ffi.h` / `rt_audio_ffi.cpp`) exposes the C++ proto
+types as plain C functions:
+
+- **`rt_ffi_ring_*`** — `shm_ring<audio_block, 4>` operations
+- **`rt_ffi_shared_state_*`** — atomic reads/writes on `shared_state`
+- **`rt_ffi_registry_*`** — `service_registry` registration/discovery
+- **`rt_ffi_set_realtime_priority`** — MMCSS / Mach RT thread priority
+
+The wrapper is built as a static library (`rt_audio_ffi.lib`). The Rust crate
+links against it and the `ipc` library.
+
+### Build requirements
+
+The Rust service is built automatically when `cargo` is found on `PATH`.
+If cargo is not available, the Rust target is silently skipped.
+
+```bash
+cmake -B build -DLIBIPC_BUILD_PROTO=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
 ## Files
 
 - **`rt_audio_common.h`** — `audio_block` struct, `shared_state` with
   heartbeat and atomic parameters, `shared_state_handle` helper
-- **`service.cpp`** — audio render loop with RT priority, ring buffer
+- **`service.cpp`** — C++23 audio render loop with RT priority, ring buffer
   producer, heartbeat updates
 - **`host.cpp`** — ring buffer consumer, heartbeat watchdog, state
   replication, failover demo
-- **`CMakeLists.txt`** — builds both executables
+- **`rt_audio_ffi.h`** / **`rt_audio_ffi.cpp`** — C FFI wrapper for the proto
+  types, enabling non-C++ language bindings
+- **`rust_service/`** — Rust 2024 edition service implementation using the FFI
+  wrapper
+- **`CMakeLists.txt`** — builds all executables; conditionally builds the Rust
+  service when cargo is detected
 
 ## Design Notes
 
