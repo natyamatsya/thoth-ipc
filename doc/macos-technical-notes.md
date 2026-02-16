@@ -172,17 +172,19 @@ macOS does not implement `pthread_mutex_timedlock()` (IEEE Std 1003.1 TMO
 option). The function is absent from `<pthread.h>`.
 
 **Fix:**
-`src/libipc/platform/apple/mutex.h` — emulates timed lock with a polling loop:
+`src/libipc/platform/apple/mutex.h` — emulates timed lock with adaptive polling:
 
-```cpp
-while (pthread_mutex_trylock(&mtx) != 0) {
-    if (now >= deadline) return false;
-    std::this_thread::sleep_for(std::chrono::microseconds(100));
-}
-```
+- **Phase 1 (spin):** ~1000 iterations of `pthread_mutex_trylock` with no sleep.
+  This catches the common uncontended case with sub-microsecond latency.
+- **Phase 2 (escalating sleep):** sleep intervals ramp up through four stages,
+  each lasting ~100 iterations before advancing:
 
-This trades precision (up to 100 µs overshoot) for simplicity. An adaptive
-back-off strategy (spin → escalating sleep) is a potential future improvement.
+  ```text
+  1 µs × 100  →  10 µs × 100  →  100 µs × 100  →  1 ms until deadline
+  ```
+
+This balances latency (phase 1 catches fast locks) against CPU usage (phase 2
+avoids busy-waiting under sustained contention). Worst-case overshoot is ~1 ms.
 
 ---
 
@@ -193,21 +195,55 @@ Compilation error: `use of undeclared identifier 'PTHREAD_MUTEX_ROBUST'`.
 
 **Root cause:**
 macOS does not support `pthread_mutexattr_setrobust()`, `EOWNERDEAD`, or
-`pthread_mutex_consistent()`. If a process dies while holding a
-`PTHREAD_PROCESS_SHARED` mutex in shared memory, the mutex becomes permanently
-locked.
+`pthread_mutex_consistent()`. On Linux, if a process dies while holding a robust
+mutex, the next acquirer receives `EOWNERDEAD` and can call
+`pthread_mutex_consistent()` to recover. On macOS, the mutex becomes permanently
+locked (deadlock).
 
 **Fix:**
-The Apple mutex implementation (`src/libipc/platform/apple/mutex.h`) simply omits
-the robust attribute. The mutex is still `PTHREAD_PROCESS_SHARED` and functional
-for the normal (non-crash) case.
+PID-based liveness detection in `src/libipc/platform/apple/mutex.h`:
 
-**Known limitation:**
-If a process crashes while holding a shared mutex, other processes will deadlock.
-Potential future mitigations:
+1. The shared memory layout is extended from a bare `pthread_mutex_t` to
+   `robust_mutex_t`:
 
-- PID-based liveness detection (`kill(holder_pid, 0)`)
-- Advisory file locks as a crash-detection sidecar
+   ```cpp
+   struct robust_mutex_t {
+       pthread_mutex_t     mtx;
+       std::atomic<pid_t>  holder; // 0 = unlocked
+   };
+   ```
+
+2. **On `lock()` / `try_lock()`:** after acquiring the mutex, the current PID is
+   stored: `holder.store(getpid())`.
+
+3. **On `unlock()`:** the holder is cleared: `holder.store(0)`.
+
+4. **Dead holder recovery:** when a timed lock times out or `try_lock` finds the
+   mutex busy, `try_recover_dead_holder()` is called:
+
+   ```cpp
+   pid_t holder = data_->holder.load();
+   if (holder != 0 && kill(holder, 0) == -1 && errno == ESRCH) {
+       // holder process no longer exists — reinitialize mutex
+       pthread_mutex_destroy(&data_->mtx);
+       data_->holder.store(0);
+       pthread_mutex_init(&data_->mtx, &attr);  // fresh init
+   }
+   ```
+
+   `kill(pid, 0)` sends no signal but checks process existence. `ESRCH` means
+   the process does not exist.
+
+**Trade-offs:**
+
+- **PID recycling:** theoretically, a PID could be reused by an unrelated
+  process. In practice, macOS PIDs go up to ~100,000 and recycle slowly, so the
+  window is very small. The check only triggers after a lock timeout, further
+  reducing false positives.
+- **Not atomic:** the destroy+reinit sequence is not itself protected by a lock.
+  If two processes detect a dead holder simultaneously, both may try to
+  reinitialize. The `pthread_mutex_init` on an already-initialized mutex is
+  benign on macOS (it reinitializes in-place).
 
 ---
 
