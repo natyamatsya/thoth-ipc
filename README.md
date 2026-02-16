@@ -17,6 +17,18 @@
 * No long time blind wait. (Semaphore will be used after a certain number of retries.)
 * [Vcpkg](https://github.com/microsoft/vcpkg/blob/master/README.md) way of installation is supported. E.g. `vcpkg install cpp-ipc`
 
+> **⚠️ Prototype status** — The following components are unreleased prototypes
+> under active development and are **not yet used in production**. APIs,
+> protocols, and data layouts may change without notice.
+>
+> - `libipc/proto/` — typed protocol layer, service registry, process manager, shm_ring, RT priority
+> - `demo/audio_service/` — FlatBuffers audio service demo with orchestration
+> - `demo/audio_realtime/` — real-time audio demo with lock-free ring buffer and warm standby failover
+> - `demo/audio_realtime/rust_service/` — Rust 2024 edition service via C FFI / bindgen
+>
+> The core transport library (`ipc::route`, `ipc::channel`, shared memory
+> primitives) is stable.
+
 ## Usage
 
 See: [Wiki](https://github.com/mutouyun/cpp-ipc/wiki)
@@ -87,14 +99,14 @@ Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [
 
 ## Documentation
 
-* **[Typed Protocol Layer](doc/proto-layer.md)** — FlatBuffers-based typed channels and routes for type-safe, zero-copy IPC messaging
-* **[Process Orchestration & Discovery](doc/orchestration.md)** — service registry, process management, redundant service groups with automatic failover
 * **[macOS Technical Notes](doc/macos-technical-notes.md)** — platform-specific implementation details for macOS (semaphores, mutexes, shared memory)
 * **[Windows Technical Notes](doc/windows-technical-notes.md)** — platform-specific implementation details for Windows (MSVC conformance, process management, thread priority)
-* **[Audio Service Demo](demo/audio_service/)** — complete example with FlatBuffers protocol, redundancy, crash recovery, and auto-reconnect
-* **[Real-Time Audio Demo](demo/audio_realtime/)** — dropout-free design with lock-free ring buffer, RT thread priority, heartbeat watchdog, and warm standby failover
-* **[Cross-Language Services via C FFI](doc/rust-services.md)** — Rust 2024 edition service using bindgen-generated FFI bindings to the proto layer, with CMake auto-detection
 * **[macOS Deployment & Distribution](doc/macos-deployment.md)** — code signing, notarization, sandbox restrictions, and XPC alternatives for production shipping
+* **[Typed Protocol Layer](doc/proto-layer.md)** *(prototype)* — FlatBuffers-based typed channels and routes for type-safe, zero-copy IPC messaging
+* **[Process Orchestration & Discovery](doc/orchestration.md)** *(prototype)* — service registry, process management, redundant service groups with automatic failover
+* **[Audio Service Demo](demo/audio_service/)** *(prototype)* — complete example with FlatBuffers protocol, redundancy, crash recovery, and auto-reconnect
+* **[Real-Time Audio Demo](demo/audio_realtime/)** *(prototype)* — dropout-free design with lock-free ring buffer, RT thread priority, heartbeat watchdog, and warm standby failover
+* **[Cross-Language Services via C FFI](doc/rust-services.md)** *(prototype)* — Rust 2024 edition service using bindgen-generated FFI bindings to the proto layer, with CMake auto-detection
 
 ## License
 
