@@ -19,6 +19,7 @@ if(NOT DEFINED LIBIPC_SHM_NAME_MAX)
 endif()
 
 option(LIBIPC_USE_FILE_SHM      "Use file-backed mmap instead of shm_open (avoids PSHMNAMLEN)." OFF)
+option(LIBIPC_BUILD_PROTO       "Build the FlatBuffers-based typed protocol layer and demos." OFF)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -95,6 +96,19 @@ endif()
 
 if (LIBIPC_BUILD_BENCHMARKS)
     add_subdirectory(bench)
+endif()
+
+if (LIBIPC_BUILD_PROTO)
+    include(FetchContent)
+    set(FLATBUFFERS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(FLATBUFFERS_BUILD_FLATC ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        flatbuffers
+        GIT_REPOSITORY https://github.com/google/flatbuffers.git
+        GIT_TAG        v25.2.10
+    )
+    FetchContent_MakeAvailable(flatbuffers)
+    add_subdirectory(demo/audio_service)
 endif()
 
 install(
