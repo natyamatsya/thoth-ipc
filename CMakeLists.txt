@@ -113,6 +113,7 @@ if (LIBIPC_BUILD_PROTO)
     )
     FetchContent_MakeAvailable(flatbuffers)
     add_subdirectory(demo/audio_service)
+    add_subdirectory(demo/audio_realtime)
 endif()
 
 install(

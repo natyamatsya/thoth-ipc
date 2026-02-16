@@ -14,7 +14,6 @@
 
 #include "libipc/proto/service_registry.h"
 #include "libipc/proto/process_manager.h"
-#include "libipc/proto/typed_channel.h"
 
 namespace ipc {
 namespace proto {
