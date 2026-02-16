@@ -1,20 +1,26 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+//
+// C++23 service process — demonstrates that process separation lets each
+// component use a different language standard.  The host and the ipc library
+// are compiled as C++17; this service links against the same library but is
+// free to use C++23 features (std::print, std::expected, std::numbers, …).
 
-#include <cstdio>
-#include <csignal>
 #include <cmath>
+#include <csignal>
 #include <atomic>
-#include <thread>
 #include <chrono>
+#include <expected>
+#include <numbers>
+#include <print>
 #include <string>
+#include <string_view>
+#include <thread>
 
 #ifdef _WIN32
 #  include <process.h>
-#  define ipc_getpid() _getpid()
 #else
 #  include <unistd.h>
-#  define ipc_getpid() ::getpid()
 #endif
 
 #include "rt_audio_common.h"
@@ -25,6 +31,14 @@
 static std::atomic<bool> g_running{true};
 
 static void on_signal(int) { g_running.store(false); }
+
+static auto current_pid() noexcept -> int {
+#ifdef _WIN32
+    return _getpid();
+#else
+    return ::getpid();
+#endif
+}
 
 // Simulated audio render: fill a block with a sine tone scaled by gain.
 static void render_audio(audio_block &blk, uint64_t seq,
@@ -39,68 +53,101 @@ static void render_audio(audio_block &blk, uint64_t seq,
     float l_gain = gain * (1.0f - pan) * 0.5f;
     float r_gain = gain * (1.0f + pan) * 0.5f;
 
-    constexpr float freq = 440.0f;
+    constexpr float freq  = 440.0f;
+    constexpr float two_pi = 2.0f * std::numbers::pi_v<float>;
     float sr = static_cast<float>(blk.sample_rate);
 
     for (uint32_t f = 0; f < blk.frames; ++f) {
         float t = static_cast<float>(seq * blk.frames + f) / sr;
-        float s = std::sin(2.0f * 3.14159265f * freq * t);
+        float s = std::sin(two_pi * freq * t);
         if (blk.channels >= 1) blk.samples[f * blk.channels + 0] = s * l_gain;
         if (blk.channels >= 2) blk.samples[f * blk.channels + 1] = s * r_gain;
     }
+}
+
+// Validated service configuration — lightweight, movable.
+struct service_config {
+    std::string svc_name;
+    std::string ring_name;
+    std::string state_name;
+};
+
+// Validate names and return a config, or an error string on failure.
+static auto make_config(std::string_view instance_id)
+    -> std::expected<service_config, std::string>
+{
+    service_config cfg{
+        .svc_name   = "rt_audio",
+        .ring_name  = "rt_audio_ring",
+        .state_name = "rt_audio_state",
+    };
+    if (!instance_id.empty()) {
+        cfg.svc_name   += std::string{"."} + std::string{instance_id};
+        cfg.ring_name  += std::string{"_"} + std::string{instance_id};
+        cfg.state_name += std::string{"_"} + std::string{instance_id};
+    }
+    return cfg;
+}
+
+// Open all IPC resources; returns an error string on failure.
+static auto open_resources(const service_config &cfg,
+                           shared_state_handle &ssh,
+                           ipc::proto::shm_ring<audio_block, 4> &ring,
+                           ipc::proto::service_registry &registry)
+    -> std::expected<void, std::string>
+{
+    if (!ssh.open_or_create(cfg.state_name.c_str()))
+        return std::unexpected{std::format("failed to open shared state '{}'",
+                                           cfg.state_name)};
+    if (!ring.open_or_create())
+        return std::unexpected{std::format("failed to open ring buffer '{}'",
+                                           cfg.ring_name)};
+    registry.register_service(cfg.svc_name.c_str(),
+                              cfg.ring_name.c_str(),
+                              cfg.state_name.c_str());
+    return {};
 }
 
 int main(int argc, char *argv[]) {
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
 
-    std::string instance_id = (argc > 1) ? argv[1] : "";
-    std::string svc_name  = "rt_audio";
-    std::string ring_name = "rt_audio_ring";
-    std::string state_name = "rt_audio_state";
-    if (!instance_id.empty()) {
-        svc_name  += "." + instance_id;
-        ring_name += "_" + instance_id;
-        state_name += "_" + instance_id;
+    std::string_view instance_id = (argc > 1) ? argv[1] : "";
+
+    auto cfg = make_config(instance_id);
+    if (!cfg) {
+        std::println(stderr, "rt_service: {}", cfg.error());
+        return 1;
     }
 
-    std::printf("rt_service[%s]: starting (pid=%d)\n", svc_name.c_str(), ipc_getpid());
+    shared_state_handle                  ssh;
+    ipc::proto::shm_ring<audio_block, 4> ring{cfg->ring_name.c_str()};
+    ipc::proto::service_registry         registry{"audio_rt"};
 
-    // Open shared state (host creates it, we open existing or create)
-    shared_state_handle ssh;
-    if (!ssh.open_or_create(state_name.c_str())) {
-        std::printf("rt_service[%s]: failed to open shared state\n", svc_name.c_str());
+    if (auto res = open_resources(*cfg, ssh, ring, registry); !res) {
+        std::println(stderr, "rt_service[{}]: {}", cfg->svc_name, res.error());
         return 1;
     }
     auto *state = ssh.get();
 
-    // Open the audio ring buffer
-    ipc::proto::shm_ring<audio_block, 4> ring(ring_name.c_str());
-    if (!ring.open_or_create()) {
-        std::printf("rt_service[%s]: failed to open ring buffer\n", svc_name.c_str());
-        return 1;
-    }
-
-    // Register in the service registry
-    ipc::proto::service_registry registry("audio_rt");
-    registry.register_service(svc_name.c_str(), ring_name.c_str(), state_name.c_str());
-    std::printf("rt_service[%s]: registered (ring=%s state=%s)\n",
-                svc_name.c_str(), ring_name.c_str(), state_name.c_str());
+    std::println("rt_service[{}]: starting (pid={})", cfg->svc_name, current_pid());
+    std::println("rt_service[{}]: registered (ring={} state={})",
+                 cfg->svc_name, cfg->ring_name, cfg->state_name);
 
     // Set real-time thread priority (best-effort, non-fatal if it fails)
     uint32_t sr = 48000, fpb = 256;
     auto period = ipc::proto::audio_period_ns(sr, fpb);
     if (ipc::proto::set_realtime_priority(period))
-        std::printf("rt_service[%s]: real-time priority set (period=%llu ns)\n",
-                    svc_name.c_str(), (unsigned long long)period);
+        std::println("rt_service[{}]: real-time priority set (period={} ns)",
+                     cfg->svc_name, period);
     else
-        std::printf("rt_service[%s]: running without RT priority\n", svc_name.c_str());
+        std::println("rt_service[{}]: running without RT priority", cfg->svc_name);
 
     // Audio render loop: produce blocks at the configured rate
     uint64_t seq = 0;
     auto next_wake = std::chrono::steady_clock::now();
 
-    std::printf("rt_service[%s]: entering render loop\n", svc_name.c_str());
+    std::println("rt_service[{}]: entering render loop", cfg->svc_name);
 
     while (g_running.load(std::memory_order_relaxed)) {
         // Wait for stream to be active
@@ -140,7 +187,7 @@ int main(int argc, char *argv[]) {
             next_wake = now; // we fell behind, reset
     }
 
-    std::printf("rt_service[%s]: shutting down\n", svc_name.c_str());
-    registry.unregister_service(svc_name.c_str());
+    std::println("rt_service[{}]: shutting down", cfg->svc_name);
+    registry.unregister_service(cfg->svc_name.c_str());
     return 0;
 }

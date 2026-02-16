@@ -34,3 +34,10 @@ target_include_directories(audio_service PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 target_link_libraries(audio_service ipc flatbuffers)
+
+# The service process is compiled as C++23 to demonstrate that process
+# separation allows each component to use a different language standard.
+# The host remains at the project default (C++17).
+set_target_properties(audio_service PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON)

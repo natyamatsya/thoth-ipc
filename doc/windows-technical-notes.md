@@ -254,6 +254,60 @@ A portable macro in each demo service file:
 
 ---
 
+## 7. Mixed C++ Standard — C++23 Services with a C++17 Library
+
+**Motivation:**
+Process separation decouples the language standard of each component. The IPC
+library and the host application are compiled as C++17 (the project default),
+while the service processes are free to use any newer standard. This is a
+concrete advantage of the out-of-process architecture: each binary is linked
+independently, so there is no ODR or ABI conflict between standards.
+
+**Implementation:**
+The service targets override the C++ standard in their `CMakeLists.txt`:
+
+```cmake
+set_target_properties(rt_audio_service PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON)
+```
+
+The host and the `ipc` library remain at `CMAKE_CXX_STANDARD 17`.
+
+**C++23 features used in the service processes:**
+
+| Feature                  | Replaces                          | File(s)                          |
+| ------------------------ | --------------------------------- | -------------------------------- |
+| `std::print` / `println` | `std::printf`                    | both `service.cpp`               |
+| `std::expected<T, E>`   | manual bool + early return        | both `service.cpp`               |
+| `std::format`            | printf-style format strings       | both `service.cpp`               |
+| `std::numbers::pi_v<T>` | literal `3.14159265f`             | `audio_realtime/service.cpp`     |
+| `using enum`             | fully-qualified enum values       | `audio_service/service.cpp`      |
+| `std::string_view`       | `std::string` for read-only args  | both `service.cpp`               |
+| Designated initializers  | field-by-field assignment         | both `service.cpp` (C++20 in MSVC) |
+
+**Why this works:**
+The service processes communicate with the host exclusively through shared
+memory and IPC channels — byte-level protocols that are standard-agnostic. The
+`ipc` library's public headers use only C++17 constructs, so they compile
+cleanly under both `/std:c++17` and `/std:c++23`. The service's own `.cpp` file
+is the only translation unit compiled as C++23.
+
+**Build verification:**
+
+```text
+ipc.lib              → C++17  ✓
+audio_host.exe       → C++17  ✓  (links ipc.lib)
+audio_service.exe    → C++23  ✓  (links ipc.lib)
+rt_audio_host.exe    → C++17  ✓  (links ipc.lib)
+rt_audio_service.exe → C++23  ✓  (links ipc.lib)
+test-ipc.exe         → C++17  ✓
+```
+
+All targets build and run correctly in the same CMake invocation.
+
+---
+
 ## Summary of Windows vs. POSIX Behavioral Differences
 
 | Behavior                         | Linux / macOS                  | Windows                                    |
