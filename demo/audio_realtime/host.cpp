@@ -209,11 +209,42 @@ int main(int argc, char *argv[]) {
     conn.state->stream_active.store(true, std::memory_order_release);
     std::printf("host: activated stream on new primary\n");
 
+    // Wait for the respawned standby to come online
+    std::printf("\nhost: waiting for new standby to register...\n");
+    std::this_thread::sleep_for(std::chrono::milliseconds{500});
+
+    // Verify the new standby is alive and replicate state to it
+    for (auto &inst : group.instances()) {
+        if (inst.role != ipc::proto::instance_role::standby || !inst.is_alive())
+            continue;
+        std::printf("host: new standby %s (pid=%d) is alive\n",
+                    inst.instance_name.c_str(), inst.proc.pid);
+        shared_state_handle standby_ssh;
+        if (standby_ssh.open_or_create(inst.entry.reply_channel)) {
+            auto *ss = standby_ssh.get();
+            ss->sample_rate.store(48000, std::memory_order_relaxed);
+            ss->channels.store(2, std::memory_order_relaxed);
+            ss->frames_per_buffer.store(256, std::memory_order_relaxed);
+            ss->gain.store(conn.state->gain.load(), std::memory_order_relaxed);
+            ss->pan.store(conn.state->pan.load(), std::memory_order_relaxed);
+            std::printf("host: replicated state to new standby %s\n",
+                        inst.instance_name.c_str());
+        }
+    }
+
+    std::printf("\nhost: --- instances after respawn ---\n");
+    for (auto &inst : group.instances())
+        std::printf("  [%d] %-20s  role=%-8s  pid=%d  alive=%d\n",
+                    inst.id, inst.instance_name.c_str(),
+                    inst.role == ipc::proto::instance_role::primary ? "PRIMARY" :
+                    inst.role == ipc::proto::instance_role::standby ? "STANDBY" : "DEAD",
+                    inst.proc.pid, inst.is_alive());
+
     // Brief settle time for the service to start producing
     std::this_thread::sleep_for(std::chrono::milliseconds{50});
 
     // Consume audio from the new primary
-    std::printf("host: consuming audio from new primary for 300ms...\n");
+    std::printf("\nhost: consuming audio from new primary for 300ms...\n");
     consumed = 0;
     deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{300};
 

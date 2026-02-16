@@ -66,6 +66,7 @@ This will:
 1. Send control commands: StartStream → SetParam → GetParam
 1. **Simulate a crash** by killing the primary
 1. Detect the crash, promote the standby, respawn a replacement
+1. **Wait for new standby** — verify respawned instance is alive
 1. Reconnect to the new primary and resume commands
 1. Shut down all instances cleanly
 
@@ -86,12 +87,8 @@ commands.
 
 ```text
 host: starting service group (2 replicas)...
-audio_service[audio_compute.0]: starting (pid=49204)...
-audio_service[audio_compute.0]: registered in service registry
-audio_service[audio_compute.1]: starting (pid=49205)...
-audio_service[audio_compute.1]: registered in service registry
 host: 2 instances alive
-host: connecting to audio_compute.0 (pid=49204) ctrl='audio_ctrl_0' reply='audio_reply_0'
+host: connecting to audio_compute.0 (pid=54112) ctrl='audio_ctrl_0' reply='audio_reply_0'
 host: connected (recv_count=1)
 host: sending StartStream (48kHz, 2ch, 256)
 host:   ack ref_seq=1 status=0
@@ -99,15 +96,21 @@ host: sending SetParam(Gain, 0.75)
 host:   ack ref_seq=2 status=0
 
 host: --- instances before crash ---
-  [0] audio_compute.0           role=PRIMARY   pid=49204  alive=1
-  [1] audio_compute.1           role=STANDBY   pid=49205  alive=1
+  [0] audio_compute.0           role=PRIMARY   pid=54112  alive=1
+  [1] audio_compute.1           role=STANDBY   pid=54113  alive=1
 
 *** SIMULATING PRIMARY CRASH ***
 
 host: --- instances after failover ---
-  [0] audio_compute.0           role=STANDBY   pid=49206  alive=1
-  [1] audio_compute.1           role=PRIMARY   pid=49205  alive=1
-host: connecting to audio_compute.1 (pid=49205) ctrl='audio_ctrl_1' reply='audio_reply_1'
+  [0] audio_compute.0           role=STANDBY   pid=54114  alive=1
+  [1] audio_compute.1           role=PRIMARY   pid=54113  alive=1
+host: waiting for new standby to register...
+host: 2 instances alive after respawn
+
+host: --- instances after respawn ---
+  [0] audio_compute.0           role=STANDBY   pid=54114  alive=1
+  [1] audio_compute.1           role=PRIMARY   pid=54113  alive=1
+host: connecting to audio_compute.1 (pid=54113) ctrl='audio_ctrl_1' reply='audio_reply_1'
 host: connected (recv_count=1)
 host: sending StartStream (re-sent after failover)
 host:   ack ref_seq=3 status=0

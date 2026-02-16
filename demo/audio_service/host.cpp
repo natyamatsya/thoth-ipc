@@ -138,7 +138,20 @@ int main(int argc, char *argv[]) {
                     inst.role == ipc::proto::instance_role::standby ? "STANDBY" : "DEAD",
                     inst.proc.pid, inst.is_alive());
 
-    // 5. Reconnect to the new primary
+    // 5. Wait for the respawned standby to come online
+    std::printf("host: waiting for new standby to register...\n");
+    std::this_thread::sleep_for(std::chrono::milliseconds{500});
+
+    std::printf("host: %d instances alive after respawn\n", group.alive_count());
+    std::printf("\nhost: --- instances after respawn ---\n");
+    for (auto &inst : group.instances())
+        std::printf("  [%d] %-24s  role=%-8s  pid=%d  alive=%d\n",
+                    inst.id, inst.instance_name.c_str(),
+                    inst.role == ipc::proto::instance_role::primary ? "PRIMARY" :
+                    inst.role == ipc::proto::instance_role::standby ? "STANDBY" : "DEAD",
+                    inst.proc.pid, inst.is_alive());
+
+    // 6. Reconnect to the new primary
     auto *new_primary = group.primary();
     if (!new_primary) {
         std::printf("host: all instances dead!\n");
@@ -146,7 +159,7 @@ int main(int argc, char *argv[]) {
     }
     connect_to_primary(*new_primary, control, reply);
 
-    // 6. Resume sending commands — seamless to the application
+    // 7. Resume sending commands — seamless to the application
     {
         ipc::proto::builder b;
         auto ss = audio::CreateStartStream(b.fbb(), 48000, 2, 256);
@@ -164,14 +177,14 @@ int main(int argc, char *argv[]) {
         send_and_recv(control, reply, b, "GetParam(Gain) on new primary");
     }
 
-    // 7. Show final state
+    // 8. Show final state
     std::printf("\nhost: --- final state ---\n");
     std::printf("host: %d instances alive\n", group.alive_count());
     for (auto &svc : registry.list())
         std::printf("  %-24s  pid=%-6d  ctrl=%s\n",
                     svc.name, svc.pid, svc.control_channel);
 
-    // 8. Clean shutdown of all instances
+    // 9. Clean shutdown of all instances
     std::printf("\nhost: shutting down all instances...\n");
     group.stop();
     std::printf("host: done\n");

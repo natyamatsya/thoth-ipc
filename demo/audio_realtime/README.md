@@ -83,6 +83,8 @@ The host will:
 1. Check heartbeat age (should be < 10 ms)
 1. **Simulate a crash** — kill primary, promote standby
 1. Activate stream on new primary (already has config + params)
+1. **Wait for new standby** — verify respawned instance is alive
+1. **Replicate state to new standby** — config + params
 1. Consume audio from new primary for 300 ms
 1. Shut down all instances
 
@@ -97,13 +99,13 @@ host: configuring stream: 48kHz, 2ch, 256 frames
 host: replicated config to standby rt_audio.1
 
 host: consuming audio for 500ms...
-  block seq=49  frames=256  peak=0.000
-host: consumed 136 blocks
-  produced=136  consumed=136  underruns=3769  overruns=0  heartbeat_age=0 ms
+  block seq=49  frames=256  peak=0.179
+host: consumed 191 blocks
+  produced=42824  consumed=327  underruns=7587  overruns=0  heartbeat_age=1 ms
 
 host: setting gain=0.5 via shared state
 host: consuming 100 more blocks with new gain...
-  block seq=91  peak=0.072 (should be ~0.5x)
+  block seq=42612  peak=0.216 (should be ~0.5x)
 
 host: heartbeat age = 0 ms (should be <10)
 
@@ -111,13 +113,22 @@ host: heartbeat age = 0 ms (should be <10)
 
 host: new primary = rt_audio.1 (pid=52537)
 host: activated stream on new primary
+
+host: waiting for new standby to register...
+host: new standby rt_audio.0 (pid=54001) is alive
+host: replicated state to new standby rt_audio.0
+
+host: --- instances after respawn ---
+  [0] rt_audio.0            role=STANDBY   pid=54001  alive=1
+  [1] rt_audio.1            role=PRIMARY   pid=53989  alive=1
+
 host: consuming audio from new primary for 300ms...
 host: consumed 116 blocks from new primary
-  produced=133  consumed=116  underruns=2263  overruns=0  heartbeat_age=4 ms
+  produced=455  consumed=232  underruns=4527  overruns=0  heartbeat_age=1 ms
 
 host: --- final state ---
-  [0] rt_audio.0            role=STANDBY   pid=53285  alive=1
-  [1] rt_audio.1            role=PRIMARY   pid=53282  alive=1
+  [0] rt_audio.0            role=STANDBY   pid=54001  alive=1
+  [1] rt_audio.1            role=PRIMARY   pid=53989  alive=1
 
 host: shutting down...
 host: done
