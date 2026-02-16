@@ -104,6 +104,7 @@ Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [
 * **[Process Orchestration & Discovery](doc/orchestration.md)** — service registry, process management, redundant service groups with automatic failover
 * **[macOS Technical Notes](doc/macos-technical-notes.md)** — platform-specific implementation details for macOS (semaphores, mutexes, shared memory)
 * **[Audio Service Demo](demo/audio_service/)** — complete example with FlatBuffers protocol, redundancy, crash recovery, and auto-reconnect
+* **[Real-Time Audio Demo](demo/audio_realtime/)** — dropout-free design with lock-free ring buffer, RT thread priority, heartbeat watchdog, and warm standby failover
 
 ## License
 
