@@ -27,43 +27,30 @@ See: [Wiki](https://github.com/mutouyun/cpp-ipc/wiki)
 
  Environment | Value
  ------ | ------
- Device | Lenovo ThinkPad T450
- CPU | Intel® Core™ i5-4300U @ 2.5 GHz
- RAM | 16 GB
- OS | Windows 7 Ultimate x64
- Compiler | MSVC 2017 15.9.9
+ CPU | AMD Ryzen 9 7950X3D 16-Core (32 threads)
+ RAM | 64 GB
+ OS | Windows 11 Pro x64
+ Compiler | MSVC 19.50 (Visual Studio 18 2026), Release build
 
-All values in **µs/datum** (lower is better). "@ 4" = 4-core run, "@ 1" = single-core run.
+All values in **µs/datum** (lower is better).
 
 #### `ipc::route` — 1 sender, N receivers (random 2–256 bytes × 100 000)
 
- Receivers | @ 4 cores | @ 1 core
- ------ | ------ | ------
- 1 | 1.46 | 0.77
- 2 | 4.06 | 1.08
- 4 | 1.95 | 1.76
- 8 | 2.03 | 2.98
- 16 | 3.28 | 5.68
+ Receivers | µs/datum
+ ------ | ------
+ 1 | **1.80**
+ 2 | 25.79
+ 4 | 48.23
+ 8 | 94.88
 
 #### `ipc::channel` — multiple patterns (random 2–256 bytes × 100 000)
 
- Threads | 1-N @ 4 | N-1 @ 4 | N-N @ 4 | 1-N @ 1 | N-1 @ 1 | N-N @ 1
- ------ | ------ | ------ | ------ | ------ | ------ | ------
- 1 | 0.67 | 0.89 | 0.65 | 0.87 | 0.73 | 0.73
- 2 | 0.84 | 0.54 | 0.72 | 1.17 | 0.73 | 1.08
- 4 | 1.16 | 0.75 | 1.00 | 1.72 | 0.69 | 1.64
- 8 | 1.47 | 0.63 | 1.62 | 2.86 | 0.73 | 2.96
- 16 | 3.30 | 0.62 | 2.90 | 5.70 | 0.72 | 5.61
-
-#### `ipc::queue` — 1 sender, N receivers (8 bytes × 10 000 000)
-
- Receivers | @ 4 cores | @ 1 core
- ------ | ------ | ------
- 1 | 0.090 | 0.049
- 2 | 0.118 | 0.067
- 4 | 0.122 | 0.102
- 8 | 0.153 | 0.193
- 16 | 0.189 | 0.282
+ Threads | 1→N | N→1 | N→N
+ ------ | ------ | ------ | ------
+ 1 | **2.59** | **2.60** | **2.58**
+ 2 | 26.47 | 10.00 | 31.67
+ 4 | 51.16 | 10.59 | 65.29
+ 8 | 93.04 | 10.75 | 127.06
 
 ### macOS
 
@@ -103,6 +90,7 @@ Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [
 * **[Typed Protocol Layer](doc/proto-layer.md)** — FlatBuffers-based typed channels and routes for type-safe, zero-copy IPC messaging
 * **[Process Orchestration & Discovery](doc/orchestration.md)** — service registry, process management, redundant service groups with automatic failover
 * **[macOS Technical Notes](doc/macos-technical-notes.md)** — platform-specific implementation details for macOS (semaphores, mutexes, shared memory)
+* **[Windows Technical Notes](doc/windows-technical-notes.md)** — platform-specific implementation details for Windows (MSVC conformance, process management, thread priority)
 * **[Audio Service Demo](demo/audio_service/)** — complete example with FlatBuffers protocol, redundancy, crash recovery, and auto-reconnect
 * **[Real-Time Audio Demo](demo/audio_realtime/)** — dropout-free design with lock-free ring buffer, RT thread priority, heartbeat watchdog, and warm standby failover
 * **[macOS Deployment & Distribution](doc/macos-deployment.md)** — code signing, notarization, sandbox restrictions, and XPC alternatives for production shipping
