@@ -138,7 +138,7 @@ binary-compatible. The `flags` field provides padding alignment.
 
 ---
 
-## 4. Real-Time Thread Priority
+## 4. Real-Time Thread Priority via MMCSS
 
 **Symptom:**
 `include/libipc/proto/rt_prio.h` compiled but `set_realtime_priority()` was a
@@ -146,25 +146,51 @@ no-op on Windows, always returning `false`.
 
 **Root cause:**
 The `#else` branch (non-Apple) printed "not implemented" and returned `false`.
-Windows has its own thread priority API.
+Windows has its own real-time scheduling mechanism: the **Multimedia Class
+Scheduler Service (MMCSS)**.
 
 **Fix:**
-`include/libipc/proto/rt_prio.h` — added a `#elif defined(_WIN32)` branch:
+`include/libipc/proto/rt_prio.h` — added a `#elif defined(_WIN32)` branch that
+registers the calling thread as a "Pro Audio" MMCSS task:
 
 ```cpp
-if (!::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL)) {
-    std::fprintf(stderr, "rt_prio: SetThreadPriority failed (%lu)\n",
-                 ::GetLastError());
-    return false;
-}
-return true;
+DWORD taskIndex = 0;
+HANDLE hTask = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
 ```
 
-`THREAD_PRIORITY_TIME_CRITICAL` is the highest priority level available without
-requiring the process to be in the `REALTIME_PRIORITY_CLASS`. For true real-time
-scheduling on Windows, the process would also need
-`SetPriorityClass(GetCurrentProcess(), REALTIME_PRIORITY_CLASS)`, which requires
-administrator privileges.
+**How MMCSS works:**
+
+- The thread is boosted to priority **~26** (near real-time) for the duration of
+  each audio period. This is the same mechanism used by WASAPI exclusive mode
+  and professional DAWs (Cubase, Pro Tools, Reaper, etc.).
+- **No elevation required** — any user-space process can call it.
+- The system automatically throttles non-audio threads to prevent starvation.
+- The "Pro Audio" task category is configured in the registry at
+  `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Pro Audio`.
+
+**Runtime dynamic linking:**
+
+`Avrt.dll` is loaded via `LoadLibraryW` / `GetProcAddress` at runtime rather
+than linked at compile time. This avoids a hard dependency on `Avrt.lib` and
+handles gracefully the case where MMCSS is unavailable (e.g. Windows Server
+Core).
+
+**Fallback:**
+
+If MMCSS is unavailable or `AvSetMmThreadCharacteristics` fails, the
+implementation falls back to `SetThreadPriority(THREAD_PRIORITY_TIME_CRITICAL)`,
+which gives priority **15** within `NORMAL_PRIORITY_CLASS` — usable but
+significantly lower than MMCSS.
+
+**Comparison with macOS:**
+
+| Aspect                  | macOS                                    | Windows                                  |
+| ----------------------- | ---------------------------------------- | ---------------------------------------- |
+| API                     | `thread_policy_set` (Mach)               | `AvSetMmThreadCharacteristicsW` (MMCSS)  |
+| Effective priority      | real-time band                           | ~26 (near real-time)                     |
+| Period/deadline aware   | yes (period, computation, constraint)    | no (MMCSS uses registry-configured task) |
+| Elevation required      | no                                       | no                                       |
+| Fallback                | none needed                              | `SetThreadPriority(TIME_CRITICAL)` → 15  |
 
 ---
 
@@ -239,5 +265,5 @@ A portable macro in each demo service file:
 | Wait for process exit            | `waitpid`                      | **`WaitForSingleObject`**                   |
 | Process ID type                  | `pid_t`                        | **`DWORD`**                                 |
 | Current PID                      | `getpid()`                     | **`_getpid()`**                             |
-| Real-time thread priority        | `SCHED_FIFO` / Mach policies   | **`SetThreadPriority(TIME_CRITICAL)`**      |
+| Real-time thread priority        | `SCHED_FIFO` / Mach policies   | **MMCSS "Pro Audio"** (fallback: `TIME_CRITICAL`) |
 | Designated initializers (C++17)  | accepted (extension)           | **rejected** (requires C++20)               |

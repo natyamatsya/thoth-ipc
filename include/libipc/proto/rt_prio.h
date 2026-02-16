@@ -61,8 +61,33 @@ inline bool set_realtime_priority(uint64_t period_ns,
     }
     return true;
 #elif defined(_WIN32)
-    // Windows: elevate to THREAD_PRIORITY_TIME_CRITICAL.
+    // Windows: use MMCSS (Multimedia Class Scheduler Service) to register
+    // this thread as a "Pro Audio" task. MMCSS boosts the thread to priority
+    // ~26 for the duration of each audio period — no elevation required.
+    // This is the same mechanism used by WASAPI exclusive mode and pro DAWs.
+    //
+    // We load Avrt.dll at runtime to avoid a hard link dependency; MMCSS may
+    // not be present on minimal Windows editions (Server Core, etc.).
     (void)period_ns; (void)computation_ns; (void)constraint_ns;
+
+    using AvSetMmThreadCharacteristicsW_t = HANDLE (WINAPI *)(LPCWSTR, LPDWORD);
+    static HMODULE avrt = ::LoadLibraryW(L"Avrt.dll");
+    static auto pAvSetMmThread = avrt
+        ? reinterpret_cast<AvSetMmThreadCharacteristicsW_t>(
+              ::GetProcAddress(avrt, "AvSetMmThreadCharacteristicsW"))
+        : nullptr;
+
+    if (pAvSetMmThread) {
+        DWORD taskIndex = 0;
+        HANDLE hTask = pAvSetMmThread(L"Pro Audio", &taskIndex);
+        if (hTask) {
+            return true;
+        }
+        std::fprintf(stderr, "rt_prio: AvSetMmThreadCharacteristics failed (%lu), "
+                     "falling back to SetThreadPriority\n", ::GetLastError());
+    }
+
+    // Fallback: TIME_CRITICAL within the current priority class (priority 15).
     if (!::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL)) {
         std::fprintf(stderr, "rt_prio: SetThreadPriority failed (%lu)\n",
                      ::GetLastError());
