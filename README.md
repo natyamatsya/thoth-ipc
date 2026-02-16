@@ -98,6 +98,13 @@ All values in **µs/datum** (lower is better).
 
 Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [bench/](bench/)
 
+## Documentation
+
+* **[Typed Protocol Layer](doc/proto-layer.md)** — FlatBuffers-based typed channels and routes for type-safe, zero-copy IPC messaging
+* **[Process Orchestration & Discovery](doc/orchestration.md)** — service registry, process management, redundant service groups with automatic failover
+* **[macOS Technical Notes](doc/macos-technical-notes.md)** — platform-specific implementation details for macOS (semaphores, mutexes, shared memory)
+* **[Audio Service Demo](demo/audio_service/)** — complete example with FlatBuffers protocol, redundancy, crash recovery, and auto-reconnect
+
 ## Reference
 
 * [Lock-Free Data Structures | Dr Dobb's](http://www.drdobbs.com/lock-free-data-structures/184401865)
