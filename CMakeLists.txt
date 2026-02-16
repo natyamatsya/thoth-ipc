@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.30)
 project(cpp-ipc VERSION 1.4.1)
 
 option(LIBIPC_BUILD_TESTS       "Build all of libipc's own tests."                      OFF)
@@ -63,13 +63,18 @@ add_definitions(-DUNICODE -D_UNICODE)
 add_subdirectory(src)
 
 if (LIBIPC_BUILD_TESTS)
-    set(GOOGLETEST_VERSION 1.10.0)
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.17.0
+    )
     if (LIBIPC_USE_STATIC_CRT)
-        set(gtest_force_shared_crt OFF)
+        set(gtest_force_shared_crt OFF CACHE BOOL "" FORCE)
     else()
-        set(gtest_force_shared_crt ON)
+        set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     endif()
-    add_subdirectory(3rdparty/gtest)
+    FetchContent_MakeAvailable(googletest)
     add_subdirectory(test)
 endif()
 
