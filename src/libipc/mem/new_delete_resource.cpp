@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2018 mutouyun (http://orzz.org)
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
 
 #include <cstdlib>  // std::aligned_alloc
 

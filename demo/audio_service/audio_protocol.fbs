@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+
+// Audio compute service protocol definition.
+// Compile with: flatc --cpp audio_protocol.fbs
+
+namespace audio;
+
+// --- Control messages (host → service) ---
+
+enum ParamType : uint8 { Gain = 0, Pan, FilterCutoff, FilterResonance }
+
+table StartStream {
+    sample_rate:uint32 = 48000;
+    channels:uint16 = 2;
+    buffer_frames:uint32 = 512;
+}
+
+table StopStream {}
+
+table SetParam {
+    param_id:ParamType;
+    value:float;
+}
+
+table GetParam {
+    param_id:ParamType;
+}
+
+union ControlPayload { StartStream, StopStream, SetParam, GetParam }
+
+table ControlMsg {
+    seq:uint64;
+    payload:ControlPayload;
+}
+
+root_type ControlMsg;
+
+// --- Reply messages (service → host) ---
+
+enum Status : uint8 { Ok = 0, Error, InvalidParam, NotRunning }
+
+table Ack {
+    ref_seq:uint64;
+    status:Status;
+}
+
+table ParamValue {
+    ref_seq:uint64;
+    param_id:ParamType;
+    value:float;
+}
+
+union ReplyPayload { Ack, ParamValue }
+
+table ReplyMsg {
+    seq:uint64;
+    payload:ReplyPayload;
+}
+
+// --- Audio data (raw struct for zero-copy transport) ---
+
+struct AudioBufferHeader {
+    sequence:uint64;
+    timestamp_us:int64;
+    frames:uint32;
+    channels:uint16;
+    flags:uint16;
+}
