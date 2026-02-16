@@ -167,6 +167,9 @@ public:
 
 private:
     bool spawn_instance(managed_instance &inst) {
+        // GC stale registry entries before spawning
+        registry_.gc();
+
         // Pass instance ID as argument so the service can register with a unique name
         auto h = ipc::proto::spawn(
             inst.instance_name.c_str(),

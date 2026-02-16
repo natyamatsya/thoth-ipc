@@ -83,7 +83,9 @@ int main(int argc, char *argv[]) {
     registry.register_service(svc_name.c_str(), ctrl_ch.c_str(), reply_ch.c_str());
     std::printf("audio_service[%s]: registered in service registry\n", svc_name.c_str());
 
-    // Control channel: service receives commands, sends replies
+    // Clear stale channel storage from previous runs, then connect
+    ipc::proto::typed_channel<audio::ControlMsg>::clear_storage(ctrl_ch.c_str());
+    ipc::proto::typed_channel<audio::ReplyMsg>::clear_storage(reply_ch.c_str());
     ipc::proto::typed_channel<audio::ControlMsg> control(ctrl_ch.c_str(), ipc::receiver);
     ipc::proto::typed_channel<audio::ReplyMsg>   reply(reply_ch.c_str(), ipc::sender);
 

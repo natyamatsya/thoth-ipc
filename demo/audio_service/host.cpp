@@ -42,16 +42,20 @@ static bool send_and_recv(ipc::proto::typed_channel<audio::ControlMsg> &control,
     return true;
 }
 
-static void connect_to_primary(const ipc::proto::managed_instance &primary,
+static bool connect_to_primary(const ipc::proto::managed_instance &primary,
                                ipc::proto::typed_channel<audio::ControlMsg> &control,
                                ipc::proto::typed_channel<audio::ReplyMsg> &reply) {
     std::printf("host: connecting to %s (pid=%d) ctrl='%s' reply='%s'\n",
                 primary.instance_name.c_str(), primary.entry.pid,
                 primary.entry.control_channel, primary.entry.reply_channel);
+    control.disconnect();
+    reply.disconnect();
     control.connect(primary.entry.control_channel, ipc::sender);
     reply.connect(primary.entry.reply_channel, ipc::receiver);
-    control.raw().wait_for_recv(1);
-    std::printf("host: connected\n");
+    // Brief settle time for the channel shared memory handshake
+    std::this_thread::sleep_for(std::chrono::milliseconds{200});
+    std::printf("host: connected (recv_count=%zu)\n", control.raw().recv_count());
+    return true;
 }
 
 // --- Main ---
@@ -64,6 +68,7 @@ int main(int argc, char *argv[]) {
     const char *service_bin = argv[1];
 
     ipc::proto::service_registry registry("audio");
+    registry.gc(); // clean stale entries from previous runs
 
     // --- Start a redundant service group (2 replicas) ---
     ipc::proto::service_group group(registry, {
