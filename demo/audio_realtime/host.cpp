@@ -82,12 +82,12 @@ int main(int argc, char *argv[]) {
     registry.gc();
 
     // --- Start redundant service group ---
-    ipc::proto::service_group group(registry, {
-        .service_name = "rt_audio",
-        .executable   = service_bin,
-        .replicas     = 2,
-        .auto_respawn = true,
-    });
+    ipc::proto::service_group_config cfg;
+    cfg.service_name = "rt_audio";
+    cfg.executable   = service_bin;
+    cfg.replicas     = 2;
+    cfg.auto_respawn = true;
+    ipc::proto::service_group group(registry, cfg);
 
     std::printf("host: starting service group (2 replicas)...\n");
     if (!group.start()) {

@@ -74,12 +74,12 @@ int main(int argc, char *argv[]) {
     registry.gc(); // clean stale entries from previous runs
 
     // --- Start a redundant service group (2 replicas) ---
-    ipc::proto::service_group group(registry, {
-        .service_name = "audio_compute",
-        .executable   = service_bin,
-        .replicas     = 2,
-        .auto_respawn = true,
-    });
+    ipc::proto::service_group_config cfg;
+    cfg.service_name = "audio_compute";
+    cfg.executable   = service_bin;
+    cfg.replicas     = 2;
+    cfg.auto_respawn = true;
+    ipc::proto::service_group group(registry, cfg);
 
     std::printf("host: starting service group (2 replicas)...\n");
     if (!group.start()) {

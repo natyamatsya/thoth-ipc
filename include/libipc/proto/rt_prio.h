@@ -12,6 +12,11 @@
 #include <mach/thread_policy.h>
 #include <mach/thread_act.h>
 #include <pthread.h>
+#elif defined(_WIN32)
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
 #endif
 
 namespace ipc {
@@ -55,8 +60,17 @@ inline bool set_realtime_priority(uint64_t period_ns,
         return false;
     }
     return true;
+#elif defined(_WIN32)
+    // Windows: elevate to THREAD_PRIORITY_TIME_CRITICAL.
+    (void)period_ns; (void)computation_ns; (void)constraint_ns;
+    if (!::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL)) {
+        std::fprintf(stderr, "rt_prio: SetThreadPriority failed (%lu)\n",
+                     ::GetLastError());
+        return false;
+    }
+    return true;
 #else
-    // Linux: use SCHED_FIFO (requires CAP_SYS_NICE or root)
+    // Linux / other: use SCHED_FIFO (requires CAP_SYS_NICE or root)
     (void)period_ns; (void)computation_ns; (void)constraint_ns;
     std::fprintf(stderr, "rt_prio: not implemented on this platform\n");
     return false;

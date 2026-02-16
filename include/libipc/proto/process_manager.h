@@ -11,28 +11,51 @@
 #include <thread>
 #include <functional>
 
-#include <unistd.h>
-#include <signal.h>
-#include <sys/wait.h>
-#include <spawn.h>
-
-extern char **environ;
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#  include <process.h>
+#else
+#  include <unistd.h>
+#  include <signal.h>
+#  include <sys/wait.h>
+#  include <spawn.h>
+   extern char **environ;
+#endif
 
 namespace ipc {
 namespace proto {
 
 // Handle to a spawned child process.
 struct process_handle {
+#ifdef _WIN32
+    DWORD       pid  = 0;
+    HANDLE      hprocess = nullptr;
+#else
     pid_t       pid  = -1;
+#endif
     std::string name;        // logical name (for registry)
     std::string executable;  // path to the binary
 
+#ifdef _WIN32
+    bool valid() const noexcept { return pid != 0 && hprocess != nullptr; }
+
+    bool is_alive() const noexcept {
+        if (!valid()) return false;
+        DWORD code = 0;
+        if (!::GetExitCodeProcess(hprocess, &code)) return false;
+        return code == STILL_ACTIVE;
+    }
+#else
     bool valid() const noexcept { return pid > 0; }
 
     bool is_alive() const noexcept {
         if (pid <= 0) return false;
         return (::kill(pid, 0) == 0) || (errno != ESRCH);
     }
+#endif
 };
 
 // Result of a wait operation.
@@ -52,6 +75,25 @@ inline process_handle spawn(const char *name,
     h.name = name ? name : "";
     h.executable = executable ? executable : "";
 
+#ifdef _WIN32
+    // Build command line string
+    std::string cmdline = executable ? executable : "";
+    for (auto &a : args)
+        cmdline += " " + a;
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+
+    if (!::CreateProcessA(nullptr, const_cast<char *>(cmdline.c_str()),
+                          nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+                          &si, &pi)) {
+        return h; // pid stays 0
+    }
+    h.pid = pi.dwProcessId;
+    h.hprocess = pi.hProcess;
+    ::CloseHandle(pi.hThread);
+#else
     // Build argv
     std::vector<char *> argv;
     argv.push_back(const_cast<char *>(executable));
@@ -65,6 +107,7 @@ inline process_handle spawn(const char *name,
     if (err != 0) return h; // pid stays -1
 
     h.pid = pid;
+#endif
     return h;
 }
 
@@ -76,13 +119,21 @@ inline process_handle spawn(const char *name, const char *executable) {
 // Send SIGTERM to gracefully request shutdown.
 inline bool request_shutdown(const process_handle &h) {
     if (!h.valid()) return false;
+#ifdef _WIN32
+    return ::TerminateProcess(h.hprocess, 1) != 0;
+#else
     return ::kill(h.pid, SIGTERM) == 0;
+#endif
 }
 
 // Send SIGKILL to forcefully terminate.
 inline bool force_kill(const process_handle &h) {
     if (!h.valid()) return false;
+#ifdef _WIN32
+    return ::TerminateProcess(h.hprocess, 9) != 0;
+#else
     return ::kill(h.pid, SIGKILL) == 0;
+#endif
 }
 
 // Wait for a process to exit, with a timeout.
@@ -92,6 +143,16 @@ inline wait_result wait_for_exit(const process_handle &h,
     wait_result r;
     if (!h.valid()) return r;
 
+#ifdef _WIN32
+    DWORD ms = static_cast<DWORD>(timeout.count());
+    DWORD ret = ::WaitForSingleObject(h.hprocess, ms);
+    if (ret == WAIT_OBJECT_0) {
+        DWORD code = 0;
+        ::GetExitCodeProcess(h.hprocess, &code);
+        r.exited = true;
+        r.exit_code = static_cast<int>(code);
+    }
+#else
     using clock = std::chrono::steady_clock;
     auto deadline = clock::now() + timeout;
 
@@ -112,6 +173,7 @@ inline wait_result wait_for_exit(const process_handle &h,
         if (ret == -1) return r; // error (not our child, etc.)
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
     }
+#endif
     return r; // timed out, process still running
 }
 

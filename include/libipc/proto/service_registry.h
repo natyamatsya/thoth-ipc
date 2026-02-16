@@ -11,8 +11,16 @@
 #include <atomic>
 #include <functional>
 
-#include <unistd.h>
-#include <signal.h>
+#ifdef _WIN32
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#  include <process.h>
+#else
+#  include <unistd.h>
+#  include <signal.h>
+#endif
 
 #include "libipc/shm.h"
 
@@ -29,7 +37,11 @@ struct service_entry {
     char     name[max_name_len];            // logical service name
     char     control_channel[max_name_len]; // channel the service listens on
     char     reply_channel[max_name_len];   // channel the service replies on
+#ifdef _WIN32
+    DWORD    pid;
+#else
     pid_t    pid;
+#endif
     int64_t  registered_at;                 // unix timestamp (seconds)
     uint32_t flags;                         // reserved
 
@@ -37,7 +49,16 @@ struct service_entry {
 
     bool is_alive() const noexcept {
         if (pid <= 0) return false;
+#ifdef _WIN32
+        HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (!h) return false;
+        DWORD code = 0;
+        bool alive = ::GetExitCodeProcess(h, &code) && code == STILL_ACTIVE;
+        ::CloseHandle(h);
+        return alive;
+#else
         return (::kill(pid, 0) == 0) || (errno != ESRCH);
+#endif
     }
 };
 
@@ -96,10 +117,17 @@ public:
     bool valid() const noexcept { return data_ != nullptr; }
 
     // Register a service. Returns true on success.
+#ifdef _WIN32
+    bool register_service(const char *name,
+                          const char *control_ch,
+                          const char *reply_ch,
+                          DWORD pid = static_cast<DWORD>(::_getpid())) {
+#else
     bool register_service(const char *name,
                           const char *control_ch,
                           const char *reply_ch,
                           pid_t pid = ::getpid()) {
+#endif
         if (!valid() || !name || !name[0]) return false;
         registry_lock_guard g{*data_};
         // Check for duplicate or reuse dead slot
@@ -125,7 +153,11 @@ public:
     }
 
     // Unregister a service by name. Only the owning PID can unregister.
+#ifdef _WIN32
+    bool unregister_service(const char *name, DWORD pid = static_cast<DWORD>(::_getpid())) {
+#else
     bool unregister_service(const char *name, pid_t pid = ::getpid()) {
+#endif
         if (!valid() || !name) return false;
         registry_lock_guard g{*data_};
         for (uint32_t i = 0; i < max_services; ++i) {
@@ -221,8 +253,13 @@ public:
 private:
     service_entry last_result_{}; // find() returns a pointer to this copy
 
+#ifdef _WIN32
+    static void fill_entry(service_entry &e, const char *name,
+                           const char *ctrl, const char *reply, DWORD pid) {
+#else
     static void fill_entry(service_entry &e, const char *name,
                            const char *ctrl, const char *reply, pid_t pid) {
+#endif
         std::memset(&e, 0, sizeof(service_entry));
         std::strncpy(e.name, name, max_name_len - 1);
         if (ctrl)  std::strncpy(e.control_channel, ctrl, max_name_len - 1);

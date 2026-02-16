@@ -9,6 +9,14 @@
 #include <chrono>
 #include <string>
 
+#ifdef _WIN32
+#  include <process.h>
+#  define ipc_getpid() _getpid()
+#else
+#  include <unistd.h>
+#  define ipc_getpid() ::getpid()
+#endif
+
 #include "rt_audio_common.h"
 #include "libipc/proto/shm_ring.h"
 #include "libipc/proto/rt_prio.h"
@@ -56,7 +64,7 @@ int main(int argc, char *argv[]) {
         state_name += "_" + instance_id;
     }
 
-    std::printf("rt_service[%s]: starting (pid=%d)\n", svc_name.c_str(), ::getpid());
+    std::printf("rt_service[%s]: starting (pid=%d)\n", svc_name.c_str(), ipc_getpid());
 
     // Open shared state (host creates it, we open existing or create)
     shared_state_handle ssh;

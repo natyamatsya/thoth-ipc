@@ -9,6 +9,14 @@
 #include <cmath>
 #include <vector>
 
+#ifdef _WIN32
+#  include <process.h>
+#  define ipc_getpid() _getpid()
+#else
+#  include <unistd.h>
+#  define ipc_getpid() ::getpid()
+#endif
+
 #include "audio_protocol_generated.h"
 #include "libipc/proto/typed_channel.h"
 #include "libipc/proto/service_registry.h"
@@ -79,7 +87,7 @@ int main(int argc, char *argv[]) {
     }
 
     std::printf("audio_service[%s]: starting (pid=%d)...\n",
-                svc_name.c_str(), ::getpid());
+                svc_name.c_str(), ipc_getpid());
 
     // Register in the service registry so hosts can discover us
     ipc::proto::service_registry registry("audio");
