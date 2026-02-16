@@ -18,6 +18,8 @@ if(NOT DEFINED LIBIPC_SHM_NAME_MAX)
     endif()
 endif()
 
+option(LIBIPC_USE_FILE_SHM      "Use file-backed mmap instead of shm_open (avoids PSHMNAMLEN)." OFF)
+
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG")

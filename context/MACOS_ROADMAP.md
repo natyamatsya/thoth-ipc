@@ -76,17 +76,39 @@ Added `build-macos` job to `.github/workflows/c-cpp.yml`:
 
 ---
 
-## Remaining (P2) — Nice to have
+## Completed (P2) — Nice to have
 
-### macOS-Native IPC Optimizations
+### 12. `os_unfair_lock` Intra-Process Fast Path ✅
 
-- **`os_unfair_lock`** for intra-process fast path
-- **Mach ports** for capability-based cross-process IPC
+`src/libipc/platform/apple/spin_lock.h` — lightweight 4-byte lock wrapping
+`os_unfair_lock_t`. Wired into the Apple mutex as the process-local lock
+(`curr_prog::lock`), replacing `std::mutex` for lower overhead on the handle
+management path.
 
-### Memory-Mapped File Fallback
+### 13. Memory-Mapped File Fallback ✅
 
-Use `/tmp/cpp-ipc/` files with `mmap()` instead of `shm_open` to avoid the 31-char name limit entirely.
+`-DLIBIPC_USE_FILE_SHM=ON` CMake option. Uses regular files in `/tmp/cpp-ipc/`
+with `open()`/`mmap()` instead of `shm_open()`. Avoids the 31-char `PSHMNAMLEN`
+limit entirely and sidesteps all macOS `ftruncate`/`fstat` quirks (files report
+exact sizes). All 254 tests pass with this backend.
 
-### Universal Binary Support
+- `shm_posix.cpp`: `#if defined(LIBIPC_USE_FILE_SHM)` guards for `file_shm_open`/`file_shm_unlink`
+- Names flattened into `/tmp/cpp-ipc/` with `/` → `_` replacement
 
-Validate `arm64` + `x86_64` Universal Binary builds in CI.
+### 14. Universal Binary CI ✅
+
+Added `build-macos-universal` job to `.github/workflows/c-cpp.yml`:
+
+- `-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"`
+- `lipo -info` verification step
+
+---
+
+## Future Work
+
+### Mach Ports
+
+Mach ports provide capability-based cross-process IPC native to macOS. This would
+be an alternative transport alongside the current shared-memory approach. Not
+implemented — requires significant architecture changes (new channel backend,
+port lifecycle management, message serialization).

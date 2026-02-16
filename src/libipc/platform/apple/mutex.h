@@ -4,7 +4,6 @@
 #include <cassert>
 #include <cstdint>
 #include <system_error>
-#include <mutex>
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -20,6 +19,7 @@
 #include "libipc/shm.h"
 
 #include "libipc/platform/posix/get_wait_time.h"
+#include "libipc/platform/apple/spin_lock.h"
 
 namespace ipc {
 namespace detail {
@@ -51,7 +51,7 @@ class mutex {
                 : shm{arg.name, arg.size}, ref{0} {}
         };
         ipc::map<std::string, shm_data> mutex_handles;
-        std::mutex lock;
+        spin_lock lock;
 
         static curr_prog &get() {
             static curr_prog info;
@@ -62,7 +62,7 @@ class mutex {
     robust_mutex_t *acquire_mutex(char const *name) {
         if (name == nullptr) return nullptr;
         auto &info = curr_prog::get();
-        LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+        LIBIPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
         auto it = info.mutex_handles.find(name);
         if (it == info.mutex_handles.end()) {
           it = info.mutex_handles
@@ -82,7 +82,7 @@ class mutex {
     static void release_mutex(std::string const &name, F &&clear) {
         if (name.empty()) return;
         auto &info = curr_prog::get();
-        LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+        LIBIPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
         auto it = info.mutex_handles.find(name);
         if (it == info.mutex_handles.end()) return;
         if (clear())

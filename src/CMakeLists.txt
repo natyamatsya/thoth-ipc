@@ -52,6 +52,10 @@ if(LIBIPC_SHM_NAME_MAX GREATER 0)
   target_compile_definitions(${PROJECT_NAME} PRIVATE LIBIPC_SHM_NAME_MAX=${LIBIPC_SHM_NAME_MAX})
 endif()
 
+if(LIBIPC_USE_FILE_SHM)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE LIBIPC_USE_FILE_SHM)
+endif()
+
 if(NOT MSVC)
   target_link_libraries(${PROJECT_NAME} PUBLIC
     $<$<NOT:$<STREQUAL:${CMAKE_SYSTEM_NAME},QNX>>:pthread>
