@@ -39,6 +39,7 @@ if (LIBIPC_CODECOV AND NOT MSVC)
 endif()
 
 if (MSVC)
+    add_compile_options(/permissive-)
     set(CompilerFlags
         CMAKE_CXX_FLAGS
         CMAKE_CXX_FLAGS_DEBUG
