@@ -69,12 +69,34 @@ All values in **µs/datum** (lower is better). "@ 4" = 4-core run, "@ 1" = singl
 
  Environment | Value
  ------ | ------
- CPU | Apple Silicon (arm64)
+ CPU | Apple Silicon (arm64), 12 threads
  OS | macOS (Darwin)
- Compiler | Apple Clang (C++17)
- Throughput | ~7.2 GB/s (128 B – 16 KB messages, Release build)
+ Compiler | Apple Clang (C++17), Release build
+ Peak throughput | **~7.2 GB/s** (128 B – 16 KB messages, `msg_que` demo)
 
-Raw data: [performance.xlsx](performance.xlsx)
+All values in **µs/datum** (lower is better).
+
+#### `ipc::route` — 1 sender, N receivers (random 2–256 bytes × 100 000)
+
+ Receivers | µs/datum
+ ------ | ------
+ 1 | **0.70**
+ 2 | 0.72
+ 4 | 2.05
+ 8 | 4.76
+
+#### `ipc::channel` — multiple patterns (random 2–256 bytes × 100 000)
+
+ Threads | 1→N | N→1 | N→N
+ ------ | ------ | ------ | ------
+ 1 | **0.51** | **0.50** | **0.50**
+ 2 | 0.66 | 0.58 | 0.91
+ 4 | 2.12 | 0.84 | 2.63
+ 8 | 4.80 | 1.02 | 5.62
+
+> 💡 Reproduce with: `cmake -B build -DLIBIPC_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release && cmake --build build --target bench_ipc && ./build/bin/bench_ipc`
+
+Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [bench/](bench/)
 
 ## Reference
 

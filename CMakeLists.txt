@@ -3,6 +3,7 @@ project(cpp-ipc VERSION 1.4.1)
 
 option(LIBIPC_BUILD_TESTS       "Build all of libipc's own tests."                      OFF)
 option(LIBIPC_BUILD_DEMOS       "Build all of libipc's own demos."                      OFF)
+option(LIBIPC_BUILD_BENCHMARKS  "Build IPC benchmarks."                                 OFF)
 option(LIBIPC_BUILD_SHARED_LIBS "Build shared libraries (DLLs)."                        OFF)
 option(LIBIPC_USE_STATIC_CRT    "Set to ON to build with static CRT on Windows (/MT)."  OFF)
 option(LIBIPC_CODECOV           "Build with unit test coverage."                        OFF)
@@ -83,6 +84,10 @@ if (LIBIPC_BUILD_DEMOS)
         add_subdirectory(demo/linux_service/service)
         add_subdirectory(demo/linux_service/client)
     endif()
+endif()
+
+if (LIBIPC_BUILD_BENCHMARKS)
+    add_subdirectory(bench)
 endif()
 
 install(
