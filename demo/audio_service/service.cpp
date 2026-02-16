@@ -8,6 +8,7 @@
 
 #include "audio_protocol_generated.h"
 #include "libipc/proto/typed_channel.h"
+#include "libipc/proto/service_registry.h"
 
 static std::atomic<bool> g_running{true};
 
@@ -59,15 +60,32 @@ static void send_param_value(ipc::proto::typed_channel<audio::ReplyMsg> &reply,
     reply.send(b);
 }
 
-int main() {
+int main(int argc, char *argv[]) {
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
 
-    std::printf("audio_service: starting...\n");
+    // Instance ID from argv[1] (default: no suffix for backward compat)
+    std::string instance_id = (argc > 1) ? argv[1] : "";
+    std::string svc_name = "audio_compute";
+    std::string ctrl_ch  = "audio_ctrl";
+    std::string reply_ch = "audio_reply";
+    if (!instance_id.empty()) {
+        svc_name += "." + instance_id;
+        ctrl_ch  += "_" + instance_id;
+        reply_ch += "_" + instance_id;
+    }
+
+    std::printf("audio_service[%s]: starting (pid=%d)...\n",
+                svc_name.c_str(), ::getpid());
+
+    // Register in the service registry so hosts can discover us
+    ipc::proto::service_registry registry("audio");
+    registry.register_service(svc_name.c_str(), ctrl_ch.c_str(), reply_ch.c_str());
+    std::printf("audio_service[%s]: registered in service registry\n", svc_name.c_str());
 
     // Control channel: service receives commands, sends replies
-    ipc::proto::typed_channel<audio::ControlMsg> control("audio_ctrl", ipc::receiver);
-    ipc::proto::typed_channel<audio::ReplyMsg>   reply("audio_reply", ipc::sender);
+    ipc::proto::typed_channel<audio::ControlMsg> control(ctrl_ch.c_str(), ipc::receiver);
+    ipc::proto::typed_channel<audio::ReplyMsg>   reply(reply_ch.c_str(), ipc::sender);
 
     StreamState state;
     uint64_t reply_seq = 0;
@@ -127,6 +145,7 @@ int main() {
         }
     }
 
+    registry.unregister_service("audio_compute");
     std::printf("audio_service: shutting down\n");
     return 0;
 }
