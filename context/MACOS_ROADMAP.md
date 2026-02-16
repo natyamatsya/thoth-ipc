@@ -50,29 +50,29 @@ Added `LIBIPC_OS_APPLE` to all platform conditional includes:
 
 `src/libipc/platform/apple/mutex.h` — handles lack of robust mutexes and `pthread_mutex_timedlock` via polled `pthread_mutex_trylock`.
 
----
+### 9. Robust Mutex Emulation ✅
 
-## Remaining (P1) — Production hardening
+macOS lacks `pthread_mutexattr_setrobust()`. Implemented PID-based liveness detection:
 
-### Robust Mutex Support
+- `robust_mutex_t` struct in shm: `pthread_mutex_t` + `std::atomic<pid_t> holder`
+- On `lock()`/`try_lock()`: store `getpid()` after acquiring
+- On `unlock()`: clear holder PID
+- On timeout or contention: check `kill(holder_pid, 0)` — if `ESRCH`, holder is dead → reinitialize mutex and retry
 
-macOS does not support `pthread_mutexattr_setrobust()`. If a process crashes while holding a shared mutex, deadlock occurs. Options:
+### 10. Adaptive `pthread_mutex_timedlock` Emulation ✅
 
-- **(a) Advisory lock watchdog** with `flock()`/`fcntl()`
-- **(b) PID liveness check** via `kill(pid, 0)`
-- **(c) Document the limitation**
+Replaced fixed 100µs polling with adaptive back-off:
 
-### `pthread_mutex_timedlock` Improvements
+- **Phase 1:** Spin ~1000 iterations (no sleep) for low-latency uncontended acquire
+- **Phase 2:** Escalating sleep: 1µs × 100 → 10µs × 100 → 100µs × 100 → 1ms until deadline
 
-Current polling uses fixed 100µs sleep. Could improve with:
+### 11. CI / macOS GitHub Actions ✅
 
-- **(a) Adaptive polling** (spin → escalating sleep)
-- **(b) Condition-variable-based timed lock**
+Added `build-macos` job to `.github/workflows/c-cpp.yml`:
 
-### CI / Testing Infrastructure
-
-- Add macOS to GitHub Actions CI matrix
-- Add macOS-specific cross-process IPC tests (fork + exec)
+- `macos-latest` runner
+- Builds tests + benchmarks
+- Runs full test suite + benchmark with 4 threads
 
 ---
 

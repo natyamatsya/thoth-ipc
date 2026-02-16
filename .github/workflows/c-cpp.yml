@@ -7,15 +7,26 @@ on:
     branches: [ master, develop ]
 
 jobs:
-  build:
-
+  build-linux:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: cmake
       run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON .
     - name: make
       run: make -j
     - name: test
       run: export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH && ./bin/test-ipc
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: cmake
+      run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_BUILD_BENCHMARKS=ON .
+    - name: make
+      run: make -j
+    - name: test
+      run: ./bin/test-ipc
+    - name: benchmark
+      run: ./bin/bench_ipc 4
