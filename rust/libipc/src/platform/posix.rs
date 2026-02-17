@@ -5,12 +5,93 @@
 // Binary-compatible with cpp-ipc/src/libipc/platform/posix/shm_posix.cpp
 // and cpp-ipc/src/libipc/platform/posix/mutex.h.
 
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::io;
 use std::ptr;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::shm_name;
+
+// ---------------------------------------------------------------------------
+// Process-local shm cache — mirrors C++ `curr_prog` in posix/mutex.h.
+// All threads within the same process that open the same named mutex or
+// condition variable MUST use the same mmap.  macOS's pthread implementation
+// stores internal pointers relative to the virtual address used for
+// pthread_mutex_init, so a second mmap of the same physical page at a
+// different address causes EINVAL on pthread_mutex_lock.
+// ---------------------------------------------------------------------------
+
+pub(crate) struct CachedShm {
+    pub(crate) shm: PlatformShm,
+    pub(crate) local_ref: AtomicUsize,
+}
+
+pub(crate) struct ShmCache {
+    map: HashMap<String, Arc<CachedShm>>,
+}
+
+impl ShmCache {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
+    }
+}
+
+fn mutex_cache() -> &'static Mutex<ShmCache> {
+    static CACHE: OnceLock<Mutex<ShmCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(ShmCache::new()))
+}
+
+pub(crate) fn cond_cache() -> &'static Mutex<ShmCache> {
+    static CACHE: OnceLock<Mutex<ShmCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(ShmCache::new()))
+}
+
+/// Acquire or reuse a cached shm handle.
+///
+/// If this is the first local open for `name`, `init_fn` is called with the
+/// shm pointer **while the cache lock is still held**, ensuring that no other
+/// thread can use the handle before initialisation completes.
+pub(crate) fn cached_shm_acquire<F>(
+    cache: &Mutex<ShmCache>,
+    name: &str,
+    size: usize,
+    init_fn: F,
+) -> io::Result<Arc<CachedShm>>
+where
+    F: FnOnce(*mut u8) -> io::Result<()>,
+{
+    let mut c = cache.lock().unwrap();
+    if let Some(entry) = c.map.get(name) {
+        entry.local_ref.fetch_add(1, Ordering::Relaxed);
+        return Ok(Arc::clone(entry));
+    }
+    let shm = PlatformShm::acquire(name, size, ShmMode::CreateOrOpen)?;
+    let is_creator = shm.prev_ref_count() == 0;
+    if is_creator {
+        init_fn(shm.as_mut_ptr())?;
+    }
+    let entry = Arc::new(CachedShm {
+        shm,
+        local_ref: AtomicUsize::new(1),
+    });
+    c.map.insert(name.to_string(), Arc::clone(&entry));
+    Ok(entry)
+}
+
+/// Release one local reference.  When the last local ref drops, remove from cache.
+pub(crate) fn cached_shm_release(cache: &Mutex<ShmCache>, name: &str) {
+    let mut c = cache.lock().unwrap();
+    if let Some(entry) = c.map.get(name) {
+        let prev = entry.local_ref.fetch_sub(1, Ordering::AcqRel);
+        if prev <= 1 {
+            c.map.remove(name);
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Robust mutex symbols — not exposed by `libc` crate on all platforms.
@@ -302,7 +383,8 @@ impl Drop for PlatformShm {
 // ---------------------------------------------------------------------------
 
 pub struct PlatformMutex {
-    shm: PlatformShm,
+    cached: Arc<CachedShm>,
+    name: String,
 }
 
 impl PlatformMutex {
@@ -311,16 +393,14 @@ impl PlatformMutex {
     /// The mutex lives inside a shared memory segment named after the mutex.
     /// On first creation it is initialised with `PTHREAD_PROCESS_SHARED` and
     /// `PTHREAD_MUTEX_ROBUST` attributes — identical to the C++ implementation.
+    ///
+    /// All threads within the same process that open the same name share a
+    /// single mmap (via `mutex_cache`), matching the C++ `curr_prog` pattern.
     pub fn open(name: &str) -> io::Result<Self> {
         let shm_size = std::mem::size_of::<libc::pthread_mutex_t>();
-        let shm = PlatformShm::acquire(name, shm_size, ShmMode::CreateOrOpen)?;
-        let is_creator = shm.prev_ref_count() == 0;
-
-        if is_creator {
-            let mtx_ptr = shm.as_mut_ptr() as *mut libc::pthread_mutex_t;
-
+        let cached = cached_shm_acquire(mutex_cache(), name, shm_size, |base| {
+            let mtx_ptr = base as *mut libc::pthread_mutex_t;
             unsafe {
-                // Zero-initialize (matches C++ `*mutex_ = PTHREAD_MUTEX_INITIALIZER`)
                 ptr::write_bytes(mtx_ptr, 0, 1);
 
                 let mut attr: libc::pthread_mutexattr_t = std::mem::zeroed();
@@ -350,13 +430,17 @@ impl PlatformMutex {
                     return Err(io::Error::from_raw_os_error(eno));
                 }
             }
-        }
+            Ok(())
+        })?;
 
-        Ok(Self { shm })
+        Ok(Self {
+            cached,
+            name: name.to_string(),
+        })
     }
 
     fn mtx_ptr(&self) -> *mut libc::pthread_mutex_t {
-        self.shm.as_mut_ptr() as *mut libc::pthread_mutex_t
+        self.cached.shm.as_mut_ptr() as *mut libc::pthread_mutex_t
     }
 
     /// Lock the mutex (blocking). Returns `Ok(())` on success.
@@ -409,7 +493,7 @@ impl PlatformMutex {
 
     /// Raw pointer to the underlying `pthread_mutex_t`.
     pub(crate) fn native_ptr(&self) -> *mut u8 {
-        self.shm.as_mut_ptr()
+        self.cached.shm.as_mut_ptr()
     }
 
     /// Remove the shared memory backing this mutex (static helper).
@@ -420,13 +504,14 @@ impl PlatformMutex {
 
 impl Drop for PlatformMutex {
     fn drop(&mut self) {
-        // If we're the last reference, destroy the mutex before the shm is unmapped.
-        if self.shm.ref_count() <= 1 {
+        // Check if we're the last local reference AND last cross-process reference.
+        let local = self.cached.local_ref.load(Ordering::Acquire);
+        if local <= 1 && self.cached.shm.ref_count() <= 1 {
             unsafe {
                 libc::pthread_mutex_unlock(self.mtx_ptr());
                 libc::pthread_mutex_destroy(self.mtx_ptr());
             }
         }
-        // PlatformShm::drop handles munmap + potential shm_unlink.
+        cached_shm_release(mutex_cache(), &self.name);
     }
 }

@@ -27,6 +27,12 @@ fn adaptive_yield(k: &mut u32) {
     *k += 1;
 }
 
+/// Public (crate-internal) access to the adaptive yield for other modules.
+#[inline]
+pub(crate) fn adaptive_yield_pub(k: &mut u32) {
+    adaptive_yield(k);
+}
+
 /// A simple spin lock with adaptive backoff.
 ///
 /// Port of `ipc::spin_lock` from cpp-ipc. Uses an `AtomicU32` exchanged
@@ -38,7 +44,9 @@ pub struct SpinLock {
 impl SpinLock {
     /// Create a new unlocked spin lock.
     pub const fn new() -> Self {
-        Self { lc: AtomicU32::new(0) }
+        Self {
+            lc: AtomicU32::new(0),
+        }
     }
 
     /// Acquire the lock (spinning with adaptive backoff).

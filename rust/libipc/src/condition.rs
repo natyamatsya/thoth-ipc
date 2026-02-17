@@ -65,22 +65,23 @@ impl IpcCondition {
 // ---------------------------------------------------------------------------
 
 #[cfg(unix)]
-use crate::platform::posix::{PlatformShm, ShmMode};
+use std::sync::Arc;
+
+#[cfg(unix)]
+use crate::platform::posix::{self, CachedShm};
 
 #[cfg(unix)]
 struct PosixCondition {
-    shm: PlatformShm,
+    cached: Arc<CachedShm>,
+    name: String,
 }
 
 #[cfg(unix)]
 impl PosixCondition {
     fn open(name: &str) -> io::Result<Self> {
         let shm_size = std::mem::size_of::<libc::pthread_cond_t>();
-        let shm = PlatformShm::acquire(name, shm_size, ShmMode::CreateOrOpen)?;
-        let is_creator = shm.prev_ref_count() == 0;
-
-        if is_creator {
-            let cond_ptr = shm.as_mut_ptr() as *mut libc::pthread_cond_t;
+        let cached = posix::cached_shm_acquire(posix::cond_cache(), name, shm_size, |base| {
+            let cond_ptr = base as *mut libc::pthread_cond_t;
             unsafe {
                 std::ptr::write_bytes(cond_ptr, 0, 1);
 
@@ -102,13 +103,17 @@ impl PosixCondition {
                     return Err(io::Error::from_raw_os_error(eno));
                 }
             }
-        }
+            Ok(())
+        })?;
 
-        Ok(Self { shm })
+        Ok(Self {
+            cached,
+            name: name.to_string(),
+        })
     }
 
     fn cond_ptr(&self) -> *mut libc::pthread_cond_t {
-        self.shm.as_mut_ptr() as *mut libc::pthread_cond_t
+        self.cached.shm.as_mut_ptr() as *mut libc::pthread_cond_t
     }
 
     fn wait(&self, mtx: &IpcMutex, timeout_ms: Option<u64>) -> io::Result<bool> {
@@ -164,16 +169,21 @@ impl PosixCondition {
     }
 
     fn clear_storage(name: &str) {
-        PlatformShm::unlink_by_name(name);
+        posix::PlatformShm::unlink_by_name(name);
     }
 }
 
 #[cfg(unix)]
 impl Drop for PosixCondition {
     fn drop(&mut self) {
-        if self.shm.ref_count() <= 1 {
+        let local = self
+            .cached
+            .local_ref
+            .load(std::sync::atomic::Ordering::Acquire);
+        if local <= 1 && self.cached.shm.ref_count() <= 1 {
             unsafe { libc::pthread_cond_destroy(self.cond_ptr()) };
         }
+        posix::cached_shm_release(posix::cond_cache(), &self.name);
     }
 }
 

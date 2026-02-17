@@ -86,8 +86,19 @@ impl ShmHandle {
         self.inner.unlink();
     }
 
+    /// Mutable pointer to the user-visible region (alias for `as_mut_ptr`).
+    /// Matches C++ `shm::handle::get()`.
+    pub fn get(&self) -> *mut u8 {
+        self.inner.as_mut_ptr()
+    }
+
     /// Remove a named shm segment by name without needing an open handle.
     pub fn unlink_by_name(name: &str) {
+        PlatformShm::unlink_by_name(name);
+    }
+
+    /// Remove the backing storage for a named shm segment.
+    pub fn clear_storage(name: &str) {
         PlatformShm::unlink_by_name(name);
     }
 }

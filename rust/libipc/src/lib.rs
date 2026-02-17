@@ -29,3 +29,13 @@ pub use semaphore::IpcSemaphore;
 
 mod condition;
 pub use condition::IpcCondition;
+
+pub mod buffer;
+pub use buffer::IpcBuffer;
+
+pub(crate) mod waiter;
+
+pub mod circ;
+
+pub mod channel;
+pub use channel::{Channel, Mode, Route};
