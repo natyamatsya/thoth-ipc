@@ -93,6 +93,13 @@ pub(crate) fn cached_shm_release(cache: &Mutex<ShmCache>, name: &str) {
     }
 }
 
+/// Forcibly remove a cache entry (used by `clear_storage` to avoid stale
+/// entries after the underlying shm has been unlinked).
+pub(crate) fn cached_shm_purge(cache: &Mutex<ShmCache>, name: &str) {
+    let mut c = cache.lock().unwrap();
+    c.map.remove(name);
+}
+
 // ---------------------------------------------------------------------------
 // Robust mutex symbols — not exposed by `libc` crate on all platforms.
 // On macOS robust mutexes are not used (matching the C++ implementation).
@@ -497,21 +504,20 @@ impl PlatformMutex {
     }
 
     /// Remove the shared memory backing this mutex (static helper).
+    /// Also purges any cached entry so a subsequent `open` creates fresh state.
     pub fn clear_storage(name: &str) {
+        cached_shm_purge(mutex_cache(), name);
         PlatformShm::unlink_by_name(name);
     }
 }
 
 impl Drop for PlatformMutex {
     fn drop(&mut self) {
-        // Check if we're the last local reference AND last cross-process reference.
-        let local = self.cached.local_ref.load(Ordering::Acquire);
-        if local <= 1 && self.cached.shm.ref_count() <= 1 {
-            unsafe {
-                libc::pthread_mutex_unlock(self.mtx_ptr());
-                libc::pthread_mutex_destroy(self.mtx_ptr());
-            }
-        }
+        // Don't call pthread_mutex_destroy here. On macOS, the virtual
+        // address may be recycled to a different shm segment after munmap,
+        // and destroy would zero the __sig field of whatever mutex now
+        // lives at that address. The shm munmap + unlink in
+        // PlatformShm::Drop is sufficient to reclaim the memory.
         cached_shm_release(mutex_cache(), &self.name);
     }
 }

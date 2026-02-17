@@ -33,7 +33,8 @@ pub use condition::IpcCondition;
 pub mod buffer;
 pub use buffer::IpcBuffer;
 
-pub(crate) mod waiter;
+pub mod waiter;
+pub use waiter::Waiter;
 
 pub mod circ;
 

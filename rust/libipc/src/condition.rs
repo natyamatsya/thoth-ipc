@@ -169,6 +169,7 @@ impl PosixCondition {
     }
 
     fn clear_storage(name: &str) {
+        posix::cached_shm_purge(posix::cond_cache(), name);
         posix::PlatformShm::unlink_by_name(name);
     }
 }
