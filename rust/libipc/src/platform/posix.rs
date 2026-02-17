@@ -371,6 +371,25 @@ impl PlatformMutex {
         }
     }
 
+    /// Try to lock the mutex without blocking.
+    /// Returns `Ok(true)` if acquired, `Ok(false)` if contended.
+    pub fn try_lock(&self) -> io::Result<bool> {
+        let eno = unsafe { libc::pthread_mutex_trylock(self.mtx_ptr()) };
+        match eno {
+            0 => Ok(true),
+            libc::EBUSY => Ok(false),
+            #[cfg(not(target_os = "macos"))]
+            EOWNERDEAD => {
+                let eno2 = unsafe { pthread_mutex_consistent(self.mtx_ptr()) };
+                if eno2 != 0 {
+                    return Err(io::Error::from_raw_os_error(eno2));
+                }
+                Ok(true)
+            }
+            _ => Err(io::Error::from_raw_os_error(eno)),
+        }
+    }
+
     /// Unlock the mutex. Returns `Ok(())` on success.
     pub fn unlock(&self) -> io::Result<()> {
         let eno = unsafe { libc::pthread_mutex_unlock(self.mtx_ptr()) };

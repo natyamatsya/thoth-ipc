@@ -45,7 +45,7 @@ pub struct PlatformShm {
     handle: windows_sys::Win32::Foundation::HANDLE,
     mem: *mut u8,
     size: usize,      // total mapped size
-    user_size: usize,  // user-requested size
+    user_size: usize, // user-requested size
 }
 
 unsafe impl Send for PlatformShm {}
@@ -69,9 +69,7 @@ impl PlatformShm {
         let total_size;
 
         if mode == ShmMode::Open {
-            handle = unsafe {
-                OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, wide_name.as_ptr())
-            };
+            handle = unsafe { OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, wide_name.as_ptr()) };
             if handle == 0 {
                 return Err(io::Error::last_os_error());
             }
@@ -227,7 +225,10 @@ impl PlatformMutex {
             match ret {
                 WAIT_OBJECT_0 => return Ok(()),
                 WAIT_TIMEOUT => {
-                    return Err(io::Error::new(io::ErrorKind::TimedOut, "mutex lock timed out"))
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "mutex lock timed out",
+                    ))
                 }
                 WAIT_ABANDONED => {
                     // Previous owner died — we acquired the lock. Unlock+retry for consistency.
@@ -235,6 +236,22 @@ impl PlatformMutex {
                 }
                 _ => return Err(io::Error::last_os_error()),
             }
+        }
+    }
+
+    pub fn try_lock(&self) -> io::Result<bool> {
+        use windows_sys::Win32::Foundation::*;
+        use windows_sys::Win32::System::Threading::*;
+
+        let ret = unsafe { WaitForSingleObject(self.handle, 0) };
+        match ret {
+            WAIT_OBJECT_0 => Ok(true),
+            WAIT_TIMEOUT => Ok(false),
+            WAIT_ABANDONED => {
+                let _ = self.unlock();
+                Ok(false)
+            }
+            _ => Err(io::Error::last_os_error()),
         }
     }
 

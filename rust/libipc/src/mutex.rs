@@ -34,6 +34,12 @@ impl IpcMutex {
         self.inner.lock()
     }
 
+    /// Try to lock the mutex without blocking.
+    /// Returns `Ok(true)` if the lock was acquired, `Ok(false)` if contended.
+    pub fn try_lock(&self) -> io::Result<bool> {
+        self.inner.try_lock()
+    }
+
     /// Unlock the mutex.
     pub fn unlock(&self) -> io::Result<()> {
         self.inner.unlock()
