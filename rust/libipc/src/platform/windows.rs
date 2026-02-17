@@ -264,6 +264,10 @@ impl PlatformMutex {
         Ok(())
     }
 
+    pub(crate) fn native_ptr(&self) -> *mut u8 {
+        self.handle as *mut u8
+    }
+
     pub fn clear_storage(_name: &str) {
         // No-op on Windows.
     }

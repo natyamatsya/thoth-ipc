@@ -17,3 +17,15 @@ pub use mutex::IpcMutex;
 
 mod scoped_access;
 pub use scoped_access::ScopedAccess;
+
+mod spin_lock;
+pub use spin_lock::SpinLock;
+
+mod rw_lock;
+pub use rw_lock::RwLock;
+
+mod semaphore;
+pub use semaphore::IpcSemaphore;
+
+mod condition;
+pub use condition::IpcCondition;

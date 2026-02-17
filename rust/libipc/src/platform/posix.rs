@@ -65,6 +65,7 @@ pub struct PlatformShm {
     size: usize,      // total mapped size (including ref counter)
     user_size: usize, // user-requested size
     name: String,     // POSIX name (with leading '/')
+    prev_ref: i32,    // ref count *before* our fetch_add (0 means we were first)
 }
 
 // Safety: the shared memory region is process-shared by design.
@@ -216,13 +217,14 @@ impl PlatformShm {
         }
 
         // Increment the reference counter (mirrors C++ get_mem)
-        unsafe { acc_of(mem as *mut u8, total_size).fetch_add(1, Ordering::Release) };
+        let prev = unsafe { acc_of(mem as *mut u8, total_size).fetch_add(1, Ordering::AcqRel) };
 
         Ok(Self {
             mem: mem as *mut u8,
             size: total_size,
             user_size,
             name: posix_name,
+            prev_ref: prev,
         })
     }
 
@@ -249,6 +251,12 @@ impl PlatformShm {
     /// POSIX name (with leading '/').
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// The ref count value *before* our own increment during acquire.
+    /// Returns 0 if this handle was the first to map the segment.
+    pub fn prev_ref_count(&self) -> i32 {
+        self.prev_ref
     }
 
     /// Current reference count.
@@ -306,7 +314,7 @@ impl PlatformMutex {
     pub fn open(name: &str) -> io::Result<Self> {
         let shm_size = std::mem::size_of::<libc::pthread_mutex_t>();
         let shm = PlatformShm::acquire(name, shm_size, ShmMode::CreateOrOpen)?;
-        let is_creator = shm.ref_count() <= 1;
+        let is_creator = shm.prev_ref_count() == 0;
 
         if is_creator {
             let mtx_ptr = shm.as_mut_ptr() as *mut libc::pthread_mutex_t;
@@ -397,6 +405,11 @@ impl PlatformMutex {
             return Err(io::Error::from_raw_os_error(eno));
         }
         Ok(())
+    }
+
+    /// Raw pointer to the underlying `pthread_mutex_t`.
+    pub(crate) fn native_ptr(&self) -> *mut u8 {
+        self.shm.as_mut_ptr()
     }
 
     /// Remove the shared memory backing this mutex (static helper).

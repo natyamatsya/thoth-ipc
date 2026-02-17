@@ -49,4 +49,11 @@ impl IpcMutex {
     pub fn clear_storage(name: &str) {
         PlatformMutex::clear_storage(name);
     }
+
+    /// Raw pointer to the underlying platform mutex.
+    /// On POSIX this is `*mut pthread_mutex_t`, on Windows a `HANDLE`.
+    /// Used internally by `IpcCondition` for `pthread_cond_wait`.
+    pub(crate) fn native_mutex_ptr(&self) -> *mut u8 {
+        self.inner.native_ptr()
+    }
 }
