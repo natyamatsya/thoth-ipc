@@ -249,6 +249,48 @@ fn channel_rapid_reconnect() {
     }
 }
 
+// Stress: messages across the full 128B–16KB range (mirrors demo_msg_que sizes)
+#[test]
+fn route_large_messages_full_range() {
+    let name = unique_name("large_range");
+    Route::clear_storage(&name);
+
+    let sizes: Vec<usize> = vec![128, 256, 512, 1024, 2048, 4096, 8192, 16384];
+
+    let n = name.clone();
+    let sz = sizes.clone();
+    let receiver = thread::spawn(move || {
+        let mut r = Route::connect(&n, Mode::Receiver).expect("receiver");
+        for (i, &expected_size) in sz.iter().enumerate() {
+            let buf = r.recv(Some(10000)).expect("recv");
+            assert_eq!(
+                buf.len(),
+                expected_size,
+                "msg {i} size={expected_size} wrong"
+            );
+            assert!(
+                buf.data().iter().all(|&b| b == (i as u8)),
+                "msg {i} size={expected_size} corrupt"
+            );
+        }
+    });
+
+    thread::sleep(Duration::from_millis(50));
+
+    let mut sender = Route::connect(&name, Mode::Sender).expect("sender");
+    sender.wait_for_recv(1, Some(2000)).expect("wait");
+
+    for (i, &sz) in sizes.iter().enumerate() {
+        let msg = vec![i as u8; sz];
+        assert!(
+            sender.send(&msg, 10000).expect("send"),
+            "send failed size={sz}"
+        );
+    }
+
+    receiver.join().unwrap();
+}
+
 // Stress: large messages with fragmentation under load
 #[test]
 fn route_large_messages_stress() {
