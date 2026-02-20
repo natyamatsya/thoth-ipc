@@ -21,9 +21,12 @@ use libipc::channel::{Channel, Mode};
 
 fn do_send(size: usize, interval_ms: u64, quit: Arc<AtomicBool>) {
     let mut ipc = Channel::connect("ipc", Mode::Sender).expect("connect sender");
+    println!("send: waiting for receiver...");
+    ipc.wait_for_recv(1, None).expect("wait_for_recv");
+    println!("send: receiver connected, starting");
     let buffer = vec![b'A'; size];
     while !quit.load(Ordering::Acquire) {
-        println!("send size: {}", buffer.len() + 1);
+        println!("send size: {}", buffer.len());
         ipc.send(&buffer, 0).expect("send");
         thread::sleep(Duration::from_millis(interval_ms));
     }
@@ -71,7 +74,8 @@ fn main() {
             }
             let size: usize = args[2].parse().expect("size");
             let interval: u64 = args[3].parse().expect("interval");
-            do_send(size, interval, quit);
+            Channel::clear_storage("ipc");
+            do_send(size, interval, quit); // clears first, then waits for receiver
         }
         "recv" => {
             let interval: u64 = args[2].parse().expect("interval");

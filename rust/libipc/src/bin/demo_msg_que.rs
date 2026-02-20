@@ -57,7 +57,13 @@ fn do_send(quit: Arc<AtomicBool>) {
         str_of_size(MAX_SZ)
     );
 
+    Route::clear_storage(CHANNEL_NAME);
     let mut que = Route::connect(CHANNEL_NAME, Mode::Sender).expect("connect sender");
+
+    println!("do_send: waiting for receiver...");
+    que.wait_for_recv(1, None).expect("wait_for_recv");
+    println!("do_send: receiver connected, starting");
+
     let counter = Arc::new(AtomicUsize::new(0));
 
     let q2 = Arc::clone(&quit);
@@ -74,14 +80,7 @@ fn do_send(quit: Arc<AtomicBool>) {
             .wrapping_add(1442695040888963407);
         let sz = MIN_SZ + (rng_state >> 32) as usize % (MAX_SZ - MIN_SZ + 1);
 
-        if !que.send(&buf[..sz], 0).expect("send") {
-            eprintln!("do_send: send failed — waiting for receiver...");
-            if !que.wait_for_recv(1, None).expect("wait_for_recv") {
-                eprintln!("do_send: wait receiver failed.");
-                quit.store(true, Ordering::Release);
-                break;
-            }
-        }
+        que.send(&buf[..sz], 0).expect("send");
         counter.fetch_add(sz, Ordering::Relaxed);
         thread::yield_now();
     }
