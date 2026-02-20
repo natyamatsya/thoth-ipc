@@ -19,11 +19,19 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::buffer::IpcBuffer;
+use crate::chunk_storage as cs;
 use crate::shm::{ShmHandle, ShmOpenMode};
 use crate::waiter::Waiter;
 
 /// Default data length per ring slot (matches C++ `ipc::data_length = 64`).
 const DATA_LENGTH: usize = 64;
+
+/// Bit 31 of `RingSlot::size`: this is the last fragment of a message.
+const SIZE_LAST: u32 = 0x8000_0000;
+/// Bit 30 of `RingSlot::size`: payload is a `storage_id` (large-message path).
+const SIZE_STORAGE: u32 = 0x4000_0000;
+/// Mask for the actual byte count stored in the low 30 bits of `size`.
+const SIZE_MASK: u32 = 0x3FFF_FFFF;
 
 /// Number of ring slots (matches C++ `elem_max = 256`).
 const RING_SIZE: usize = 256;
@@ -110,13 +118,14 @@ struct ChanInner {
     _prefix: String,
     mode: Mode,
     ring_shm: ShmHandle,
-    conn_id: u32,         // bitmask for this receiver (0 for senders)
-    cc_id: u32,           // unique endpoint identity for self-message filtering
-    read_cursor: u32,     // receiver's read position
-    wt_waiter: Waiter,    // write-side waiter (senders block here when ring is full)
-    rd_waiter: Waiter,    // read-side waiter (receivers block here when ring is empty)
-    cc_waiter: Waiter,    // connection waiter (wait_for_recv)
-    cc_id_shm: ShmHandle, // shared atomic counter for cc_id allocation (CA_CONN__)
+    conn_id: u32,                 // bitmask for this receiver (0 for senders)
+    cc_id: u32,                   // unique endpoint identity for self-message filtering
+    read_cursor: u32,             // receiver's read position
+    wt_waiter: Waiter,            // write-side waiter (senders block here when ring is full)
+    rd_waiter: Waiter,            // read-side waiter (receivers block here when ring is empty)
+    cc_waiter: Waiter,            // connection waiter (wait_for_recv)
+    cc_id_shm: ShmHandle,         // shared atomic counter for cc_id allocation (CA_CONN__)
+    chunk_shm: Option<ShmHandle>, // large-message chunk storage (CH_CONN__), lazily opened
 }
 
 impl ChanInner {
@@ -200,7 +209,17 @@ impl ChanInner {
             rd_waiter,
             cc_waiter,
             cc_id_shm,
+            chunk_shm: None,
         })
+    }
+
+    /// Open (or return cached) the chunk-storage shm for `chunk_size`-byte chunks.
+    fn chunk_shm(&mut self, chunk_size: usize) -> Option<&ShmHandle> {
+        if self.chunk_shm.is_none() {
+            let shm = cs::open_chunk_shm(&self._prefix, chunk_size).ok()?;
+            self.chunk_shm = Some(shm);
+        }
+        self.chunk_shm.as_ref()
     }
 
     fn hdr(&self) -> &RingHeader {
@@ -286,12 +305,21 @@ impl ChanInner {
     /// 3. `write_cursor.fetch_add(1, Release)` — "data ready" signal for receivers.
     /// 4. Broadcast rd_waiter per fragment.
     /// On timeout: increment epoch, disconnect stale receivers, retry (force_push).
-    fn send(&self, data: &[u8], timeout_ms: u64) -> io::Result<bool> {
+    fn send(&mut self, data: &[u8], timeout_ms: u64) -> io::Result<bool> {
         if data.is_empty() {
             return Ok(false);
         }
         if self.mode != Mode::Sender {
             return Err(io::Error::new(io::ErrorKind::Other, "not a sender"));
+        }
+
+        // Large-message fast path: store in chunk shm, push a single slot with storage_id.
+        // Mirrors C++: `if (size > large_msg_limit) { acquire_storage(...) }`
+        if data.len() > DATA_LENGTH {
+            match self.send_large(data, timeout_ms)? {
+                Some(result) => return Ok(result),
+                None => {} // storage unavailable — fall through to fragmentation
+            }
         }
 
         let hdr = self.hdr();
@@ -376,7 +404,7 @@ impl ChanInner {
             }
 
             let size_val = if is_last {
-                0x8000_0000 | (chunk_len as u32)
+                SIZE_LAST | (chunk_len as u32)
             } else {
                 chunk_len as u32
             };
@@ -394,8 +422,120 @@ impl ChanInner {
         Ok(true)
     }
 
+    /// Large-message send path: store `data` in a chunk-storage shm slot and
+    /// push a single ring slot containing the `storage_id`.
+    ///
+    /// Returns `Ok(true)` on success, `Ok(false)` if storage is unavailable
+    /// (caller should fall back to fragmentation), or an error.
+    ///
+    /// Mirrors C++ `acquire_storage` + single `try_push(remain, &dat.first, 0)`.
+    fn send_large(&mut self, data: &[u8], timeout_ms: u64) -> io::Result<Option<bool>> {
+        let chunk_size = cs::calc_chunk_size(data.len());
+
+        // Open (or reuse) the chunk shm — do this before borrowing hdr.
+        let shm: *const ShmHandle = match self.chunk_shm(chunk_size) {
+            Some(s) => s as *const ShmHandle,
+            None => return Ok(None), // storage unavailable, fall back
+        };
+        let shm = unsafe { &*shm };
+
+        let hdr = self.hdr();
+        let conns = hdr.connections.load(Ordering::Relaxed);
+
+        let (storage_id, payload_ptr) = match cs::acquire_storage(shm, chunk_size, conns) {
+            Some(pair) => pair,
+            None => return Ok(None), // pool exhausted, fall back to fragmentation
+        };
+
+        // Copy payload into the chunk.
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.as_ptr(), payload_ptr, data.len());
+        }
+
+        // Push a single ring slot: data = storage_id (i32, 4 bytes), size has STORAGE|LAST flags.
+        let ring_ptr = self.ring_shm.get();
+        let claimed_wt: u32;
+        'claim: loop {
+            let cc = hdr.connections.load(Ordering::Relaxed) as u64;
+            if cc == 0 {
+                cs::recycle_storage(shm, chunk_size, storage_id, !0u32);
+                return Ok(Some(false));
+            }
+            let epoch = hdr.epoch.load(Ordering::Relaxed);
+            let wt = hdr.write_cursor.load(Ordering::Relaxed);
+            let slot = unsafe { ring_slot(ring_ptr, wt as u8) };
+            let cur_rc = slot.rc.load(Ordering::Acquire);
+            let rem_cc = cur_rc & EP_MASK;
+
+            if (cc & rem_cc) != 0 && (cur_rc & !EP_MASK) == epoch {
+                let ok = Self::wait_for(
+                    &self.wt_waiter,
+                    || {
+                        let s = unsafe { ring_slot(ring_ptr, wt as u8) };
+                        let rc = s.rc.load(Ordering::Acquire);
+                        let ep = hdr.epoch.load(Ordering::Relaxed);
+                        (cc & (rc & EP_MASK)) != 0 && (rc & !EP_MASK) == ep
+                    },
+                    Some(timeout_ms),
+                )?;
+                if ok {
+                    continue 'claim;
+                }
+                hdr.epoch.fetch_add(EP_INCR, Ordering::AcqRel);
+                let cur_rc2 = slot.rc.load(Ordering::Acquire);
+                let rem_cc2 = cur_rc2 & EP_MASK;
+                if rem_cc2 != 0 {
+                    let new_cc = hdr
+                        .connections
+                        .fetch_and(!(rem_cc2 as u32), Ordering::AcqRel)
+                        & !(rem_cc2 as u32);
+                    if new_cc == 0 {
+                        cs::recycle_storage(shm, chunk_size, storage_id, !0u32);
+                        return Ok(Some(false));
+                    }
+                    slot.rc.fetch_and(!rem_cc2, Ordering::AcqRel);
+                }
+                continue 'claim;
+            }
+            let new_rc = epoch | cc;
+            if slot
+                .rc
+                .compare_exchange_weak(cur_rc, new_rc, Ordering::Release, Ordering::Relaxed)
+                .is_ok()
+            {
+                claimed_wt = wt;
+                break 'claim;
+            }
+            std::thread::yield_now();
+        }
+
+        let slot = self.slot(claimed_wt as u8);
+        slot.cc_id.store(self.cc_id, Ordering::Relaxed);
+
+        // Write storage_id (bytes 0..4) and payload_size (bytes 4..8) into the slot.
+        // The receiver uses payload_size to reconstruct chunk_size and find the chunk shm.
+        let slot_ptr = &slot.data as *const [u8; DATA_LENGTH] as *mut u8;
+        unsafe {
+            std::ptr::copy_nonoverlapping(storage_id.to_ne_bytes().as_ptr(), slot_ptr, 4);
+            std::ptr::copy_nonoverlapping(
+                (data.len() as u32).to_ne_bytes().as_ptr(),
+                slot_ptr.add(4),
+                4,
+            );
+        }
+
+        // size = LAST | STORAGE | 8  (8 = sizeof(storage_id) + sizeof(payload_size))
+        slot.size
+            .store(SIZE_LAST | SIZE_STORAGE | 8, Ordering::Relaxed);
+
+        hdr.write_cursor.fetch_add(1, Ordering::Release);
+        let _ = self.rd_waiter.broadcast();
+
+        Ok(Some(true))
+    }
+
     /// Try sending without blocking (timeout = 0).
-    fn try_send(&self, data: &[u8]) -> io::Result<bool> {
+    fn try_send(&mut self, data: &[u8]) -> io::Result<bool> {
         self.send(data, 0)
     }
 
@@ -452,27 +592,70 @@ impl ChanInner {
 
             // write_cursor Acquire synchronises with fetch_add Release in send,
             // making cc_id, data, and size writes visible.
+            // Use ring_ptr directly (not self.slot()) so there is no &self borrow
+            // that would conflict with the &mut self call to chunk_shm() below.
             let idx = self.read_cursor as u8;
-            let slot = self.slot(idx);
+            let size_val;
+            let chunk_len;
+            let is_last;
+            let is_storage;
+            let is_own;
+            let storage_id: cs::StorageId;
+            let payload_size: usize;
+            let inline_data: Option<Vec<u8>>;
+            unsafe {
+                let slot = ring_slot(ring_ptr, idx);
+                size_val = slot.size.load(Ordering::Relaxed);
+                chunk_len = (size_val & SIZE_MASK) as usize;
+                is_last = (size_val & SIZE_LAST) != 0;
+                is_storage = (size_val & SIZE_STORAGE) != 0;
+                is_own = slot.cc_id.load(Ordering::Relaxed) == self.cc_id;
 
-            let size_val = slot.size.load(Ordering::Relaxed);
-            let chunk_len = (size_val & 0x7FFF_FFFF) as usize;
-            let is_last = (size_val & 0x8000_0000) != 0;
-
-            // Self-message filtering: skip slots we sent ourselves.
-            // Mirrors C++ recv: `if (msg.cc_id_ == inf->cc_id_) { ... skip ... }`
-            let sender_cc_id = slot.cc_id.load(Ordering::Relaxed);
-            let is_own = sender_cc_id == self.cc_id;
+                if is_storage {
+                    let slot_ptr = slot.data.as_ptr();
+                    let mut id_bytes = [0u8; 4];
+                    let mut sz_bytes = [0u8; 4];
+                    std::ptr::copy_nonoverlapping(slot_ptr, id_bytes.as_mut_ptr(), 4);
+                    std::ptr::copy_nonoverlapping(slot_ptr.add(4), sz_bytes.as_mut_ptr(), 4);
+                    storage_id = cs::StorageId::from_ne_bytes(id_bytes);
+                    payload_size = u32::from_ne_bytes(sz_bytes) as usize;
+                    inline_data = None;
+                } else {
+                    let chunk = std::slice::from_raw_parts(slot.data.as_ptr(), chunk_len);
+                    storage_id = 0;
+                    payload_size = 0;
+                    inline_data = Some(chunk.to_vec());
+                }
+            }
+            // No &self borrow is live here — safe to call &mut self methods.
 
             if !is_own {
-                let slot_ptr = &slot.data as *const [u8; DATA_LENGTH] as *const u8;
-                let chunk = unsafe { std::slice::from_raw_parts(slot_ptr, chunk_len) };
-                assembled.extend_from_slice(chunk);
+                if is_storage {
+                    let chunk_size = cs::calc_chunk_size(payload_size);
+                    let shm_ptr: *const ShmHandle = match self.chunk_shm(chunk_size) {
+                        Some(s) => s as *const ShmHandle,
+                        None => std::ptr::null(),
+                    };
+                    if !shm_ptr.is_null() {
+                        let shm = unsafe { &*shm_ptr };
+                        if let Some(payload_ptr) = cs::find_storage(shm, chunk_size, storage_id) {
+                            let payload = unsafe {
+                                std::slice::from_raw_parts(payload_ptr as *const u8, payload_size)
+                            };
+                            assembled.extend_from_slice(payload);
+                        }
+                        cs::recycle_storage(shm, chunk_size, storage_id, self.conn_id);
+                    }
+                } else if let Some(data) = inline_data {
+                    assembled.extend_from_slice(&data);
+                }
             }
 
             // CAS-clear our bit from the low 32 bits of rc, preserving the epoch.
+            // Re-derive the slot pointer from ring_ptr to avoid holding a self borrow.
             let mut k = 0u32;
             loop {
+                let slot = unsafe { ring_slot(ring_ptr, idx) };
                 let cur_rc = slot.rc.load(Ordering::Acquire);
                 let nxt_rc = cur_rc & !conn_mask;
                 if slot
@@ -492,7 +675,6 @@ impl ChanInner {
 
             if is_last {
                 if is_own {
-                    // Own message — discard assembled fragments and return empty.
                     assembled.clear();
                     return Ok(IpcBuffer::new());
                 }
@@ -568,23 +750,23 @@ impl Route {
     }
 
     /// Send data (sender only). Returns `true` on success.
-    pub fn send(&self, data: &[u8], timeout_ms: u64) -> io::Result<bool> {
+    pub fn send(&mut self, data: &[u8], timeout_ms: u64) -> io::Result<bool> {
         self.inner.send(data, timeout_ms)
     }
 
     /// Send a buffer.
-    pub fn send_buf(&self, buf: &IpcBuffer, timeout_ms: u64) -> io::Result<bool> {
+    pub fn send_buf(&mut self, buf: &IpcBuffer, timeout_ms: u64) -> io::Result<bool> {
         self.inner.send(buf.data(), timeout_ms)
     }
 
     /// Send a string (with null terminator for C++ compat).
-    pub fn send_str(&self, s: &str, timeout_ms: u64) -> io::Result<bool> {
+    pub fn send_str(&mut self, s: &str, timeout_ms: u64) -> io::Result<bool> {
         let buf = IpcBuffer::from_str(s);
-        self.send_buf(&buf, timeout_ms)
+        self.inner.send(buf.data(), timeout_ms)
     }
 
     /// Try sending without blocking.
-    pub fn try_send(&self, data: &[u8]) -> io::Result<bool> {
+    pub fn try_send(&mut self, data: &[u8]) -> io::Result<bool> {
         self.inner.try_send(data)
     }
 
@@ -615,6 +797,11 @@ impl Route {
         Waiter::clear_storage(&format!("{full_prefix}WT_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}RD_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}CC_CONN__{name}"));
+        // Remove any chunk-storage shm segments (one per chunk_size that was ever used).
+        // We don't know which chunk sizes were used, so we sweep common sizes.
+        for &payload_size in &[128usize, 256, 512, 1024, 2048, 4096, 8192, 16384, 65536] {
+            cs::clear_chunk_shm(&full_prefix, cs::calc_chunk_size(payload_size));
+        }
     }
 }
 
@@ -668,23 +855,23 @@ impl Channel {
     }
 
     /// Send data (sender only).
-    pub fn send(&self, data: &[u8], timeout_ms: u64) -> io::Result<bool> {
+    pub fn send(&mut self, data: &[u8], timeout_ms: u64) -> io::Result<bool> {
         self.inner.send(data, timeout_ms)
     }
 
     /// Send a buffer.
-    pub fn send_buf(&self, buf: &IpcBuffer, timeout_ms: u64) -> io::Result<bool> {
+    pub fn send_buf(&mut self, buf: &IpcBuffer, timeout_ms: u64) -> io::Result<bool> {
         self.inner.send(buf.data(), timeout_ms)
     }
 
     /// Send a string.
-    pub fn send_str(&self, s: &str, timeout_ms: u64) -> io::Result<bool> {
+    pub fn send_str(&mut self, s: &str, timeout_ms: u64) -> io::Result<bool> {
         let buf = IpcBuffer::from_str(s);
-        self.send_buf(&buf, timeout_ms)
+        self.inner.send(buf.data(), timeout_ms)
     }
 
     /// Try sending without blocking.
-    pub fn try_send(&self, data: &[u8]) -> io::Result<bool> {
+    pub fn try_send(&mut self, data: &[u8]) -> io::Result<bool> {
         self.inner.try_send(data)
     }
 

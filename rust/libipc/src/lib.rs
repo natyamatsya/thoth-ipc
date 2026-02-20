@@ -38,5 +38,7 @@ pub use waiter::Waiter;
 
 pub mod circ;
 
+pub(crate) mod chunk_storage;
+
 pub mod channel;
 pub use channel::{Channel, Mode, Route};

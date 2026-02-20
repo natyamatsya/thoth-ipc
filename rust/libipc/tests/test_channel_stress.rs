@@ -41,7 +41,7 @@ fn route_1v1_throughput() {
 
     thread::sleep(Duration::from_millis(50));
 
-    let sender = Route::connect(&name, Mode::Sender).expect("sender");
+    let mut sender = Route::connect(&name, Mode::Sender).expect("sender");
     sender.wait_for_recv(1, Some(2000)).expect("wait");
 
     let start = Instant::now();
@@ -88,7 +88,7 @@ fn route_1vn_broadcast() {
 
         thread::sleep(Duration::from_millis(100));
 
-        let sender = Route::connect(&name, Mode::Sender).expect("sender");
+        let mut sender = Route::connect(&name, Mode::Sender).expect("sender");
         sender
             .wait_for_recv(num_receivers, Some(2000))
             .expect("wait");
@@ -148,7 +148,7 @@ fn channel_nvn_broadcast() {
             let nm = name.clone();
             let sc = Arc::clone(&total_sent);
             senders.push(thread::spawn(move || {
-                let ch = Channel::connect(&nm, Mode::Sender).expect("sender");
+                let mut ch = Channel::connect(&nm, Mode::Sender).expect("sender");
                 ch.wait_for_recv(n, Some(3000)).expect("wait");
                 for j in 0..msg_per_sender {
                     let msg = format!("S{s}M{j}");
@@ -170,9 +170,7 @@ fn channel_nvn_broadcast() {
         let received = total_received.load(Ordering::Relaxed);
         assert_eq!(sent, total_msgs as u64);
         assert_eq!(received, (total_msgs * n) as u64);
-        eprintln!(
-            "channel {n}v{n}: {total_msgs} msgs, sent={sent}, received={received}"
-        );
+        eprintln!("channel {n}v{n}: {total_msgs} msgs, sent={sent}, received={received}");
     }
 }
 
@@ -183,7 +181,7 @@ fn channel_rapid_reconnect() {
     Channel::clear_storage(&name);
 
     for i in 0..20 {
-        let sender = Channel::connect(&name, Mode::Sender).expect("sender");
+        let mut sender = Channel::connect(&name, Mode::Sender).expect("sender");
         let mut receiver = Channel::connect(&name, Mode::Receiver).expect("receiver");
 
         sender.wait_for_recv(1, Some(1000)).expect("wait");
@@ -211,13 +209,16 @@ fn route_large_messages_stress() {
         for i in 0..msg_count {
             let buf = r.recv(Some(10000)).expect("recv");
             assert_eq!(buf.len(), msg_size, "msg {i} wrong size");
-            assert!(buf.data().iter().all(|&b| b == (i as u8)), "msg {i} corrupt");
+            assert!(
+                buf.data().iter().all(|&b| b == (i as u8)),
+                "msg {i} corrupt"
+            );
         }
     });
 
     thread::sleep(Duration::from_millis(50));
 
-    let sender = Route::connect(&name, Mode::Sender).expect("sender");
+    let mut sender = Route::connect(&name, Mode::Sender).expect("sender");
     sender.wait_for_recv(1, Some(2000)).expect("wait");
 
     for i in 0..msg_count {

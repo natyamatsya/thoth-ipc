@@ -71,7 +71,7 @@ fn route_send_without_receiver() {
     let name = unique_name("route_send_no_recv");
     Route::clear_storage(&name);
 
-    let r = Route::connect(&name, Mode::Sender).expect("connect");
+    let mut r = Route::connect(&name, Mode::Sender).expect("connect");
     let sent = r.send(b"test", 10).expect("send");
     assert!(!sent); // no receiver
 }
@@ -82,7 +82,7 @@ fn route_try_send_without_receiver() {
     let name = unique_name("route_try_send_no_recv");
     Route::clear_storage(&name);
 
-    let r = Route::connect(&name, Mode::Sender).expect("connect");
+    let mut r = Route::connect(&name, Mode::Sender).expect("connect");
     let sent = r.try_send(b"test").expect("try_send");
     assert!(!sent);
 }
@@ -122,7 +122,7 @@ fn route_send_recv_buffer() {
     let sent_flag2 = Arc::clone(&sent_flag);
 
     let sender = thread::spawn(move || {
-        let s = Route::connect(&name2, Mode::Sender).expect("sender");
+        let mut s = Route::connect(&name2, Mode::Sender).expect("sender");
         // Wait for receiver to connect
         s.wait_for_recv(1, Some(1000)).expect("wait");
         let ok = s.send(b"Hello Route", 1000).expect("send");
@@ -146,7 +146,7 @@ fn route_send_recv_string() {
 
     let name2 = name.clone();
     let sender = thread::spawn(move || {
-        let s = Route::connect(&name2, Mode::Sender).expect("sender");
+        let mut s = Route::connect(&name2, Mode::Sender).expect("sender");
         s.wait_for_recv(1, Some(1000)).expect("wait");
         s.send_str("Test String", 1000).expect("send");
     });
@@ -169,7 +169,7 @@ fn route_send_recv_raw() {
     let data = b"Raw Data Test";
     let name2 = name.clone();
     let sender = thread::spawn(move || {
-        let s = Route::connect(&name2, Mode::Sender).expect("sender");
+        let mut s = Route::connect(&name2, Mode::Sender).expect("sender");
         s.wait_for_recv(1, Some(1000)).expect("wait");
         s.send(data, 1000).expect("send");
     });
@@ -228,7 +228,7 @@ fn route_one_sender_multiple_receivers() {
     }
 
     // Wait for receivers to connect
-    let sender = Route::connect(&name, Mode::Sender).expect("sender");
+    let mut sender = Route::connect(&name, Mode::Sender).expect("sender");
     sender
         .wait_for_recv(num_receivers, Some(1000))
         .expect("wait");
@@ -277,7 +277,7 @@ fn channel_send_recv() {
 
     let name2 = name.clone();
     let sender = thread::spawn(move || {
-        let ch = Channel::connect(&name2, Mode::Sender).expect("sender");
+        let mut ch = Channel::connect(&name2, Mode::Sender).expect("sender");
         ch.wait_for_recv(1, Some(1000)).expect("wait");
         ch.send_str("Channel Test", 1000).expect("send");
     });
@@ -318,7 +318,7 @@ fn channel_multiple_senders() {
     for i in 0..num_senders {
         let n = name.clone();
         senders.push(thread::spawn(move || {
-            let ch = Channel::connect(&n, Mode::Sender).expect("sender");
+            let mut ch = Channel::connect(&n, Mode::Sender).expect("sender");
             ch.wait_for_recv(1, Some(1000)).expect("wait");
             let msg = format!("Sender{i}");
             ch.send(msg.as_bytes(), 1000).expect("send");
@@ -369,7 +369,7 @@ fn channel_multiple_senders_receivers() {
         let n = name.clone();
         let sc = Arc::clone(&sent_count);
         sender_handles.push(thread::spawn(move || {
-            let ch = Channel::connect(&n, Mode::Sender).expect("sender");
+            let mut ch = Channel::connect(&n, Mode::Sender).expect("sender");
             ch.wait_for_recv(num_receivers, Some(2000)).expect("wait");
             for j in 0..messages_per_sender {
                 let msg = format!("S{i}M{j}");
@@ -401,7 +401,7 @@ fn channel_try_send_try_recv() {
     let name = unique_name("channel_try");
     Channel::clear_storage(&name);
 
-    let sender = Channel::connect(&name, Mode::Sender).expect("sender");
+    let mut sender = Channel::connect(&name, Mode::Sender).expect("sender");
     let mut receiver = Channel::connect(&name, Mode::Receiver).expect("receiver");
 
     let sent = sender.send(b"Try Test", 100).expect("send");
@@ -421,7 +421,7 @@ fn channel_send_timeout() {
     let name = unique_name("channel_timeout");
     Channel::clear_storage(&name);
 
-    let ch = Channel::connect(&name, Mode::Sender).expect("sender");
+    let mut ch = Channel::connect(&name, Mode::Sender).expect("sender");
     // Send with very short timeout (no receiver)
     let sent = ch.send(b"Timeout Test", 1).expect("send");
     assert!(!sent);
@@ -439,7 +439,7 @@ fn route_large_message() {
     let data2 = data.clone();
 
     let sender = thread::spawn(move || {
-        let s = Route::connect(&name2, Mode::Sender).expect("sender");
+        let mut s = Route::connect(&name2, Mode::Sender).expect("sender");
         s.wait_for_recv(1, Some(1000)).expect("wait");
         s.send(&data2, 2000).expect("send");
     });
@@ -462,7 +462,7 @@ fn route_multiple_messages() {
     let name2 = name.clone();
 
     let sender = thread::spawn(move || {
-        let s = Route::connect(&name2, Mode::Sender).expect("sender");
+        let mut s = Route::connect(&name2, Mode::Sender).expect("sender");
         s.wait_for_recv(1, Some(1000)).expect("wait");
         for i in 0..count {
             let msg = format!("msg_{i}");
@@ -497,7 +497,7 @@ fn buffer_send_recv() {
     let name2 = name.clone();
     let orig2 = original.clone();
     let sender = thread::spawn(move || {
-        let s = Route::connect(&name2, Mode::Sender).expect("sender");
+        let mut s = Route::connect(&name2, Mode::Sender).expect("sender");
         s.wait_for_recv(1, Some(1000)).expect("wait");
         s.send_buf(&orig2, 1000).expect("send");
     });
