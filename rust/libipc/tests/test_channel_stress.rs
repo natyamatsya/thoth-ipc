@@ -174,6 +174,61 @@ fn channel_nvn_broadcast() {
     }
 }
 
+// Port of IPC.Nv1 — N senders, 1 receiver broadcast
+#[test]
+fn channel_nv1_broadcast() {
+    for num_senders in [2usize, 4] {
+        let name = unique_name("c_nv1");
+        Channel::clear_storage(&name);
+
+        let msg_per_sender = 100usize;
+        let total_msgs = num_senders * msg_per_sender;
+        let total_received = Arc::new(AtomicU64::new(0));
+
+        let nm = name.clone();
+        let rc = Arc::clone(&total_received);
+        let receiver = thread::spawn(move || {
+            let mut ch = Channel::connect(&nm, Mode::Receiver).expect("receiver");
+            for _ in 0..total_msgs {
+                let buf = ch.recv(Some(5000)).expect("recv");
+                if !buf.is_empty() {
+                    rc.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        });
+
+        thread::sleep(Duration::from_millis(100));
+
+        let total_sent = Arc::new(AtomicU64::new(0));
+        let mut senders = Vec::new();
+        for s in 0..num_senders {
+            let nm = name.clone();
+            let sc = Arc::clone(&total_sent);
+            senders.push(thread::spawn(move || {
+                let mut ch = Channel::connect(&nm, Mode::Sender).expect("sender");
+                ch.wait_for_recv(1, Some(3000)).expect("wait");
+                for j in 0..msg_per_sender {
+                    let msg = format!("S{s}M{j}");
+                    if ch.send(msg.as_bytes(), 5000).expect("send") {
+                        sc.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }));
+        }
+
+        for s in senders {
+            s.join().unwrap();
+        }
+        receiver.join().unwrap();
+
+        let sent = total_sent.load(Ordering::Relaxed);
+        let received = total_received.load(Ordering::Relaxed);
+        assert_eq!(sent, total_msgs as u64);
+        assert_eq!(received, total_msgs as u64);
+        eprintln!("channel {num_senders}v1: {total_msgs} msgs, sent={sent}, received={received}");
+    }
+}
+
 // Stress: rapid connect/disconnect cycles
 #[test]
 fn channel_rapid_reconnect() {

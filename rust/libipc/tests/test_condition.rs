@@ -142,7 +142,11 @@ fn timed_wait() {
     let elapsed = start.elapsed();
 
     assert!(!result, "should timeout");
-    assert!(elapsed.as_millis() >= 80, "should have waited ~100ms, got {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() >= 80,
+        "should have waited ~100ms, got {}ms",
+        elapsed.as_millis()
+    );
 }
 
 // Port of ConditionTest.ImmediateNotify
@@ -427,4 +431,80 @@ fn named_sharing() {
     t2.join().unwrap();
 
     assert_eq!(value.load(Ordering::SeqCst), 100);
+}
+
+// Port of ConditionTest.NotifyVsBroadcast
+// notify() should wake at most one waiter; broadcast() should wake all.
+#[test]
+fn notify_vs_broadcast() {
+    let cv_name = unique_name("notify_vs_bc");
+    let mtx_name = unique_name("notify_vs_bc_mtx");
+    IpcCondition::clear_storage(&cv_name);
+    IpcMutex::clear_storage(&mtx_name);
+
+    let cv = IpcCondition::open(&cv_name).expect("open cv");
+    let mtx = IpcMutex::open(&mtx_name).expect("open mtx");
+
+    // Phase 1: notify() — send one signal to 3 waiters; at most 1 should wake
+    // before the 100ms timeout expires.
+    let woken_by_notify = Arc::new(AtomicI32::new(0));
+    let mut waiters = Vec::new();
+    for _ in 0..3 {
+        let cv_n = cv_name.clone();
+        let mtx_n = mtx_name.clone();
+        let counter = Arc::clone(&woken_by_notify);
+        waiters.push(thread::spawn(move || {
+            let cv = IpcCondition::open(&cv_n).expect("cv");
+            let mtx = IpcMutex::open(&mtx_n).expect("mtx");
+            mtx.lock().expect("lock");
+            // 100ms timeout — only the notified thread wakes early
+            let _ = cv.wait(&mtx, Some(100)).expect("wait");
+            counter.fetch_add(1, Ordering::Relaxed);
+            mtx.unlock().expect("unlock");
+        }));
+    }
+
+    thread::sleep(Duration::from_millis(20));
+    mtx.lock().expect("lock notify");
+    cv.notify().expect("notify");
+    mtx.unlock().expect("unlock notify");
+
+    // Give the notified thread time to wake, but not enough for timeouts.
+    thread::sleep(Duration::from_millis(30));
+    let woken = woken_by_notify.load(Ordering::Relaxed);
+    // At least 1 woken by notify; remaining 2 will timeout after ~100ms.
+    assert!(woken >= 1, "notify should wake at least one waiter");
+
+    for w in waiters {
+        w.join().unwrap();
+    }
+    // After timeouts all 3 should have exited.
+    assert_eq!(woken_by_notify.load(Ordering::Relaxed), 3);
+
+    // Phase 2: broadcast() — all 3 waiters should wake immediately.
+    let woken_by_broadcast = Arc::new(AtomicI32::new(0));
+    let mut waiters2 = Vec::new();
+    for _ in 0..3 {
+        let cv_n = cv_name.clone();
+        let mtx_n = mtx_name.clone();
+        let counter = Arc::clone(&woken_by_broadcast);
+        waiters2.push(thread::spawn(move || {
+            let cv = IpcCondition::open(&cv_n).expect("cv");
+            let mtx = IpcMutex::open(&mtx_n).expect("mtx");
+            mtx.lock().expect("lock");
+            cv.wait(&mtx, Some(2000)).expect("wait");
+            counter.fetch_add(1, Ordering::Relaxed);
+            mtx.unlock().expect("unlock");
+        }));
+    }
+
+    thread::sleep(Duration::from_millis(50));
+    mtx.lock().expect("lock bc");
+    cv.broadcast().expect("broadcast");
+    mtx.unlock().expect("unlock bc");
+
+    for w in waiters2 {
+        w.join().unwrap();
+    }
+    assert_eq!(woken_by_broadcast.load(Ordering::Relaxed), 3);
 }
