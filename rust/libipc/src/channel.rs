@@ -47,6 +47,8 @@ struct RingSlot {
     data: [u8; DATA_LENGTH],
     /// Actual size of data in this slot.
     size: AtomicU32,
+    /// Sender identity stamp for self-message filtering (matches C++ msg_t::cc_id_).
+    cc_id: AtomicU32,
     /// Read-counter + epoch packed into 64 bits (matches C++ rc_ field).
     rc: AtomicU64,
 }
@@ -54,7 +56,6 @@ struct RingSlot {
 /// Bitmask for the connection bits in the 64-bit `rc` field (low 32 bits).
 const EP_MASK: u64 = 0x0000_0000_ffff_ffff;
 /// Increment for the epoch stored in the high 32 bits of `rc`.
-#[allow(dead_code)]
 const EP_INCR: u64 = 0x0000_0001_0000_0000;
 
 /// Header of the shared ring buffer, followed by RING_SIZE `RingSlot`s.
@@ -109,11 +110,13 @@ struct ChanInner {
     _prefix: String,
     mode: Mode,
     ring_shm: ShmHandle,
-    conn_id: u32,      // bitmask for this receiver (0 for senders)
-    read_cursor: u32,  // receiver's read position
-    wt_waiter: Waiter, // write-side waiter (senders block here when ring is full)
-    rd_waiter: Waiter, // read-side waiter (receivers block here when ring is empty)
-    cc_waiter: Waiter, // connection waiter (wait_for_recv)
+    conn_id: u32,         // bitmask for this receiver (0 for senders)
+    cc_id: u32,           // unique endpoint identity for self-message filtering
+    read_cursor: u32,     // receiver's read position
+    wt_waiter: Waiter,    // write-side waiter (senders block here when ring is full)
+    rd_waiter: Waiter,    // read-side waiter (receivers block here when ring is empty)
+    cc_waiter: Waiter,    // connection waiter (wait_for_recv)
+    cc_id_shm: ShmHandle, // shared atomic counter for cc_id allocation (CA_CONN__)
 }
 
 impl ChanInner {
@@ -127,13 +130,24 @@ impl ChanInner {
         let wt_name = format!("{full_prefix}WT_CONN__{name}");
         let rd_name = format!("{full_prefix}RD_CONN__{name}");
         let cc_name = format!("{full_prefix}CC_CONN__{name}");
+        let cc_id_name = format!("{full_prefix}CA_CONN__{name}");
 
         let ring_shm = ShmHandle::acquire(&ring_name, ring_shm_size(), ShmOpenMode::CreateOrOpen)?;
+        let cc_id_shm = ShmHandle::acquire(
+            &cc_id_name,
+            std::mem::size_of::<u32>(),
+            ShmOpenMode::CreateOrOpen,
+        )?;
 
-        // No explicit init needed: fresh shm from shm_open is zero-filled,
-        // and all header fields (write_cursor, connections, sender_count)
-        // have correct initial value of 0.
+        // No explicit init needed: fresh shm from shm_open is zero-filled.
         let hdr = unsafe { ring_header(ring_shm.get()) };
+
+        // Allocate a unique endpoint identity from the shared counter (mirrors C++ cc_acc()).
+        let cc_id_atomic = unsafe { &*(cc_id_shm.get() as *const AtomicU32) };
+        let mut cc_id = cc_id_atomic.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+        if cc_id == 0 {
+            cc_id = cc_id_atomic.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+        }
 
         let wt_waiter = Waiter::open(&wt_name)?;
         let rd_waiter = Waiter::open(&rd_name)?;
@@ -180,10 +194,12 @@ impl ChanInner {
             mode,
             ring_shm,
             conn_id,
+            cc_id,
             read_cursor,
             wt_waiter,
             rd_waiter,
             cc_waiter,
+            cc_id_shm,
         })
     }
 
@@ -264,11 +280,12 @@ impl ChanInner {
 
     /// Send data. Returns `true` if sent successfully.
     ///
-    /// Mirrors C++ `prod_cons_impl<single,multi,broadcast>::push`:
+    /// Mirrors C++ push + force_push:
     /// 1. CAS `rc` from (stale or zero) to `epoch | cc` — claims the slot.
-    /// 2. Write data + size into the claimed slot.
-    /// 3. `wt_.fetch_add(1, Release)` — this is the "data ready" signal for receivers.
+    /// 2. Write cc_id + data + size into the claimed slot.
+    /// 3. `write_cursor.fetch_add(1, Release)` — "data ready" signal for receivers.
     /// 4. Broadcast rd_waiter per fragment.
+    /// On timeout: increment epoch, disconnect stale receivers, retry (force_push).
     fn send(&self, data: &[u8], timeout_ms: u64) -> io::Result<bool> {
         if data.is_empty() {
             return Ok(false);
@@ -286,9 +303,9 @@ impl ChanInner {
             let is_last = (offset + chunk_len) >= data.len();
 
             // Spin-then-wait until we can CAS-claim the next slot.
-            // Mirrors C++ push() inner loop.
+            // On timeout, force_push: bump epoch + disconnect stale receivers.
             let claimed_wt: u32;
-            loop {
+            'claim: loop {
                 let cc = hdr.connections.load(Ordering::Relaxed) as u64;
                 if cc == 0 {
                     return Ok(false); // no receivers
@@ -300,10 +317,9 @@ impl ChanInner {
                 let cur_rc = slot.rc.load(Ordering::Acquire);
                 let rem_cc = cur_rc & EP_MASK;
 
-                // Slot is busy if: remaining readers overlap current connections
+                // Slot is busy if remaining readers overlap current connections
                 // AND the epoch in rc matches the current epoch (same generation).
                 if (cc & rem_cc) != 0 && (cur_rc & !EP_MASK) == epoch {
-                    // Slot still being read — wait for last reader to clear it.
                     let ok = Self::wait_for(
                         &self.wt_waiter,
                         || {
@@ -314,14 +330,30 @@ impl ChanInner {
                         },
                         Some(timeout_ms),
                     )?;
-                    if !ok {
-                        return Ok(false); // timeout
+                    if ok {
+                        continue 'claim;
                     }
-                    continue;
+                    // Timeout — force_push: bump epoch, disconnect stale receivers.
+                    // Mirrors C++ force_push: epoch_ += ep_incr, disconnect_receiver(rem_cc).
+                    hdr.epoch.fetch_add(EP_INCR, Ordering::AcqRel);
+                    let cur_rc2 = slot.rc.load(Ordering::Acquire);
+                    let rem_cc2 = cur_rc2 & EP_MASK;
+                    if rem_cc2 != 0 {
+                        // Disconnect all receivers still blocking this slot.
+                        let new_cc = hdr
+                            .connections
+                            .fetch_and(!(rem_cc2 as u32), Ordering::AcqRel)
+                            & !(rem_cc2 as u32);
+                        if new_cc == 0 {
+                            return Ok(false); // no receivers left
+                        }
+                        // Clear stale bits from the slot's rc so we can claim it.
+                        slot.rc.fetch_and(!rem_cc2, Ordering::AcqRel);
+                    }
+                    continue 'claim;
                 }
 
                 // Atomically claim the slot: set rc = epoch | cc.
-                // Release ordering: pairs with the Acquire in pop's rc load.
                 let new_rc = epoch | cc;
                 if slot
                     .rc
@@ -329,15 +361,15 @@ impl ChanInner {
                     .is_ok()
                 {
                     claimed_wt = wt;
-                    break;
+                    break 'claim;
                 }
-                // CAS failed (concurrent receiver cleared bits) — retry.
                 std::thread::yield_now();
             }
 
-            // --- Slot is claimed: write data, then advance write_cursor ---
-            // Data is written AFTER the rc CAS (same as C++ push: f(&el->data_) after CAS).
+            // --- Slot is claimed: write cc_id, data, size, then advance write_cursor ---
             let slot = self.slot(claimed_wt as u8);
+            slot.cc_id.store(self.cc_id, Ordering::Relaxed);
+
             let slot_ptr = &slot.data as *const [u8; DATA_LENGTH] as *mut u8;
             unsafe {
                 std::ptr::copy_nonoverlapping(data.as_ptr().add(offset), slot_ptr, chunk_len);
@@ -350,8 +382,7 @@ impl ChanInner {
             };
             slot.size.store(size_val, Ordering::Relaxed);
 
-            // Advance write cursor with Release — this is the "data ready" signal.
-            // Receivers spin on `read_cursor < write_cursor` (mirrors C++ `cur == cursor()`).
+            // Advance write cursor with Release — "data ready" signal for receivers.
             hdr.write_cursor.fetch_add(1, Ordering::Release);
 
             offset += chunk_len;
@@ -370,11 +401,12 @@ impl ChanInner {
 
     /// Receive a message. Returns empty buffer on timeout.
     ///
-    /// Mirrors C++ `prod_cons_impl<single,multi,broadcast>::pop`:
+    /// Mirrors C++ pop + self-message filtering:
     /// 1. Wait until `write_cursor > read_cursor` (Acquire) — data-ready signal.
-    /// 2. Read data + size from the slot.
-    /// 3. CAS-clear our bit from rc (low 32 only, preserve epoch in high 32).
-    /// 4. Unconditionally broadcast wt_waiter after every pop (matches C++ recv).
+    /// 2. Skip slots sent by this endpoint (cc_id match).
+    /// 3. Read data + size from the slot.
+    /// 4. CAS-clear our bit from rc (low 32 only, preserve epoch in high 32).
+    /// 5. Unconditionally broadcast wt_waiter after every pop (matches C++ recv).
     fn recv(&mut self, timeout_ms: Option<u64>) -> io::Result<IpcBuffer> {
         if self.mode != Mode::Receiver {
             return Err(io::Error::new(io::ErrorKind::Other, "not a receiver"));
@@ -418,20 +450,27 @@ impl ChanInner {
                 continue; // re-check
             }
 
-            // write_cursor Acquire above synchronises with the fetch_add Release in send,
-            // making the data and size writes visible.
+            // write_cursor Acquire synchronises with fetch_add Release in send,
+            // making cc_id, data, and size writes visible.
             let idx = self.read_cursor as u8;
             let slot = self.slot(idx);
+
             let size_val = slot.size.load(Ordering::Relaxed);
             let chunk_len = (size_val & 0x7FFF_FFFF) as usize;
             let is_last = (size_val & 0x8000_0000) != 0;
 
-            let slot_ptr = &slot.data as *const [u8; DATA_LENGTH] as *const u8;
-            let chunk = unsafe { std::slice::from_raw_parts(slot_ptr, chunk_len) };
-            assembled.extend_from_slice(chunk);
+            // Self-message filtering: skip slots we sent ourselves.
+            // Mirrors C++ recv: `if (msg.cc_id_ == inf->cc_id_) { ... skip ... }`
+            let sender_cc_id = slot.cc_id.load(Ordering::Relaxed);
+            let is_own = sender_cc_id == self.cc_id;
+
+            if !is_own {
+                let slot_ptr = &slot.data as *const [u8; DATA_LENGTH] as *const u8;
+                let chunk = unsafe { std::slice::from_raw_parts(slot_ptr, chunk_len) };
+                assembled.extend_from_slice(chunk);
+            }
 
             // CAS-clear our bit from the low 32 bits of rc, preserving the epoch.
-            // Mirrors C++ pop: nxt_rc = cur_rc & ~connected_id().
             let mut k = 0u32;
             loop {
                 let cur_rc = slot.rc.load(Ordering::Acquire);
@@ -452,6 +491,11 @@ impl ChanInner {
             self.read_cursor = self.read_cursor.wrapping_add(1);
 
             if is_last {
+                if is_own {
+                    // Own message — discard assembled fragments and return empty.
+                    assembled.clear();
+                    return Ok(IpcBuffer::new());
+                }
                 return Ok(IpcBuffer::from_vec(assembled));
             }
         }
@@ -567,6 +611,7 @@ impl Route {
             format!("{prefix}_")
         };
         ShmHandle::clear_storage(&format!("{full_prefix}QU_CONN__{name}"));
+        ShmHandle::clear_storage(&format!("{full_prefix}CA_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}WT_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}RD_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}CC_CONN__{name}"));
