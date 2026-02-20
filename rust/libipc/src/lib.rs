@@ -44,3 +44,5 @@ pub mod channel;
 pub use channel::{Channel, Mode, Route};
 
 pub mod proto;
+
+pub mod mem;

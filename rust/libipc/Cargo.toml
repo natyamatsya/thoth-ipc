@@ -6,8 +6,17 @@ description = "Pure Rust implementation of cpp-ipc shared memory and named mutex
 license = "MIT"
 publish = false
 
+[features]
+bump_alloc = ["dep:bumpalo"]
+slab_pool = ["dep:slab"]
+
 [dependencies]
 flatbuffers = "24.3.25"
+bumpalo = { version = "3", optional = true, features = ["collections"] }
+slab = { version = "0.4", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -39,6 +48,10 @@ path = "src/bin/demo_rt_audio_service.rs"
 [[bin]]
 name = "demo_rt_audio_host"
 path = "src/bin/demo_rt_audio_host.rs"
+
+[[bench]]
+name = "alloc"
+harness = false
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
