@@ -31,6 +31,12 @@ impl IpcCondition {
         Ok(Self { inner })
     }
 
+    /// Whether this condition handle is valid (always true after successful `open`).
+    /// Mirrors C++ `ipc::sync::condition::valid()`.
+    pub fn valid(&self) -> bool {
+        true
+    }
+
     /// Wait on the condition variable. The caller must hold `mtx` locked.
     /// The mutex is atomically released and re-acquired around the wait.
     /// If `timeout_ms` is `None`, blocks indefinitely.

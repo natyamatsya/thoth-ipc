@@ -115,7 +115,8 @@ pub enum Mode {
 /// Internal channel state shared by `Route` and `Channel`.
 struct ChanInner {
     name: String,
-    _prefix: String,
+    prefix: String,  // original prefix (before full_prefix expansion)
+    _prefix: String, // chunk_prefix = "{full_prefix}{name}_"
     mode: Mode,
     ring_shm: ShmHandle,
     conn_id: u32,                 // bitmask for this receiver (0 for senders)
@@ -126,6 +127,7 @@ struct ChanInner {
     cc_waiter: Waiter,            // connection waiter (wait_for_recv)
     cc_id_shm: ShmHandle,         // shared atomic counter for cc_id allocation (CA_CONN__)
     chunk_shm: Option<ShmHandle>, // large-message chunk storage (CH_CONN__), lazily opened
+    disconnected: bool,           // true after explicit disconnect()
 }
 
 impl ChanInner {
@@ -201,6 +203,7 @@ impl ChanInner {
 
         Ok(Self {
             name: name.to_string(),
+            prefix: prefix.to_string(),
             _prefix: chunk_prefix,
             mode,
             ring_shm,
@@ -212,6 +215,7 @@ impl ChanInner {
             cc_waiter,
             cc_id_shm,
             chunk_shm: None,
+            disconnected: false,
         })
     }
 
@@ -691,8 +695,18 @@ impl ChanInner {
     }
 }
 
-impl Drop for ChanInner {
-    fn drop(&mut self) {
+impl ChanInner {
+    /// Whether this endpoint is still connected (not explicitly disconnected).
+    fn valid(&self) -> bool {
+        !self.disconnected
+    }
+
+    /// Disconnect this endpoint: clear connection bits and mark as disconnected.
+    /// Mirrors C++ `detail_impl::disconnect` — shuts sending and clears receiver bit.
+    fn disconnect(&mut self) {
+        if self.disconnected {
+            return;
+        }
         let hdr = self.hdr();
         match self.mode {
             Mode::Sender => {
@@ -700,8 +714,33 @@ impl Drop for ChanInner {
             }
             Mode::Receiver => {
                 hdr.connections.fetch_and(!self.conn_id, Ordering::AcqRel);
+                // Wake any senders waiting for this receiver to drain.
+                let _ = self.wt_waiter.broadcast();
             }
         }
+        self.disconnected = true;
+    }
+
+    /// Reconnect with a (possibly different) mode.
+    /// Disconnects the current connection, then re-opens with the new mode.
+    /// Returns an error if the underlying SHM cannot be opened.
+    fn reconnect(&mut self, mode: Mode) -> io::Result<()> {
+        self.disconnect();
+        let new_inner = ChanInner::open(&self.prefix, &self.name, mode)?;
+        *self = new_inner;
+        Ok(())
+    }
+
+    /// Open a new independent endpoint with the same name, prefix, and mode.
+    fn clone_inner(&self) -> io::Result<ChanInner> {
+        ChanInner::open(&self.prefix, &self.name, self.mode)
+    }
+}
+
+impl Drop for ChanInner {
+    fn drop(&mut self) {
+        // disconnect() is idempotent — safe to call even if already disconnected.
+        self.disconnect();
     }
 }
 
@@ -739,6 +778,33 @@ impl Route {
     /// Current mode (sender or receiver).
     pub fn mode(&self) -> Mode {
         self.inner.mode
+    }
+
+    /// Whether this endpoint is still connected (not explicitly disconnected).
+    /// Mirrors C++ `chan_wrapper::valid()`.
+    pub fn valid(&self) -> bool {
+        self.inner.valid()
+    }
+
+    /// Disconnect this endpoint. Clears connection bits; the backing SHM is not removed.
+    /// After calling this, `valid()` returns `false`.
+    /// Mirrors C++ `chan_wrapper::disconnect()`.
+    pub fn disconnect(&mut self) {
+        self.inner.disconnect();
+    }
+
+    /// Disconnect and reconnect with a (possibly different) mode.
+    /// Mirrors C++ `chan_wrapper::reconnect(mode)`.
+    pub fn reconnect(&mut self, mode: Mode) -> io::Result<()> {
+        self.inner.reconnect(mode)
+    }
+
+    /// Open a new independent endpoint with the same name, prefix, and mode.
+    /// Mirrors C++ `chan_wrapper::clone()`.
+    pub fn clone(&self) -> io::Result<Self> {
+        Ok(Self {
+            inner: self.inner.clone_inner()?,
+        })
     }
 
     /// Number of connected receivers.
@@ -780,6 +846,30 @@ impl Route {
     /// Try receiving without blocking.
     pub fn try_recv(&mut self) -> io::Result<IpcBuffer> {
         self.inner.try_recv()
+    }
+
+    /// Disconnect and remove all backing SHM under the currently-open handle.
+    /// Equivalent to `disconnect()` followed by `clear_storage(name)`.
+    /// Mirrors C++ `chan_wrapper::clear()`.
+    pub fn clear(&mut self) {
+        let name = self.inner.name.clone();
+        let prefix = self.inner.prefix.clone();
+        self.inner.disconnect();
+        Self::clear_storage_with_prefix(&prefix, &name);
+    }
+
+    /// Release the local connection without waiting for remote peers to disconnect.
+    /// The backing SHM is NOT removed; other processes continue to use it.
+    /// Mirrors C++ `chan_wrapper::release()`.
+    pub fn release(&mut self) {
+        self.inner.disconnect();
+    }
+
+    /// Static convenience: connect a temporary sender, wait for `count` receivers,
+    /// then drop it. Mirrors C++ `chan_wrapper::wait_for_recv(name, count, tm)`.
+    pub fn wait_for_recv_on(name: &str, count: usize, timeout_ms: Option<u64>) -> io::Result<bool> {
+        let rt = Self::connect(name, Mode::Sender)?;
+        rt.inner.wait_for_recv(count, timeout_ms)
     }
 
     /// Remove all backing storage for a named route.
@@ -847,6 +937,33 @@ impl Channel {
         self.inner.mode
     }
 
+    /// Whether this endpoint is still connected (not explicitly disconnected).
+    /// Mirrors C++ `chan_wrapper::valid()`.
+    pub fn valid(&self) -> bool {
+        self.inner.valid()
+    }
+
+    /// Disconnect this endpoint. Clears connection bits; the backing SHM is not removed.
+    /// After calling this, `valid()` returns `false`.
+    /// Mirrors C++ `chan_wrapper::disconnect()`.
+    pub fn disconnect(&mut self) {
+        self.inner.disconnect();
+    }
+
+    /// Disconnect and reconnect with a (possibly different) mode.
+    /// Mirrors C++ `chan_wrapper::reconnect(mode)`.
+    pub fn reconnect(&mut self, mode: Mode) -> io::Result<()> {
+        self.inner.reconnect(mode)
+    }
+
+    /// Open a new independent endpoint with the same name, prefix, and mode.
+    /// Mirrors C++ `chan_wrapper::clone()`.
+    pub fn clone(&self) -> io::Result<Self> {
+        Ok(Self {
+            inner: self.inner.clone_inner()?,
+        })
+    }
+
     /// Number of connected receivers.
     pub fn recv_count(&self) -> usize {
         self.inner.recv_count()
@@ -886,6 +1003,28 @@ impl Channel {
     /// Try receiving without blocking.
     pub fn try_recv(&mut self) -> io::Result<IpcBuffer> {
         self.inner.try_recv()
+    }
+
+    /// Disconnect and remove all backing SHM under the currently-open handle.
+    /// Mirrors C++ `chan_wrapper::clear()`.
+    pub fn clear(&mut self) {
+        let name = self.inner.name.clone();
+        let prefix = self.inner.prefix.clone();
+        self.inner.disconnect();
+        Self::clear_storage_with_prefix(&prefix, &name);
+    }
+
+    /// Release the local connection without removing backing SHM.
+    /// Mirrors C++ `chan_wrapper::release()`.
+    pub fn release(&mut self) {
+        self.inner.disconnect();
+    }
+
+    /// Static convenience: wait for `count` receivers on a named channel.
+    /// Mirrors C++ `chan_wrapper::wait_for_recv(name, count, tm)`.
+    pub fn wait_for_recv_on(name: &str, count: usize, timeout_ms: Option<u64>) -> io::Result<bool> {
+        let ch = Self::connect(name, Mode::Sender)?;
+        ch.inner.wait_for_recv(count, timeout_ms)
     }
 
     /// Remove all backing storage for a named channel.

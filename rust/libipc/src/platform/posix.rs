@@ -443,8 +443,61 @@ impl PlatformMutex {
         }
     }
 
+    /// Lock the mutex with a timeout in milliseconds.
+    /// Returns `Ok(true)` if acquired, `Ok(false)` on timeout.
+    pub fn lock_timeout(&self, timeout_ms: u64) -> io::Result<bool> {
+        #[cfg(target_os = "macos")]
+        {
+            // macOS lacks pthread_mutex_timedlock — emulate via try_lock polling.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+            let mut k = 0u32;
+            loop {
+                let eno = unsafe { libc::pthread_mutex_trylock(self.mtx_ptr()) };
+                match eno {
+                    0 => return Ok(true),
+                    libc::EBUSY => {}
+                    _ => return Err(io::Error::from_raw_os_error(eno)),
+                }
+                if std::time::Instant::now() >= deadline {
+                    return Ok(false);
+                }
+                crate::spin_lock::adaptive_yield_pub(&mut k);
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            extern "C" {
+                fn pthread_mutex_timedlock(
+                    mutex: *mut libc::pthread_mutex_t,
+                    abstime: *const libc::timespec,
+                ) -> libc::c_int;
+            }
+            let mut ts: libc::timespec = unsafe { std::mem::zeroed() };
+            unsafe { libc::clock_gettime(libc::CLOCK_REALTIME, &mut ts) };
+            let ns_total = ts.tv_nsec as u64 + (timeout_ms % 1000) * 1_000_000;
+            ts.tv_sec +=
+                (timeout_ms / 1000) as libc::time_t + (ns_total / 1_000_000_000) as libc::time_t;
+            ts.tv_nsec = (ns_total % 1_000_000_000) as libc::c_long;
+            loop {
+                let eno = unsafe { pthread_mutex_timedlock(self.mtx_ptr(), &ts) };
+                match eno {
+                    0 => return Ok(true),
+                    libc::ETIMEDOUT => return Ok(false),
+                    EOWNERDEAD => {
+                        let eno2 = unsafe { pthread_mutex_consistent(self.mtx_ptr()) };
+                        if eno2 != 0 {
+                            return Err(io::Error::from_raw_os_error(eno2));
+                        }
+                        return Ok(true);
+                    }
+                    libc::EINTR => continue,
+                    _ => return Err(io::Error::from_raw_os_error(eno)),
+                }
+            }
+        }
+    }
+
     /// Try to lock the mutex without blocking.
-    /// Returns `Ok(true)` if acquired, `Ok(false)` if contended.
     pub fn try_lock(&self) -> io::Result<bool> {
         let eno = unsafe { libc::pthread_mutex_trylock(self.mtx_ptr()) };
         match eno {

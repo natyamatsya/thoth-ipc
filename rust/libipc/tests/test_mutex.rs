@@ -167,7 +167,10 @@ fn concurrent_try_lock() {
         h.join().unwrap();
     }
 
-    assert!(success_count.load(Ordering::Relaxed) > 0, "some try_locks should succeed");
+    assert!(
+        success_count.load(Ordering::Relaxed) > 0,
+        "some try_locks should succeed"
+    );
 }
 
 // Port of MutexTest.LockContention — mutual exclusion verification
@@ -220,7 +223,10 @@ fn lock_contention() {
     t1.join().unwrap();
     t2.join().unwrap();
 
-    assert!(!violation.load(Ordering::SeqCst), "both threads in critical section simultaneously");
+    assert!(
+        !violation.load(Ordering::SeqCst),
+        "both threads in critical section simultaneously"
+    );
 }
 
 // Port of MutexTest.NamedMutexInterThread
@@ -301,7 +307,10 @@ fn concurrent_open() {
         .map(|i| {
             let sc = Arc::clone(&success_count);
             thread::spawn(move || {
-                let name = format!("concurrent_open_{i}_{}", COUNTER.fetch_add(1, Ordering::Relaxed));
+                let name = format!(
+                    "concurrent_open_{i}_{}",
+                    COUNTER.fetch_add(1, Ordering::Relaxed)
+                );
                 IpcMutex::clear_storage(&name);
                 if IpcMutex::open(&name).is_ok() {
                     sc.fetch_add(1, Ordering::Relaxed);
@@ -367,7 +376,10 @@ fn try_lock_contended() {
 
     t.join().unwrap();
 
-    assert!(contended.load(Ordering::SeqCst), "try_lock should have been contended");
+    assert!(
+        contended.load(Ordering::SeqCst),
+        "try_lock should have been contended"
+    );
 }
 
 // Additional: lock protects non-atomic increment (data race test)
@@ -413,8 +425,10 @@ fn sequential_lock_unlock_same_thread() {
     let mtx = IpcMutex::open(&name).expect("open");
 
     for i in 0..50 {
-        mtx.lock().unwrap_or_else(|e| panic!("lock failed on iteration {i}: {e}"));
-        mtx.unlock().unwrap_or_else(|e| panic!("unlock failed on iteration {i}: {e}"));
+        mtx.lock()
+            .unwrap_or_else(|e| panic!("lock failed on iteration {i}: {e}"));
+        mtx.unlock()
+            .unwrap_or_else(|e| panic!("unlock failed on iteration {i}: {e}"));
     }
 }
 
@@ -449,5 +463,50 @@ fn high_contention() {
         h.join().unwrap();
     }
 
-    assert_eq!(counter.load(Ordering::Relaxed), num_threads * ops_per_thread);
+    assert_eq!(
+        counter.load(Ordering::Relaxed),
+        num_threads * ops_per_thread
+    );
+}
+
+// ===========================================================================
+// New API: valid(), lock_timeout()
+// ===========================================================================
+
+#[test]
+fn valid_after_open() {
+    let name = unique_name("valid");
+    IpcMutex::clear_storage(&name);
+    let mtx = IpcMutex::open(&name).expect("open");
+    assert!(mtx.valid());
+    IpcMutex::clear_storage(&name);
+}
+
+#[test]
+fn lock_timeout_acquires_uncontended() {
+    let name = unique_name("lt_uncontended");
+    IpcMutex::clear_storage(&name);
+    let mtx = IpcMutex::open(&name).expect("open");
+    let acquired = mtx.lock_timeout(500).expect("lock_timeout");
+    assert!(acquired);
+    mtx.unlock().expect("unlock");
+    IpcMutex::clear_storage(&name);
+}
+
+#[test]
+fn lock_timeout_times_out_when_held() {
+    let name = unique_name("lt_timeout");
+    IpcMutex::clear_storage(&name);
+    let mtx = IpcMutex::open(&name).expect("open");
+    mtx.lock().expect("lock");
+    // Try to acquire from another thread — should time out.
+    let name2 = name.clone();
+    let h = thread::spawn(move || {
+        let mtx2 = IpcMutex::open(&name2).expect("open2");
+        mtx2.lock_timeout(50).expect("lock_timeout")
+    });
+    let timed_out = !h.join().unwrap();
+    assert!(timed_out, "expected timeout");
+    mtx.unlock().expect("unlock");
+    IpcMutex::clear_storage(&name);
 }

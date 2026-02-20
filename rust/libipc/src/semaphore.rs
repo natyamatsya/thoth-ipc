@@ -31,6 +31,12 @@ impl IpcSemaphore {
         Ok(Self { inner })
     }
 
+    /// Whether this semaphore handle is valid (always true after successful `open`).
+    /// Mirrors C++ `ipc::sync::semaphore::valid()`.
+    pub fn valid(&self) -> bool {
+        true
+    }
+
     /// Decrement (wait on) the semaphore.
     /// If `timeout_ms` is `None`, blocks indefinitely.
     /// If `timeout_ms` is `Some(ms)`, waits at most `ms` milliseconds.
@@ -49,7 +55,9 @@ impl IpcSemaphore {
         #[cfg(unix)]
         PosixSemaphore::clear_storage(name);
         #[cfg(windows)]
-        { let _ = name; }
+        {
+            let _ = name;
+        }
     }
 }
 
@@ -202,14 +210,8 @@ impl WindowsSemaphore {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "name is empty"));
         }
         let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
-        let h = unsafe {
-            CreateSemaphoreW(
-                std::ptr::null(),
-                count as i32,
-                i32::MAX,
-                wide.as_ptr(),
-            )
-        };
+        let h =
+            unsafe { CreateSemaphoreW(std::ptr::null(), count as i32, i32::MAX, wide.as_ptr()) };
         if h == 0 {
             return Err(io::Error::last_os_error());
         }
