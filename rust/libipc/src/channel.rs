@@ -135,6 +135,8 @@ impl ChanInner {
         } else {
             format!("{prefix}_")
         };
+        // chunk_prefix includes the channel name so each channel has isolated chunk storage.
+        let chunk_prefix = format!("{full_prefix}{name}_");
         let ring_name = format!("{full_prefix}QU_CONN__{name}");
         let wt_name = format!("{full_prefix}WT_CONN__{name}");
         let rd_name = format!("{full_prefix}RD_CONN__{name}");
@@ -199,7 +201,7 @@ impl ChanInner {
 
         Ok(Self {
             name: name.to_string(),
-            _prefix: full_prefix,
+            _prefix: chunk_prefix,
             mode,
             ring_shm,
             conn_id,
@@ -797,10 +799,11 @@ impl Route {
         Waiter::clear_storage(&format!("{full_prefix}WT_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}RD_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}CC_CONN__{name}"));
-        // Remove any chunk-storage shm segments (one per chunk_size that was ever used).
-        // We don't know which chunk sizes were used, so we sweep common sizes.
+        // Remove any chunk-storage shm segments. chunk_prefix matches the _prefix field:
+        // {full_prefix}{name}_ so each channel's chunk SHMs are isolated.
+        let chunk_prefix = format!("{full_prefix}{name}_");
         for &payload_size in &[128usize, 256, 512, 1024, 2048, 4096, 8192, 16384, 65536] {
-            cs::clear_chunk_shm(&full_prefix, cs::calc_chunk_size(payload_size));
+            cs::clear_chunk_shm(&chunk_prefix, cs::calc_chunk_size(payload_size));
         }
     }
 }
