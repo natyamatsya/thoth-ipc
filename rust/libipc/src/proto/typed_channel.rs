@@ -6,8 +6,8 @@
 
 use std::io;
 
-use crate::channel::{Channel, Mode};
 use super::message::{Builder, Message};
+use crate::channel::{Channel, Mode};
 
 /// A typed wrapper around [`Channel`] for FlatBuffer messages.
 ///
@@ -22,7 +22,10 @@ pub struct TypedChannel<T> {
 impl<T> TypedChannel<T> {
     /// Connect to a named channel as sender or receiver.
     pub fn connect(name: &str, mode: Mode) -> io::Result<Self> {
-        Ok(Self { ch: Channel::connect(name, mode)?, _marker: std::marker::PhantomData })
+        Ok(Self {
+            ch: Channel::connect(name, mode)?,
+            _marker: std::marker::PhantomData,
+        })
     }
 
     /// Connect with a prefix.
@@ -59,10 +62,7 @@ impl<T> TypedChannel<T> {
     }
 }
 
-impl<T> TypedChannel<T>
-where
-    T: for<'a> flatbuffers::Follow<'a, Inner = &'a T>,
-{
+impl<T> TypedChannel<T> {
     /// Receive a typed message. Returns an empty `Message` on timeout.
     pub fn recv(&mut self, timeout_ms: Option<u64>) -> io::Result<Message<T>> {
         let buf = self.ch.recv(timeout_ms)?;

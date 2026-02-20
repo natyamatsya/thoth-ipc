@@ -12,6 +12,26 @@ flatbuffers = "24.3.25"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[[bin]]
+name = "demo_send_recv"
+path = "src/bin/demo_send_recv.rs"
+
+[[bin]]
+name = "demo_chat"
+path = "src/bin/demo_chat.rs"
+
+[[bin]]
+name = "demo_msg_que"
+path = "src/bin/demo_msg_que.rs"
+
+[[bin]]
+name = "demo_audio_service"
+path = "src/bin/demo_audio_service.rs"
+
+[[bin]]
+name = "demo_audio_host"
+path = "src/bin/demo_audio_host.rs"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
