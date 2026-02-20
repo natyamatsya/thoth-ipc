@@ -15,7 +15,7 @@
 // is placed in the ring slot.
 
 use std::io;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::buffer::IpcBuffer;
@@ -34,16 +34,28 @@ const RING_SIZE: usize = 256;
 
 /// A single slot in the circular ring buffer.
 /// Each slot holds a fixed-size payload and metadata for tracking reads.
+///
+/// `rc` mirrors the C++ `prod_cons_impl<single,multi,broadcast>::elem_t::rc_`:
+///   - low  32 bits (EP_MASK): connection bitmask — which receivers still need to read
+///   - high 32 bits (~EP_MASK): epoch — generation counter written by the sender
+///
+/// A slot is free when `(rc & EP_MASK) == 0` OR the epoch in `rc` differs from the
+/// sender's current epoch (stale bits from a previous generation).
 #[repr(C)]
 struct RingSlot {
     /// Message payload (up to DATA_LENGTH bytes).
     data: [u8; DATA_LENGTH],
     /// Actual size of data in this slot.
     size: AtomicU32,
-    /// Read-counter: tracks which receivers have consumed this slot.
-    /// In broadcast mode, each receiver clears its bit after reading.
-    rc: AtomicU32,
+    /// Read-counter + epoch packed into 64 bits (matches C++ rc_ field).
+    rc: AtomicU64,
 }
+
+/// Bitmask for the connection bits in the 64-bit `rc` field (low 32 bits).
+const EP_MASK: u64 = 0x0000_0000_ffff_ffff;
+/// Increment for the epoch stored in the high 32 bits of `rc`.
+#[allow(dead_code)]
+const EP_INCR: u64 = 0x0000_0001_0000_0000;
 
 /// Header of the shared ring buffer, followed by RING_SIZE `RingSlot`s.
 #[repr(C)]
@@ -54,6 +66,10 @@ struct RingHeader {
     write_cursor: AtomicU32,
     /// Number of connected senders (for multi-producer).
     sender_count: AtomicU32,
+    /// Epoch counter — incremented by the sender on each force-push.
+    /// Stored in the high 32 bits of each slot's `rc` to distinguish
+    /// "slot is being read" from "slot was freed in a prior generation".
+    epoch: AtomicU64,
 }
 
 /// Total shared memory size for the ring.
@@ -248,10 +264,11 @@ impl ChanInner {
 
     /// Send data. Returns `true` if sent successfully.
     ///
-    /// Protocol:
-    /// 1. CAS write_cursor to claim a slot index
-    /// 2. Write payload + size into the claimed slot
-    /// 3. Store rc = conns (Release) — signals receivers that data is ready
+    /// Mirrors C++ `prod_cons_impl<single,multi,broadcast>::push`:
+    /// 1. CAS `rc` from (stale or zero) to `epoch | cc` — claims the slot.
+    /// 2. Write data + size into the claimed slot.
+    /// 3. `wt_.fetch_add(1, Release)` — this is the "data ready" signal for receivers.
+    /// 4. Broadcast rd_waiter per fragment.
     fn send(&self, data: &[u8], timeout_ms: u64) -> io::Result<bool> {
         if data.is_empty() {
             return Ok(false);
@@ -261,59 +278,65 @@ impl ChanInner {
         }
 
         let hdr = self.hdr();
-        let conns = hdr.connections.load(Ordering::Acquire);
-        if conns == 0 {
-            return Ok(false); // no receivers
-        }
+        let ring_ptr = self.ring_shm.get();
 
         let mut offset = 0usize;
         while offset < data.len() {
             let chunk_len = std::cmp::min(DATA_LENGTH, data.len() - offset);
             let is_last = (offset + chunk_len) >= data.len();
 
-            // Wait for a free slot using spin-then-wait
-            let ring_ptr = self.ring_shm.get();
-            let claimed_wt;
+            // Spin-then-wait until we can CAS-claim the next slot.
+            // Mirrors C++ push() inner loop.
+            let claimed_wt: u32;
             loop {
-                let wt = hdr.write_cursor.load(Ordering::Acquire);
-                let idx = wt as u8;
+                let cc = hdr.connections.load(Ordering::Relaxed) as u64;
+                if cc == 0 {
+                    return Ok(false); // no receivers
+                }
 
-                // Slot must be free (rc == 0) before we can reuse it.
-                let slot = self.slot(idx);
-                if slot.rc.load(Ordering::Acquire) != 0 {
+                let epoch = hdr.epoch.load(Ordering::Relaxed);
+                let wt = hdr.write_cursor.load(Ordering::Relaxed);
+                let slot = unsafe { ring_slot(ring_ptr, wt as u8) };
+                let cur_rc = slot.rc.load(Ordering::Acquire);
+                let rem_cc = cur_rc & EP_MASK;
+
+                // Slot is busy if: remaining readers overlap current connections
+                // AND the epoch in rc matches the current epoch (same generation).
+                if (cc & rem_cc) != 0 && (cur_rc & !EP_MASK) == epoch {
+                    // Slot still being read — wait for last reader to clear it.
                     let ok = Self::wait_for(
                         &self.wt_waiter,
                         || {
                             let s = unsafe { ring_slot(ring_ptr, wt as u8) };
-                            s.rc.load(Ordering::Acquire) != 0
+                            let rc = s.rc.load(Ordering::Acquire);
+                            let ep = hdr.epoch.load(Ordering::Relaxed);
+                            (cc & (rc & EP_MASK)) != 0 && (rc & !EP_MASK) == ep
                         },
                         Some(timeout_ms),
                     )?;
                     if !ok {
                         return Ok(false); // timeout
                     }
-                    continue; // re-read write_cursor
-                }
-
-                // Claim this slot (multi-producer safe via CAS).
-                if hdr
-                    .write_cursor
-                    .compare_exchange_weak(
-                        wt,
-                        wt.wrapping_add(1),
-                        Ordering::AcqRel,
-                        Ordering::Relaxed,
-                    )
-                    .is_err()
-                {
                     continue;
                 }
 
-                claimed_wt = wt;
-                break;
+                // Atomically claim the slot: set rc = epoch | cc.
+                // Release ordering: pairs with the Acquire in pop's rc load.
+                let new_rc = epoch | cc;
+                if slot
+                    .rc
+                    .compare_exchange_weak(cur_rc, new_rc, Ordering::Release, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    claimed_wt = wt;
+                    break;
+                }
+                // CAS failed (concurrent receiver cleared bits) — retry.
+                std::thread::yield_now();
             }
 
-            // --- Slot is ours, write data ---
+            // --- Slot is claimed: write data, then advance write_cursor ---
+            // Data is written AFTER the rc CAS (same as C++ push: f(&el->data_) after CAS).
             let slot = self.slot(claimed_wt as u8);
             let slot_ptr = &slot.data as *const [u8; DATA_LENGTH] as *mut u8;
             unsafe {
@@ -327,15 +350,16 @@ impl ChanInner {
             };
             slot.size.store(size_val, Ordering::Relaxed);
 
-            // Publish: set rc = connection bitmask (Release barrier).
-            // All writes above are visible to any thread that loads rc with Acquire.
-            let current_conns = hdr.connections.load(Ordering::Relaxed);
-            slot.rc.store(current_conns, Ordering::Release);
+            // Advance write cursor with Release — this is the "data ready" signal.
+            // Receivers spin on `read_cursor < write_cursor` (mirrors C++ `cur == cursor()`).
+            hdr.write_cursor.fetch_add(1, Ordering::Release);
 
             offset += chunk_len;
+
+            // Wake receivers after each fragment (matches C++ per-fragment broadcast).
+            let _ = self.rd_waiter.broadcast();
         }
 
-        let _ = self.rd_waiter.broadcast();
         Ok(true)
     }
 
@@ -346,10 +370,11 @@ impl ChanInner {
 
     /// Receive a message. Returns empty buffer on timeout.
     ///
-    /// Protocol:
-    /// 1. Spin-then-wait until slot[read_cursor].rc & my_bit is set (Acquire)
-    /// 2. Read size + payload
-    /// 3. Clear my bit from rc; if last reader, slot becomes free
+    /// Mirrors C++ `prod_cons_impl<single,multi,broadcast>::pop`:
+    /// 1. Wait until `write_cursor > read_cursor` (Acquire) — data-ready signal.
+    /// 2. Read data + size from the slot.
+    /// 3. CAS-clear our bit from rc (low 32 only, preserve epoch in high 32).
+    /// 4. Unconditionally broadcast wt_waiter after every pop (matches C++ recv).
     fn recv(&mut self, timeout_ms: Option<u64>) -> io::Result<IpcBuffer> {
         if self.mode != Mode::Receiver {
             return Err(io::Error::new(io::ErrorKind::Other, "not a receiver"));
@@ -357,16 +382,15 @@ impl ChanInner {
 
         let deadline = timeout_ms.map(|ms| Instant::now() + Duration::from_millis(ms));
         let mut assembled = Vec::new();
+        let conn_mask = self.conn_id as u64;
 
         loop {
-            let idx = self.read_cursor as u8;
-            let slot = self.slot(idx);
+            let hdr = self.hdr();
+            let ring_ptr = self.ring_shm.get();
 
-            // Check if this slot has data for us (our bit is set in rc).
-            if (slot.rc.load(Ordering::Acquire) & self.conn_id) == 0 {
-                // Spin-then-wait for data
-                let conn_id = self.conn_id;
-                let ring_ptr = self.ring_shm.get();
+            // Data is ready when write_cursor has advanced past our read_cursor.
+            // Mirrors C++: `if (cur == cursor()) return false;`
+            if hdr.write_cursor.load(Ordering::Acquire) == self.read_cursor {
                 let cur = self.read_cursor;
 
                 let tm = match deadline {
@@ -383,18 +407,21 @@ impl ChanInner {
                 let ok = Self::wait_for(
                     &self.rd_waiter,
                     || {
-                        let s = unsafe { ring_slot(ring_ptr, cur as u8) };
-                        (s.rc.load(Ordering::Acquire) & conn_id) == 0
+                        let h = unsafe { ring_header(ring_ptr) };
+                        h.write_cursor.load(Ordering::Acquire) == cur
                     },
                     tm,
                 )?;
                 if !ok {
                     return Ok(IpcBuffer::new()); // timeout
                 }
-                continue; // re-check slot
+                continue; // re-check
             }
 
-            // rc load above was Acquire, so data + size written by sender are visible.
+            // write_cursor Acquire above synchronises with the fetch_add Release in send,
+            // making the data and size writes visible.
+            let idx = self.read_cursor as u8;
+            let slot = self.slot(idx);
             let size_val = slot.size.load(Ordering::Relaxed);
             let chunk_len = (size_val & 0x7FFF_FFFF) as usize;
             let is_last = (size_val & 0x8000_0000) != 0;
@@ -403,12 +430,24 @@ impl ChanInner {
             let chunk = unsafe { std::slice::from_raw_parts(slot_ptr, chunk_len) };
             assembled.extend_from_slice(chunk);
 
-            // Clear our bit from rc.
-            let old_rc = slot.rc.fetch_and(!self.conn_id, Ordering::AcqRel);
-            if (old_rc & !self.conn_id) == 0 {
-                // Last reader — slot is now free, wake writers.
-                let _ = self.wt_waiter.broadcast();
+            // CAS-clear our bit from the low 32 bits of rc, preserving the epoch.
+            // Mirrors C++ pop: nxt_rc = cur_rc & ~connected_id().
+            let mut k = 0u32;
+            loop {
+                let cur_rc = slot.rc.load(Ordering::Acquire);
+                let nxt_rc = cur_rc & !conn_mask;
+                if slot
+                    .rc
+                    .compare_exchange_weak(cur_rc, nxt_rc, Ordering::Release, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    break;
+                }
+                crate::spin_lock::adaptive_yield_pub(&mut k);
             }
+
+            // Unconditionally wake writers after every pop (matches C++ recv behaviour).
+            let _ = self.wt_waiter.broadcast();
 
             self.read_cursor = self.read_cursor.wrapping_add(1);
 

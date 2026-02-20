@@ -177,13 +177,11 @@ impl PosixCondition {
 #[cfg(unix)]
 impl Drop for PosixCondition {
     fn drop(&mut self) {
-        let local = self
-            .cached
-            .local_ref
-            .load(std::sync::atomic::Ordering::Acquire);
-        if local <= 1 && self.cached.shm.ref_count() <= 1 {
-            unsafe { libc::pthread_cond_destroy(self.cond_ptr()) };
-        }
+        // Don't call pthread_cond_destroy here. On macOS, the virtual
+        // address may be recycled to a different shm segment after munmap,
+        // and destroy would zero the __sig field of whatever condition now
+        // lives at that address. The shm munmap + unlink in
+        // PlatformShm::Drop is sufficient to reclaim the memory.
         posix::cached_shm_release(posix::cond_cache(), &self.name);
     }
 }
