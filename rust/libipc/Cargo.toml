@@ -32,6 +32,14 @@ path = "src/bin/demo_audio_service.rs"
 name = "demo_audio_host"
 path = "src/bin/demo_audio_host.rs"
 
+[[bin]]
+name = "demo_rt_audio_service"
+path = "src/bin/demo_rt_audio_service.rs"
+
+[[bin]]
+name = "demo_rt_audio_host"
+path = "src/bin/demo_rt_audio_host.rs"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
