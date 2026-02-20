@@ -7,6 +7,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
+flatbuffers = "24.3.25"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

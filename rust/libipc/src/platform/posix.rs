@@ -183,99 +183,72 @@ impl PlatformShm {
         let c_name = CString::new(posix_name.as_bytes())
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
-        let mut flags = libc::O_RDWR;
-        let mut need_truncate = true;
-        match mode {
-            ShmMode::Open => {
-                need_truncate = false;
-            }
+        let perms: libc::mode_t = 0o666; // S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH
+        let total_size = calc_size(user_size);
+
+        // For CreateOrOpen: try exclusive create first so we only call ftruncate
+        // when we actually own the new object.  On macOS, calling ftruncate on an
+        // already-sized shm object can zero its contents before returning EINVAL.
+        let (fd, need_truncate) = match mode {
             ShmMode::Create => {
-                flags |= libc::O_CREAT | libc::O_EXCL;
+                let f = unsafe {
+                    libc::shm_open(
+                        c_name.as_ptr(),
+                        libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
+                        perms as libc::c_uint,
+                    )
+                };
+                if f == -1 {
+                    return Err(io::Error::last_os_error());
+                }
+                (f, true)
+            }
+            ShmMode::Open => {
+                let f =
+                    unsafe { libc::shm_open(c_name.as_ptr(), libc::O_RDWR, perms as libc::c_uint) };
+                if f == -1 {
+                    return Err(io::Error::last_os_error());
+                }
+                (f, false)
             }
             ShmMode::CreateOrOpen => {
-                flags |= libc::O_CREAT;
+                // Try exclusive create first.
+                let f = unsafe {
+                    libc::shm_open(
+                        c_name.as_ptr(),
+                        libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
+                        perms as libc::c_uint,
+                    )
+                };
+                if f != -1 {
+                    // We created it — must truncate to set the size.
+                    (f, true)
+                } else {
+                    let e = io::Error::last_os_error();
+                    if e.raw_os_error() != Some(libc::EEXIST) {
+                        return Err(e);
+                    }
+                    // Already exists — open without truncation.
+                    let f2 = unsafe {
+                        libc::shm_open(c_name.as_ptr(), libc::O_RDWR, perms as libc::c_uint)
+                    };
+                    if f2 == -1 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    (f2, false)
+                }
             }
-        }
-
-        let perms: libc::mode_t = 0o666; // S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH
-
-        let fd = unsafe { libc::shm_open(c_name.as_ptr(), flags, perms as libc::c_uint) };
-        if fd == -1 {
-            return Err(io::Error::last_os_error());
-        }
+        };
 
         // Ensure permissions (mirrors fchmod in C++)
         unsafe { libc::fchmod(fd, perms) };
 
-        let total_size;
         if need_truncate {
-            total_size = calc_size(user_size);
             let ret = unsafe { libc::ftruncate(fd, total_size as libc::off_t) };
             if ret != 0 {
                 let err = io::Error::last_os_error();
-                // macOS workaround: EINVAL on already-sized shm object
-                #[cfg(target_os = "macos")]
-                if err.raw_os_error() == Some(libc::EINVAL) {
-                    // Check if existing size is compatible
-                    let mut st: libc::stat = unsafe { std::mem::zeroed() };
-                    if unsafe { libc::fstat(fd, &mut st) } == 0
-                        && (st.st_size as usize) >= total_size
-                    {
-                        // Existing object already has correct size — continue
-                    } else {
-                        // Stale object — unlink, recreate, retry
-                        unsafe { libc::close(fd) };
-                        unsafe { libc::shm_unlink(c_name.as_ptr()) };
-                        let fd2 = unsafe {
-                            libc::shm_open(
-                                c_name.as_ptr(),
-                                libc::O_RDWR | libc::O_CREAT,
-                                perms as libc::c_uint,
-                            )
-                        };
-                        if fd2 == -1 {
-                            return Err(io::Error::last_os_error());
-                        }
-                        if unsafe { libc::ftruncate(fd2, total_size as libc::off_t) } != 0 {
-                            let e = io::Error::last_os_error();
-                            unsafe { libc::close(fd2) };
-                            return Err(e);
-                        }
-                        return Self::mmap_and_finish(fd2, total_size, user_size, posix_name);
-                    }
-                }
-
-                #[cfg(not(target_os = "macos"))]
-                {
-                    unsafe { libc::close(fd) };
-                    return Err(err);
-                }
-            }
-        } else {
-            // Open-only mode: discover size from fstat
-            // On macOS we keep user_size if provided (fstat returns page-rounded sizes)
-            #[cfg(target_os = "macos")]
-            {
-                total_size = calc_size(user_size);
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                let mut st: libc::stat = unsafe { std::mem::zeroed() };
-                if unsafe { libc::fstat(fd, &mut st) } != 0 {
-                    let e = io::Error::last_os_error();
-                    unsafe { libc::close(fd) };
-                    return Err(e);
-                }
-                total_size = st.st_size as usize;
-                if total_size <= std::mem::size_of::<AtomicI32>()
-                    || total_size % std::mem::size_of::<AtomicI32>() != 0
-                {
-                    unsafe { libc::close(fd) };
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("invalid shm size: {total_size}"),
-                    ));
-                }
+                unsafe { libc::close(fd) };
+                return Err(err);
             }
         }
 
