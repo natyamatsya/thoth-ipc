@@ -1,10 +1,53 @@
-# cpp-ipc (libipc) - C++ IPC Library
+# libipc — Multi-Language IPC Library
 
-[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/mutouyun/cpp-ipc/blob/master/LICENSE)
+[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Build Status](https://github.com/mutouyun/cpp-ipc/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/mutouyun/cpp-ipc/actions)
 [![CodeCov](https://codecov.io/github/mutouyun/cpp-ipc/graph/badge.svg?token=MNOAOLNELH)](https://codecov.io/github/mutouyun/cpp-ipc)
-[![Build status](https://ci.appveyor.com/api/projects/status/github/mutouyun/cpp-ipc?branch=master&svg=true)](https://ci.appveyor.com/project/mutouyun/cpp-ipc)
-[![Vcpkg package](https://img.shields.io/badge/Vcpkg-package-blueviolet)](https://github.com/microsoft/vcpkg/tree/master/ports/cpp-ipc)
+
+A high-performance inter-process communication library using shared memory on Linux/Windows/macOS/FreeBSD.
+Binary-compatible primitives implemented in multiple languages — all sharing the same wire format and shm layout.
+
+## Repository layout
+
+```
+cpp/libipc/    — C++ library (original, stable)
+rust/libipc/   — Pure Rust port (feature-complete, 242 tests)
+swift/libipc/  — Swift package (work in progress)
+```
+
+## Language implementations
+
+### C++ — [`cpp/libipc/`](cpp/libipc/)
+
+[![Build Status](https://github.com/mutouyun/cpp-ipc/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/mutouyun/cpp-ipc/actions)
+
+The original library. See [`cpp/libipc/README.md`](cpp/libipc/README.md) for full documentation.
+
+- Compilers with C++17 support (msvc-2017/gcc-7/clang-4)
+- No dependencies except STL
+- Lock-free or lightweight spin-lock only
+- `ipc::route` (1 writer, N readers) and `ipc::channel` (N writers, N readers)
+- [Vcpkg](https://github.com/microsoft/vcpkg/blob/master/README.md): `vcpkg install cpp-ipc`
+
+### Rust — [`rust/libipc/`](rust/libipc/)
+
+Pure Rust crate, binary-compatible with the C++ library. All primitives ported: shm, mutex, semaphore, condition, buffer, channel, waiter, circ, plus a typed protocol layer (FlatBuffers), service registry, process manager, and real-time audio demos.
+
+```sh
+cd rust/libipc && cargo test
+```
+
+### Swift — [`swift/libipc/`](swift/libipc/)
+
+Swift Package Manager package — work in progress.
+
+```sh
+cd swift/libipc && swift build
+```
+
+## License
+
+MIT. Original library © 2018 mutouyun. macOS port, Rust/Swift implementations, protocol layer, and orchestration utilities © 2025–2026 natyamatsya contributors.
 
 ## A high-performance inter-process communication library using shared memory on Linux/Windows/macOS/FreeBSD
 
