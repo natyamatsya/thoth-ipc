@@ -8,6 +8,22 @@
 // k < 32:  cooperative task yield
 // k >= 32: sleep 1 ms
 
+import Darwin.POSIX
+
+/// Synchronous adaptive backoff — for use in non-async spin loops.
+/// k < 4:  busy spin; k < 16: pause hint; k >= 16: sched_yield()
+@inline(__always)
+func adaptiveYieldSync(_ k: inout UInt32) {
+    if k < 4 {
+        // busy spin
+    } else if k < 16 {
+        for _ in 0..<1 { }
+    } else {
+        sched_yield()
+    }
+    k &+= 1
+}
+
 /// Adaptive backoff for spin loops.
 /// Call in a loop, passing the same `k` each iteration.
 @inline(__always)
