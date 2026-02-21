@@ -138,6 +138,51 @@ final class ChanInner: @unchecked Sendable {
                          wtWaiter: wtWaiter, rdWaiter: rdWaiter, ccWaiter: ccWaiter)
     }
 
+    static func openSync(prefix: String, name: String, mode: Mode) throws(IpcError) -> ChanInner {
+        let fp = prefix.isEmpty ? "" : "\(prefix)_"
+        let chunkPrefix = "\(fp)\(name)_"
+        let ringShm  = try ShmHandle.acquire(name: "\(fp)QU_CONN__\(name)", size: ringShmSize(), mode: .createOrOpen)
+        let ccIdShm  = try ShmHandle.acquire(name: "\(fp)CA_CONN__\(name)", size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
+        let wtWaiter = try Waiter.openSync(name: "\(fp)WT_CONN__\(name)")
+        let rdWaiter = try Waiter.openSync(name: "\(fp)RD_CONN__\(name)")
+        let ccWaiter = try Waiter.openSync(name: "\(fp)CC_CONN__\(name)")
+
+        let ccIdAtom = UnsafeAtomic<UInt32>(at: ccIdShm.ptr.withMemoryRebound(to: UnsafeAtomic<UInt32>.Storage.self, capacity: 1) { $0 })
+        var ccId = ccIdAtom.loadThenWrappingIncrement(by: 1, ordering: .relaxed).addingReportingOverflow(1).partialValue
+        if ccId == 0 {
+            ccId = ccIdAtom.loadThenWrappingIncrement(by: 1, ordering: .relaxed).addingReportingOverflow(1).partialValue
+        }
+
+        let hdr = ringShm.ptr.assumingMemoryBound(to: RingHeader.self)
+        var connId: UInt32 = 0
+        var readCursor: UInt32 = 0
+
+        switch mode {
+        case .sender:
+            _ = ua32(&hdr.pointee.senderCount).loadThenWrappingIncrement(by: 1, ordering: .relaxed)
+        case .receiver:
+            var k: UInt32 = 0
+            while true {
+                let curr = ua32(&hdr.pointee.connections).load(ordering: .acquiring)
+                let next = curr | curr.addingReportingOverflow(1).partialValue
+                if next == curr { throw .osError(EAGAIN) }
+                let (exchanged, _) = ua32(&hdr.pointee.connections).weakCompareExchange(
+                    expected: curr, desired: next, successOrdering: .releasing, failureOrdering: .relaxed)
+                if exchanged { connId = next ^ curr; break }
+                k &+= 1; if k < 16 { } else if k < 64 { sched_yield() } else {
+                    var ts = timespec(tv_sec: 0, tv_nsec: 1_000_000); nanosleep(&ts, nil)
+                }
+            }
+            readCursor = ua32(&hdr.pointee.writeCursor).load(ordering: .acquiring)
+            try? ccWaiter.broadcast()
+        }
+
+        return ChanInner(name: name, prefix: prefix, chunkPrefix: chunkPrefix, mode: mode,
+                         ringShm: ringShm, ccIdShm: ccIdShm,
+                         connId: connId, ccId: ccId, readCursor: readCursor,
+                         wtWaiter: wtWaiter, rdWaiter: rdWaiter, ccWaiter: ccWaiter)
+    }
+
     init(name: String, prefix: String, chunkPrefix: String, mode: Mode,
          ringShm: consuming ShmHandle, ccIdShm: consuming ShmHandle,
          connId: UInt32, ccId: UInt32, readCursor: UInt32,

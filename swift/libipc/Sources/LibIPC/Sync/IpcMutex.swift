@@ -33,6 +33,7 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
 
     private let cached: CachedShm
     private let name_: String
+    private let inCache: Bool
 
     // MARK: Open
 
@@ -67,7 +68,23 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
         } catch {
             throw IpcError.osError(EINVAL)
         }
-        return IpcMutex(cached: cached, name_: name)
+        return IpcMutex(cached: cached, name_: name, inCache: true)
+    }
+
+    /// Open without the actor cache — for use from POSIX threads only.
+    static func openSync(name: String) throws(IpcError) -> IpcMutex {
+        let size = MemoryLayout<pthread_mutex_t>.size
+        let shm = try ShmHandle.acquire(name: name, size: size, mode: .createOrOpen)
+        if shm.previousRefCount == 0 {
+            let ptr = shm.ptr.assumingMemoryBound(to: pthread_mutex_t.self)
+            ptr.initialize(to: pthread_mutex_t())
+            var attr = pthread_mutexattr_t()
+            pthread_mutexattr_init(&attr)
+            pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED)
+            pthread_mutex_init(ptr, &attr)
+            pthread_mutexattr_destroy(&attr)
+        }
+        return IpcMutex(cached: CachedShm(shm: shm), name_: name, inCache: false)
     }
 
     // MARK: Lock / Unlock
@@ -133,6 +150,7 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
     }
 
     deinit {
+        guard inCache else { return }
         // Do NOT call pthread_mutex_destroy here. On macOS the virtual address
         // may be recycled to a different shm segment after munmap, and destroy
         // would corrupt whatever mutex now lives at that address.

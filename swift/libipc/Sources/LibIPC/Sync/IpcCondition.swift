@@ -21,6 +21,7 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
 
     private let cached: CachedShm
     private let name_: String
+    private let inCache: Bool
 
     // MARK: Open
 
@@ -55,7 +56,24 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
         } catch {
             throw IpcError.osError(EINVAL)
         }
-        return IpcCondition(cached: cached, name_: name)
+        return IpcCondition(cached: cached, name_: name, inCache: true)
+    }
+
+    /// Open without the actor cache — for use from POSIX threads only.
+    /// Each call produces an independent handle; no deduplication.
+    static func openSync(name: String) throws(IpcError) -> IpcCondition {
+        let size = MemoryLayout<pthread_cond_t>.size
+        let shm = try ShmHandle.acquire(name: name, size: size, mode: .createOrOpen)
+        if shm.previousRefCount == 0 {
+            let ptr = shm.ptr.assumingMemoryBound(to: pthread_cond_t.self)
+            ptr.initialize(to: pthread_cond_t())
+            var attr = pthread_condattr_t()
+            pthread_condattr_init(&attr)
+            pthread_condattr_setpshared(&attr, PTHREAD_PROCESS_SHARED)
+            pthread_cond_init(ptr, &attr)
+            pthread_condattr_destroy(&attr)
+        }
+        return IpcCondition(cached: CachedShm(shm: shm), name_: name, inCache: false)
     }
 
     // MARK: Wait / Notify / Broadcast
@@ -115,7 +133,7 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
     }
 
     deinit {
-        // Do NOT call pthread_cond_destroy here — same reasoning as IpcMutex.
+        guard inCache else { return }
         let n = name_
         Task { await condCache.release(name: n) }
     }

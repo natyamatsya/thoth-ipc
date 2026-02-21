@@ -37,6 +37,13 @@ public struct Waiter: ~Copyable, @unchecked Sendable {
         return Waiter(cond: cond, lock: lock, quit: quit)
     }
 
+    /// Open without the actor cache — for use from POSIX threads only.
+    static func openSync(name: String) throws(IpcError) -> Waiter {
+        let cond = try IpcCondition.openSync(name: "\(name)_WAITER_COND_")
+        let lock = try IpcMutex.openSync(name: "\(name)_WAITER_LOCK_")
+        return Waiter(cond: cond, lock: lock, quit: ManagedAtomic<UInt8>(0))
+    }
+
     private init(cond: consuming IpcCondition, lock: consuming IpcMutex, quit: ManagedAtomic<UInt8>) {
         self.cond = cond
         self.lock = lock
