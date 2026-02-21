@@ -49,6 +49,10 @@ path = "src/bin/demo_rt_audio_service.rs"
 name = "demo_rt_audio_host"
 path = "src/bin/demo_rt_audio_host.rs"
 
+[[bin]]
+name = "bench_ipc"
+path = "src/bin/bench_ipc.rs"
+
 [[bench]]
 name = "alloc"
 harness = false
