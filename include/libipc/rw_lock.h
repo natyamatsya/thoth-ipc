@@ -64,11 +64,8 @@ inline void yield(K& k) noexcept {
     if (k < 4)  { /* Do nothing */ }
     else
     if (k < 16) { IPC_LOCK_PAUSE_(); }
-    else
-    if (k < 32) { std::this_thread::yield(); }
     else {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        return;
+        std::this_thread::yield();
     }
     ++k;
 }
@@ -88,7 +85,7 @@ inline void sleep(K& k, F&& f) {
 template <std::size_t N = 32, typename K>
 inline void sleep(K& k) {
     sleep<N>(k, [] {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        std::this_thread::sleep_for(std::chrono::microseconds(50));
     });
 }
 

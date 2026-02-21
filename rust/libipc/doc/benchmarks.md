@@ -22,42 +22,44 @@ cargo run --release --bin bench_ipc
 
 ### `ipc::route` — 1 sender, N receivers
 
-| Receivers | C++ RTT (ms) | C++ us/datum | Rust RTT (ms) | Rust us/datum |
-| :---: | :---: | :---: | :---: | :---: |
-| 1 | 300.05 | 3.000 | **2.37** | **0.024** |
-| 2 | 340.92 | 3.409 | **2.28** | **0.023** |
-| 4 | 781.98 | 7.820 | **2.44** | **0.024** |
-| 8 | 1790.42 | 17.904 | **2.16** | **0.022** |
+| Receivers | C++ RTT (ms) (Before Fix) | C++ RTT (ms) (After Fix) | Rust RTT (ms) |
+| :---: | :---: | :---: | :---: |
+| 1 | 300.05 | 285.63 | **2.37** |
+| 2 | 340.92 | 337.70 | **2.28** |
+| 4 | 781.98 | 780.37 | **2.44** |
+| 8 | 1790.42 | 1874.48 | **2.16** |
 
 ### `ipc::channel` — 1 sender, N receivers (1-N)
 
-| Receivers | C++ RTT (ms) | C++ us/datum | Rust RTT (ms) | Rust us/datum |
-| :---: | :---: | :---: | :---: | :---: |
-| 1 | 288.02 | 2.880 | **2.31** | **0.023** |
-| 2 | 349.80 | 3.498 | **2.17** | **0.022** |
-| 4 | 774.00 | 7.740 | **2.33** | **0.023** |
-| 8 | 1796.00 | 17.960 | **2.31** | **0.023** |
+| Receivers | C++ RTT (ms) (Before Fix) | C++ RTT (ms) (After Fix) | Rust RTT (ms) |
+| :---: | :---: | :---: | :---: |
+| 1 | 288.02 | 281.67 | **2.31** |
+| 2 | 349.80 | 341.63 | **2.17** |
+| 4 | 774.00 | 783.96 | **2.33** |
+| 8 | 1796.00 | 1818.23 | **2.31** |
 
 ### `ipc::channel` — N senders, 1 receiver (N-1)
 
-| Senders | C++ RTT (ms) | C++ us/datum | Rust RTT (ms) | Rust us/datum |
-| :---: | :---: | :---: | :---: | :---: |
-| 1 | 287.18 | 2.872 | **3.34** | **0.033** |
-| 2 | 192.07 | 1.921 | **2.61** | **0.026** |
-| 4 | 208.92 | 2.089 | **5.04** | **0.050** |
-| 8 | 318.92 | 3.189 | **8.51** | **0.085** |
+| Senders | C++ RTT (ms) (Before Fix) | C++ RTT (ms) (After Fix) | Rust RTT (ms) |
+| :---: | :---: | :---: | :---: |
+| 1 | 287.18 | 288.77 | **3.34** |
+| 2 | 192.07 | 194.12 | **2.61** |
+| 4 | 208.92 | 208.11 | **5.04** |
+| 8 | 318.92 | 252.52 | **8.51** |
 
 ### `ipc::channel` — N senders, N receivers (N-N)
 
-| Threads | C++ RTT (ms) | C++ us/datum | Rust RTT (ms) | Rust us/datum |
-| :---: | :---: | :---: | :---: | :---: |
-| 1 | 299.34 | 2.993 | **2.77** | **0.028** |
-| 2 | 399.48 | 3.995 | **6.97** | **0.070** |
-| 4 | 1309.55 | 13.096 | **6.94** | **0.069** |
-| 8 | 2362.82 | 23.628 | **4.58** | **0.046** |
+| Threads | C++ RTT (ms) (Before Fix) | C++ RTT (ms) (After Fix) | Rust RTT (ms) |
+| :---: | :---: | :---: | :---: |
+| 1 | 299.34 | 286.79 | **2.77** |
+| 2 | 399.48 | 345.35 | **6.97** |
+| 4 | 1309.55 | 1219.93 | **6.94** |
+| 8 | 2362.82 | 2470.24 | **4.58** |
 
 ## Conclusion
 
-The Rust port significantly outperforms the original C++ implementation in these benchmarks on macOS. The Rust implementation shows remarkably consistent performance even as the number of receivers scales up (in the `1-N` and `route` tests), whereas the C++ implementation's latency degrades linearly. In the `N-1` and `N-N` contention scenarios, the Rust port also maintains sub-microsecond latency, vastly outperforming the C++ version.
+The Rust port significantly outperforms the original C++ implementation in these benchmarks on macOS, even after applying a patch to the C++ backoff strategy (removing a `sleep_for(1ms)` call in the contention spin-loop).
 
-This performance difference is likely due to the highly optimized concurrent primitive implementations in Rust (like `crossbeam` or standard library atomics) and potentially more efficient memory ordering/caching behavior in the port's architecture.
+The C++ performance bottleneck is deeply architectural on macOS, likely tied to differences in cross-process signaling, atomic CAS loops under contention, and the underlying POSIX shared memory/semaphore implementations which behave differently than on Linux/Windows.
+
+The Rust implementation shows remarkably consistent performance even as the number of receivers scales up (in the `1-N` and `route` tests), whereas the C++ implementation's latency degrades linearly. In the `N-1` and `N-N` contention scenarios, the Rust port also maintains sub-microsecond latency, vastly outperforming the C++ version.
