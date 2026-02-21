@@ -14,6 +14,7 @@ let package = Package(
         .executable(name: "demo-send-recv", targets: ["DemoSendRecv"]),
         .executable(name: "demo-chat",      targets: ["DemoChat"]),
         .executable(name: "demo-msg-que",   targets: ["DemoMsgQue"]),
+        .executable(name: "bench-ipc",        targets: ["BenchIpc"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
@@ -51,6 +52,11 @@ let package = Package(
             name: "DemoMsgQue",
             dependencies: ["LibIPC"],
             path: "Sources/Demos/DemoMsgQue"
+        ),
+        .executableTarget(
+            name: "BenchIpc",
+            dependencies: ["LibIPC"],
+            path: "Sources/Bench/BenchIpc"
         ),
         .testTarget(
             name: "LibIPCTests",
