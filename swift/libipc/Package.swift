@@ -17,13 +17,19 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "LibIPCShim",
+            path: "Sources/LibIPCShim",
+            publicHeadersPath: "include"
+        ),
+        .target(
             name: "LibIPC",
             dependencies: [
+                "LibIPCShim",
                 .product(name: "Atomics", package: "swift-atomics"),
             ],
             path: "Sources/LibIPC",
             swiftSettings: [
-                .strictConcurrency(.complete),
+                .swiftLanguageMode(.v6),
             ]
         ),
         .testTarget(
