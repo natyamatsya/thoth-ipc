@@ -56,6 +56,10 @@ if(LIBIPC_USE_FILE_SHM)
   target_compile_definitions(${PROJECT_NAME} PRIVATE LIBIPC_USE_FILE_SHM)
 endif()
 
+if(APPLE AND LIBIPC_APPLE_APP_STORE_SAFE)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_APPLE_APP_STORE_SAFE)
+endif()
+
 if(NOT MSVC)
   target_link_libraries(${PROJECT_NAME} PUBLIC
     $<$<NOT:$<STREQUAL:${CMAKE_SYSTEM_NAME},QNX>>:pthread>

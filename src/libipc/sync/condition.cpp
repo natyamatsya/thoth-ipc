@@ -10,7 +10,11 @@
 #elif defined(LIBIPC_OS_LINUX)
 #include "libipc/platform/linux/condition.h"
 #elif defined(LIBIPC_OS_APPLE)
-#include "libipc/platform/apple/condition.h"
+#  if defined(LIBIPC_APPLE_APP_STORE_SAFE)
+#    include "libipc/platform/apple/mach/condition.h"
+#  else
+#    include "libipc/platform/apple/condition.h"
+#  endif
 #elif defined(LIBIPC_OS_QNX) || defined(LIBIPC_OS_FREEBSD)
 #include "libipc/platform/posix/condition.h"
 #else/*IPC_OS*/

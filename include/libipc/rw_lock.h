@@ -37,6 +37,14 @@
          http://www.intel.com/content/www/us/en/processors/itanium/itanium-architecture-vol-3-manual.html
 */
 #   define IPC_LOCK_PAUSE_() __asm__ __volatile__ ("hint @pause")
+#elif defined(__arm64__) || defined(__aarch64__)
+/*
+    ARM64 / Apple Silicon: isb sy is the recommended spin-wait hint.
+    It flushes the pipeline and allows the CPU to service other threads,
+    equivalent to x86 PAUSE. The 32-bit ARM "yield" hint is weaker.
+    See: ARM Architecture Reference Manual, ISB instruction.
+*/
+#   define IPC_LOCK_PAUSE_() __asm__ __volatile__("isb sy" ::: "memory")
 #elif defined(__arm__)
 /*
     See: ARM Architecture Reference Manuals (YIELD)
