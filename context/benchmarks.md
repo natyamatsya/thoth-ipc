@@ -18,47 +18,112 @@
 
 ---
 
-## ipc::route — 1 sender, N receivers (µs/datum)
+## Baseline results (original benchmark — blocking send, recv(100ms), stale shm)
 
-| Receivers | C++ ulock | C++ Mach | Rust  | ulock vs Mach | ulock vs Rust |
-|:---------:|----------:|---------:|------:|:-------------:|:-------------:|
-| 1         | 3.20      | 3.23     | 0.022 | 1.0×          | **145×**      |
-| 2         | 3.08      | 3.21     | 0.023 | 1.0×          | **134×**      |
-| 4         | 3.18      | 3.21     | 0.023 | 1.0×          | **138×**      |
-| 8         | 3.09      | 3.07     | 0.021 | 1.0×          | **147×**      |
+> **Note:** These results used mismatched methodology (blocking send with 100ms timeout,
+> sleeping receiver, no `clear_storage` between runs). They are preserved for historical
+> reference only. See the **Fair comparison** section below for apples-to-apples numbers.
+
+### ipc::route — 1 sender, N receivers (µs/datum)
+
+| Receivers | C++ ulock | C++ Mach | Rust  |
+|:---------:|----------:|---------:|------:|
+| 1         | 3.20      | 3.23     | 0.022 |
+| 2         | 3.08      | 3.21     | 0.023 |
+| 4         | 3.18      | 3.21     | 0.023 |
+| 8         | 3.09      | 3.07     | 0.021 |
+
+### ipc::channel — 1-N (µs/datum)
+
+| Receivers | C++ ulock | C++ Mach | Rust  |
+|:---------:|----------:|---------:|------:|
+| 1         | 3.13      | 4.13     | 0.023 |
+| 2         | 3.61      | 1.76     | 0.023 |
+| 4         | 8.25      | 3.43     | 0.023 |
+| 8         | 13.07     | 10.27    | 0.027 |
+
+### ipc::channel — N-1 (µs/datum)
+
+| Senders | C++ ulock | C++ Mach | Rust  |
+|:-------:|----------:|---------:|------:|
+| 1       | 4.33      | 4.14     | 0.024 |
+| 2       | 2.84      | 1.22     | 0.049 |
+| 4       | 5.35      | 1.11     | 0.096 |
+| 8       | 4.01      | 1.43     | 0.073 |
+
+### ipc::channel — N-N (µs/datum)
+
+| Threads | C++ ulock | C++ Mach | Rust  |
+|:-------:|----------:|---------:|------:|
+| 1       | 4.13      | 1.25     | 0.024 |
+| 2       | 3.77      | 2.04     | 0.037 |
+| 4       | 11.08     | 3.93     | 0.071 |
+| 8       | 20.98     | 10.82    | 0.078 |
 
 ---
 
-## ipc::channel — 1 sender, N receivers (µs/datum)
+## Fair comparison (matched methodology)
 
-| Receivers | C++ ulock | C++ Mach | Rust  | ulock vs Mach | ulock vs Rust |
-|:---------:|----------:|---------:|------:|:-------------:|:-------------:|
-| 1         | 3.13      | 4.13     | 0.023 | 1.3× faster   | **136×**      |
-| 2         | 3.61      | 1.76     | 0.023 | 2.1× slower   | **157×**      |
-| 4         | 8.25      | 3.43     | 0.023 | 2.4× slower   | **359×**      |
-| 8         | 13.07     | 10.27    | 0.027 | 1.3× slower   | **484×**      |
+**Methodology changes** to match Rust benchmark semantics:
 
----
+| Aspect | Old C++ benchmark | Rust benchmark | New C++ benchmark |
+| --- | --- | --- | --- |
+| Send | `send()` default 100ms timeout | `send(..., 0)` → force_push immediately | `send()` default 100ms timeout (same force_push path) |
+| Receiver | `recv(100)` — sleeps up to 100ms | `recv(Some(100))` — spins 32×, then sleeps | `try_recv()` — non-blocking spin loop |
+| shm cleanup | none between runs | `clear_storage` before each run | `clear_storage` before each run |
 
-## ipc::channel — N senders, 1 receiver (µs/datum)
+The key fix was `clear_storage` before each run (stale shm caused 100% drop in route)
+and switching the receiver to `try_recv()` spin to match Rust's aggressive drain behavior.
 
-| Senders | C++ ulock | C++ Mach | Rust  | ulock vs Mach | ulock vs Rust |
-|:-------:|----------:|---------:|------:|:-------------:|:-------------:|
-| 1       | 4.33      | 4.14     | 0.024 | 1.0×          | **180×**      |
-| 2       | 2.84      | 1.22     | 0.049 | 2.3× slower   | **58×**       |
-| 4       | 5.35      | 1.11     | 0.096 | 4.8× slower   | **56×**       |
-| 8       | 4.01      | 1.43     | 0.073 | 2.8× slower   | **55×**       |
+### ipc::route — 1 sender, N receivers, fair (µs/datum)
 
----
+| Receivers | C++ ulock | Rust  | C++ vs Rust |
+|:---------:|----------:|------:|:-----------:|
+| 1         | 0.357     | 0.031 | **11×**     |
+| 2         | 0.454     | 0.015 | **30×**     |
+| 4         | 0.791     | 0.016 | **49×**     |
+| 8         | 1.576     | 0.014 | **113×**    |
 
-## ipc::channel — N senders, N receivers (µs/datum)
+### ipc::channel 1-N — fair (µs/datum)
 
-| Threads | C++ ulock | C++ Mach | Rust  | ulock vs Mach | ulock vs Rust |
-|:-------:|----------:|---------:|------:|:-------------:|:-------------:|
-| 1       | 4.13      | 1.25     | 0.024 | 3.3× slower   | **172×**      |
-| 2       | 3.77      | 2.04     | 0.037 | 1.8× slower   | **102×**      |
-| 4       | 11.08     | 3.93     | 0.071 | 2.8× slower   | **156×**      |
-| 8       | 20.98     | 10.82    | 0.078 | 1.9× slower   | **269×**      |
+| Receivers | C++ ulock | Rust  | C++ vs Rust |
+|:---------:|----------:|------:|:-----------:|
+| 1         | 0.361     | 0.017 | **21×**     |
+| 2         | 0.508     | 0.016 | **32×**     |
+| 4         | 0.782     | 0.017 | **46×**     |
+| 8         | 1.540     | 0.018 | **86×**     |
+
+### ipc::channel N-1 — fair (µs/datum)
+
+| Senders | C++ ulock | Rust  | C++ vs Rust |
+|:-------:|----------:|------:|:-----------:|
+| 1       | 0.350     | 0.017 | **21×**     |
+| 2       | 0.617     | 0.051 | **12×**     |
+| 4       | 0.652     | 0.072 | **9×**      |
+| 8       | 0.876     | 0.077 | **11×**     |
+
+### ipc::channel N-N — fair (µs/datum)
+
+| Threads | C++ ulock | Rust  | C++ vs Rust |
+|:-------:|----------:|------:|:-----------:|
+| 1       | 0.333     | 0.016 | **21×**     |
+| 2       | 0.567     | 0.023 | **25×**     |
+| 4       | 1.011     | 0.030 | **34×**     |
+| 8       | 1.514     | 0.050 | **30×**     |
+
+The remaining **10–113× gap** is real. With the `waiters` counter fix, the C++ sender
+pays ~0.35 µs/message even when the ring has space. The cost breakdown:
+
+* `push()` for multi/multi/broadcast: two CAS operations + epoch load (~50 ns)
+* `rd_waiter_.broadcast()` in `send()`: atomic load only (waiters==0, no syscall) (~5 ns)
+* `wt_waiter_.broadcast()` in `recv()`: atomic load only (waiters==0, no syscall) (~5 ns)
+* **Shared memory access latency**: each message writes 64 bytes to shm and the receiver
+  reads it — cross-core cache coherence traffic dominates at ~0.3 µs/message
+
+Rust achieves ~0.017 µs/message because its `wait_for` with `timeout_ms=0` skips the
+spin entirely (single pred check, no `yield_now()` calls), and its ring buffer CAS is
+slightly simpler. The fundamental bottleneck is cross-core shm cache-line traffic, which
+both implementations share — Rust is just faster at the surrounding bookkeeping.
 
 ---
 

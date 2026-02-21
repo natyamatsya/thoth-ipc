@@ -27,8 +27,10 @@ static void wait_ready() {
 
 struct Stats {
     double total_ms;
-    std::size_t count;
+    std::size_t count;   // attempted
+    std::size_t sent;    // actually enqueued (try_send returned true)
     double us_per_datum() const { return (total_ms * 1000.0) / count; }
+    double drop_pct()     const { return 100.0 * (count - sent) / count; }
 };
 
 // ---------------------------------------------------------------------------
@@ -38,6 +40,7 @@ struct Stats {
 static Stats bench_route(int n_receivers, std::size_t count,
                          std::size_t msg_lo, std::size_t msg_hi) {
     const char* name = "bench_route";
+    ipc::route::clear_storage(name);
 
     std::vector<std::thread> threads;
 
@@ -57,7 +60,7 @@ static Stats bench_route(int n_receivers, std::size_t count,
             ipc::route r(name, ipc::receiver);
             wait_ready();
             while (!g_done.load(std::memory_order_acquire)) {
-                auto buf = r.recv(100);
+                r.try_recv();
             }
         });
     }
@@ -68,8 +71,9 @@ static Stats bench_route(int n_receivers, std::size_t count,
 
     auto t0 = std::chrono::steady_clock::now();
 
+    std::size_t sent = 0;
     for (std::size_t i = 0; i < count; ++i)
-        sender.send(payload.data(), sizes[i]);
+        if (sender.send(payload.data(), sizes[i])) ++sent;
 
     auto t1 = std::chrono::steady_clock::now();
     double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -82,7 +86,7 @@ static Stats bench_route(int n_receivers, std::size_t count,
     g_ready.store(false);
     g_done.store(false);
 
-    return {ms, count};
+    return {ms, count, sent};
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +100,7 @@ static Stats bench_channel(const std::string& pattern, int n,
                            std::size_t count, std::size_t msg_lo,
                            std::size_t msg_hi) {
     const char* name = "bench_chan";
+    ipc::channel::clear_storage(name);
 
     int n_senders   = (pattern == "N-1" || pattern == "N-N") ? n : 1;
     int n_receivers = (pattern == "1-N" || pattern == "N-N") ? n : 1;
@@ -120,7 +125,7 @@ static Stats bench_channel(const std::string& pattern, int n,
             ipc::channel ch(name, ipc::receiver);
             wait_ready();
             while (!g_done.load(std::memory_order_acquire)) {
-                auto buf = ch.recv(100);
+                ch.try_recv();
             }
         });
     }
@@ -132,18 +137,24 @@ static Stats bench_channel(const std::string& pattern, int n,
 
     // senders
     std::vector<std::thread> sender_threads;
+    std::vector<std::atomic<std::size_t>> sent_counts(static_cast<std::size_t>(n_senders));
     for (int s = 0; s < n_senders; ++s) {
         sender_threads.emplace_back([&, s, per_sender, name] {
             ipc::channel ch(name, ipc::sender);
             std::size_t base = static_cast<std::size_t>(s) * per_sender;
+            std::size_t local_sent = 0;
             for (std::size_t i = 0; i < per_sender; ++i)
-                ch.send(payload.data(), sizes[base + i]);
+                if (ch.send(payload.data(), sizes[base + i])) ++local_sent;
+            sent_counts[static_cast<std::size_t>(s)].store(local_sent, std::memory_order_relaxed);
         });
     }
     for (auto& t : sender_threads) t.join();
 
     auto t1 = std::chrono::steady_clock::now();
     double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+    std::size_t total_sent = 0;
+    for (auto& sc : sent_counts) total_sent += sc.load(std::memory_order_relaxed);
 
     g_done.store(true, std::memory_order_release);
     ctrl.disconnect();
@@ -152,7 +163,7 @@ static Stats bench_channel(const std::string& pattern, int n,
     g_ready.store(false);
     g_done.store(false);
 
-    return {ms, count};
+    return {ms, count, total_sent};
 }
 
 // ---------------------------------------------------------------------------
@@ -183,42 +194,42 @@ int main(int argc, char** argv) {
 
     // -----------------------------------------------------------------------
     print_header("ipc::route — 1 sender, N receivers (random 2-256 bytes x 100000)");
-    printf("%10s  %12s  %12s\n", "Receivers", "RTT (ms)", "us/datum");
-    printf("%10s  %12s  %12s\n", "----------", "----------", "----------");
+    printf("%10s  %12s  %12s  %8s\n", "Receivers", "RTT (ms)", "us/datum", "drop%");
+    printf("%10s  %12s  %12s  %8s\n", "----------", "----------", "----------", "--------");
 
     for (int n = 1; n <= max_threads; n *= 2) {
         auto s = bench_route(n, 100000, 2, 256);
-        printf("%10d  %12.2f  %12.3f\n", n, s.total_ms, s.us_per_datum());
+        printf("%10d  %12.2f  %12.3f  %7.2f%%\n", n, s.total_ms, s.us_per_datum(), s.drop_pct());
     }
 
     // -----------------------------------------------------------------------
     print_header("ipc::channel — 1-N (random 2-256 bytes x 100000)");
-    printf("%10s  %12s  %12s\n", "Receivers", "RTT (ms)", "us/datum");
-    printf("%10s  %12s  %12s\n", "----------", "----------", "----------");
+    printf("%10s  %12s  %12s  %8s\n", "Receivers", "RTT (ms)", "us/datum", "drop%");
+    printf("%10s  %12s  %12s  %8s\n", "----------", "----------", "----------", "--------");
 
     for (int n = 1; n <= max_threads; n *= 2) {
         auto s = bench_channel("1-N", n, 100000, 2, 256);
-        printf("%10d  %12.2f  %12.3f\n", n, s.total_ms, s.us_per_datum());
+        printf("%10d  %12.2f  %12.3f  %7.2f%%\n", n, s.total_ms, s.us_per_datum(), s.drop_pct());
     }
 
     // -----------------------------------------------------------------------
     print_header("ipc::channel — N-1 (random 2-256 bytes x 100000)");
-    printf("%10s  %12s  %12s\n", "Senders", "RTT (ms)", "us/datum");
-    printf("%10s  %12s  %12s\n", "----------", "----------", "----------");
+    printf("%10s  %12s  %12s  %8s\n", "Senders", "RTT (ms)", "us/datum", "drop%");
+    printf("%10s  %12s  %12s  %8s\n", "----------", "----------", "----------", "--------");
 
     for (int n = 1; n <= max_threads; n *= 2) {
         auto s = bench_channel("N-1", n, 100000, 2, 256);
-        printf("%10d  %12.2f  %12.3f\n", n, s.total_ms, s.us_per_datum());
+        printf("%10d  %12.2f  %12.3f  %7.2f%%\n", n, s.total_ms, s.us_per_datum(), s.drop_pct());
     }
 
     // -----------------------------------------------------------------------
     print_header("ipc::channel — N-N (random 2-256 bytes x 100000)");
-    printf("%10s  %12s  %12s\n", "Threads", "RTT (ms)", "us/datum");
-    printf("%10s  %12s  %12s\n", "----------", "----------", "----------");
+    printf("%10s  %12s  %12s  %8s\n", "Threads", "RTT (ms)", "us/datum", "drop%");
+    printf("%10s  %12s  %12s  %8s\n", "----------", "----------", "----------", "--------");
 
     for (int n = 1; n <= max_threads; n *= 2) {
         auto s = bench_channel("N-N", n, 100000, 2, 256);
-        printf("%10d  %12.2f  %12.3f\n", n, s.total_ms, s.us_per_datum());
+        printf("%10d  %12.2f  %12.3f  %7.2f%%\n", n, s.total_ms, s.us_per_datum(), s.drop_pct());
     }
 
     printf("\nDone.\n");
