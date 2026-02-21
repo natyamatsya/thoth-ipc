@@ -78,19 +78,12 @@ public struct Waiter: ~Copyable, @unchecked Sendable {
     }
 
     /// Wake one waiter.
-    ///
-    /// Briefly acquires the lock to ensure the waiter is already in `cond.wait`
-    /// before broadcasting — mirrors the C++ / Rust barrier pattern.
     public func notify() throws(IpcError) {
-        try lock.lock()
-        try lock.unlock()
         try cond.notify()
     }
 
     /// Wake all waiters.
     public func broadcast() throws(IpcError) {
-        try lock.lock()
-        try lock.unlock()
         try cond.broadcast()
     }
 

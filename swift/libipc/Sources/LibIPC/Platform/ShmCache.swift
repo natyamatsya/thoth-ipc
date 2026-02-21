@@ -11,6 +11,8 @@
 // maintains a process-local cache of open shm handles keyed by name.
 
 import Atomics
+import Darwin.POSIX
+import os
 
 // MARK: - CachedShm
 
@@ -27,50 +29,91 @@ final class CachedShm: @unchecked Sendable {
     }
 }
 
-// MARK: - ShmCache actor
+// MARK: - ShmCacheStorage (mutex-protected, usable from both async and POSIX threads)
+
+/// The actual map storage, protected by a `pthread_mutex`.
+/// Both the actor wrapper and the sync path share this object, ensuring
+/// the same virtual address is returned for the same SHM name regardless
+/// of which concurrency model the caller uses.
+final class ShmCacheStorage: @unchecked Sendable {
+    private var map: [String: CachedShm] = [:]
+    private var lock = os_unfair_lock()
+
+    func acquire(
+        name: String,
+        size: Int,
+        initialize: (UnsafeMutableRawPointer) throws -> Void
+    ) throws -> CachedShm {
+        os_unfair_lock_lock(&lock)
+        if let existing = map[name] {
+            existing.localRef.wrappingIncrement(ordering: .relaxed)
+            os_unfair_lock_unlock(&lock)
+            return existing
+        }
+        // shm_open + mmap are fast syscalls — safe to hold the lock across them.
+        do {
+            let shm = try ShmHandle.acquire(name: name, size: size, mode: .createOrOpen)
+            if shm.previousRefCount == 0 { try initialize(shm.ptr) }
+            let entry = CachedShm(shm: shm)
+            map[name] = entry
+            os_unfair_lock_unlock(&lock)
+            return entry
+        } catch {
+            os_unfair_lock_unlock(&lock)
+            throw error
+        }
+    }
+
+    func release(name: String) {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        guard let entry = map[name] else { return }
+        let prev = entry.localRef.loadThenWrappingDecrement(ordering: .acquiringAndReleasing)
+        if prev <= 1 { map.removeValue(forKey: name) }
+    }
+
+    func purge(name: String) {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        map.removeValue(forKey: name)
+    }
+}
+
+// MARK: - ShmCache actor (thin async wrapper around ShmCacheStorage)
 
 /// Process-local cache of open shm handles.
 ///
 /// Separate instances are used for mutexes and conditions (matching the Rust
 /// `mutex_cache()` / `cond_cache()` pattern).
 actor ShmCache {
-    private var map: [String: CachedShm] = [:]
+    nonisolated let storage = ShmCacheStorage()
 
-    /// Acquire or reuse a cached shm handle.
-    ///
-    /// If this is the first local open for `name`, `init` is called with the
-    /// shm pointer **while the actor is still isolated**, ensuring no other
-    /// task can use the handle before initialisation completes.
+    /// Acquire or reuse a cached shm handle (async path).
     func acquire(
         name: String,
         size: Int,
         initialize: (UnsafeMutableRawPointer) throws -> Void
     ) throws -> CachedShm {
-        if let existing = map[name] {
-            existing.localRef.wrappingIncrement(ordering: .relaxed)
-            return existing
-        }
-        let shm = try ShmHandle.acquire(name: name, size: size, mode: .createOrOpen)
-        if shm.previousRefCount == 0 {
-            try initialize(shm.ptr)
-        }
-        let entry = CachedShm(shm: shm)
-        map[name] = entry
-        return entry
+        try storage.acquire(name: name, size: size, initialize: initialize)
     }
 
-    /// Release one local reference. Removes the entry when the last ref drops.
-    func release(name: String) {
-        guard let entry = map[name] else { return }
-        let prev = entry.localRef.loadThenWrappingDecrement(ordering: .acquiringAndReleasing)
-        if prev <= 1 { map.removeValue(forKey: name) }
+    /// Acquire or reuse a cached shm handle (sync path — safe from POSIX threads).
+    nonisolated func acquireSync(
+        name: String,
+        size: Int,
+        initialize: (UnsafeMutableRawPointer) throws -> Void
+    ) throws -> CachedShm {
+        try storage.acquire(name: name, size: size, initialize: initialize)
     }
 
-    /// Forcibly remove a cache entry (used by `clearStorage` to avoid stale
-    /// entries after the underlying shm has been unlinked).
-    func purge(name: String) {
-        map.removeValue(forKey: name)
-    }
+    /// Release one local reference (async path).
+    func release(name: String) { storage.release(name: name) }
+
+    /// Release one local reference (sync path — safe from POSIX threads).
+    nonisolated func releaseSync(name: String) { storage.release(name: name) }
+
+    /// Forcibly remove a cache entry (used by `clearStorage`).
+    func purge(name: String) { storage.purge(name: name) }
 }
 
 // MARK: - Shared cache singletons

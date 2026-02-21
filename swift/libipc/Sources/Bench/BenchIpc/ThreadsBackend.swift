@@ -46,23 +46,18 @@ func threadsBenchRoute(nReceivers: Int, count: Int, msgLo: Int, msgHi: Int) -> S
     let payload = [UInt8](repeating: UInt8(ascii: "X"), count: msgHi)
 
     Route.clearStorageBlocking(name: name)
-    let sender = Route.connectBlocking(name: name, mode: .sender)
+    let sender    = Route.connectBlocking(name: name, mode: .sender)
+    // Pre-open all receivers on the main thread — avoids concurrent cache access.
+    let receivers = (0..<nReceivers).map { _ in Route.connectBlocking(name: name, mode: .receiver) }
 
-    let ready = Flag()
-    let done  = Flag()
-
+    let done = Flag()
     var tids: [pthread_t] = []
-    for _ in 0..<nReceivers {
+    for r in receivers {
         tids.append(spawnThread {
-            let r = Route.connectBlocking(name: name, mode: .receiver)
-            while !ready.value { sched_yield() }
-            while !done.value { _ = try? r.recv(timeout: .milliseconds(100)) }
+            while !done.value { _ = try? r.recv(timeout: .milliseconds(1)) }
             r.disconnect()
         })
     }
-
-    sleepMs(100)
-    ready.value = true
 
     let t0 = nowMs()
     for size in sizes { _ = try? sender.send(data: Array(payload[..<size])) }
@@ -86,31 +81,27 @@ func threadsBenchChannel(pattern: String, n: Int, count: Int, msgLo: Int, msgHi:
     let payload    = [UInt8](repeating: UInt8(ascii: "X"), count: msgHi)
 
     Channel.clearStorageBlocking(name: name)
-    let ctrl = Channel.connectBlocking(name: name, mode: .sender)
+    // Pre-open everything on the main thread — no concurrent cache access.
+    let ctrl      = Channel.connectBlocking(name: name, mode: .sender)
+    let receivers = (0..<nReceivers).map { _ in Channel.connectBlocking(name: name, mode: .receiver) }
+    let senders   = (0..<nSenders).map   { _ in Channel.connectBlocking(name: name, mode: .sender) }
 
-    let ready = Flag()
-    let done  = Flag()
+    let done = Flag()
 
     var recvTids: [pthread_t] = []
-    for _ in 0..<nReceivers {
+    for ch in receivers {
         recvTids.append(spawnThread {
-            let ch = Channel.connectBlocking(name: name, mode: .receiver)
-            while !ready.value { sched_yield() }
-            while !done.value { _ = try? ch.recv(timeout: .milliseconds(100)) }
+            while !done.value { _ = try? ch.recv(timeout: .milliseconds(1)) }
             ch.disconnect()
         })
     }
 
-    sleepMs(100)
-    ready.value = true
-
     let t0 = nowMs()
 
     var sendTids: [pthread_t] = []
-    for s in 0..<nSenders {
+    for (s, ch) in senders.enumerated() {
         let base = s * perSender
         sendTids.append(spawnThread {
-            let ch = Channel.connectBlocking(name: name, mode: .sender)
             for i in 0..<perSender {
                 _ = try? ch.send(data: Array(payload[..<sizes[base + i]]))
             }

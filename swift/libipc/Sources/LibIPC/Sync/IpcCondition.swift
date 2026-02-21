@@ -22,6 +22,7 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
     private let cached: CachedShm
     private let name_: String
     private let inCache: Bool
+    private let syncOpened: Bool
 
     // MARK: Open
 
@@ -56,24 +57,29 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
         } catch {
             throw IpcError.osError(EINVAL)
         }
-        return IpcCondition(cached: cached, name_: name, inCache: true)
+        return IpcCondition(cached: cached, name_: name, inCache: true, syncOpened: false)
     }
 
-    /// Open without the actor cache — for use from POSIX threads only.
-    /// Each call produces an independent handle; no deduplication.
+    /// Open via the shared cache without an actor hop — for use from POSIX threads.
     static func openSync(name: String) throws(IpcError) -> IpcCondition {
         let size = MemoryLayout<pthread_cond_t>.size
-        let shm = try ShmHandle.acquire(name: name, size: size, mode: .createOrOpen)
-        if shm.previousRefCount == 0 {
-            let ptr = shm.ptr.assumingMemoryBound(to: pthread_cond_t.self)
-            ptr.initialize(to: pthread_cond_t())
-            var attr = pthread_condattr_t()
-            pthread_condattr_init(&attr)
-            pthread_condattr_setpshared(&attr, PTHREAD_PROCESS_SHARED)
-            pthread_cond_init(ptr, &attr)
-            pthread_condattr_destroy(&attr)
-        }
-        return IpcCondition(cached: CachedShm(shm: shm), name_: name, inCache: false)
+        let cached: CachedShm
+        do {
+            cached = try condCache.acquireSync(name: name, size: size) { base in
+                let ptr = base.assumingMemoryBound(to: pthread_cond_t.self)
+                ptr.initialize(to: pthread_cond_t())
+                var attr = pthread_condattr_t()
+                var eno = pthread_condattr_init(&attr)
+                guard eno == 0 else { throw IpcError.osError(eno) }
+                eno = pthread_condattr_setpshared(&attr, PTHREAD_PROCESS_SHARED)
+                guard eno == 0 else { pthread_condattr_destroy(&attr); throw IpcError.osError(eno) }
+                eno = pthread_cond_init(ptr, &attr)
+                pthread_condattr_destroy(&attr)
+                guard eno == 0 else { throw IpcError.osError(eno) }
+            }
+        } catch let e as IpcError { throw e }
+          catch { throw IpcError.osError(EINVAL) }
+        return IpcCondition(cached: cached, name_: name, inCache: true, syncOpened: true)
     }
 
     // MARK: Wait / Notify / Broadcast
@@ -134,7 +140,11 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
 
     deinit {
         guard inCache else { return }
-        let n = name_
-        Task { await condCache.release(name: n) }
+        if syncOpened {
+            condCache.releaseSync(name: name_)
+        } else {
+            let n = name_
+            Task { await condCache.release(name: n) }
+        }
     }
 }

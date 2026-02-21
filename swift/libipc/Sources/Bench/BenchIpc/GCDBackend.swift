@@ -12,31 +12,24 @@ import Dispatch
 // MARK: - Route 1-N (GCD)
 
 func gcdBenchRoute(nReceivers: Int, count: Int, msgLo: Int, msgHi: Int) -> Stats {
-    let name    = "bench_route"
-    let sizes   = makeSizes(count: count, lo: msgLo, hi: msgHi)
-    let payload = [UInt8](repeating: UInt8(ascii: "X"), count: msgHi)
+    let name      = "bench_route"
+    let sizes     = makeSizes(count: count, lo: msgLo, hi: msgHi)
+    let payload   = [UInt8](repeating: UInt8(ascii: "X"), count: msgHi)
 
     Route.clearStorageBlocking(name: name)
-    let sender = Route.connectBlocking(name: name, mode: .sender)
+    let sender    = Route.connectBlocking(name: name, mode: .sender)
+    let receivers = (0..<nReceivers).map { _ in Route.connectBlocking(name: name, mode: .receiver) }
 
-    let ready = DispatchSemaphore(value: 0)
-    let done  = DispatchSemaphore(value: 0)
-    // Use an atomic flag for the hot loop — semaphore only for start/stop sync.
     var doneFlag: Bool = false
+    let done = DispatchSemaphore(value: 0)
 
-    let group = DispatchGroup()
-    for _ in 0..<nReceivers {
-        DispatchQueue.global().async(group: group) {
-            let r = Route.connectBlocking(name: name, mode: .receiver)
-            ready.signal()
-            while !doneFlag { _ = try? r.recv(timeout: .milliseconds(100)) }
+    for r in receivers {
+        DispatchQueue.global().async {
+            while !doneFlag { _ = try? r.recv(timeout: .milliseconds(1)) }
             r.disconnect()
             done.signal()
         }
     }
-
-    // Wait for all receivers to connect.
-    for _ in 0..<nReceivers { ready.wait() }
 
     let t0 = nowMs()
     for size in sizes { _ = try? sender.send(data: Array(payload[..<size])) }
@@ -60,33 +53,27 @@ func gcdBenchChannel(pattern: String, n: Int, count: Int, msgLo: Int, msgHi: Int
     let payload    = [UInt8](repeating: UInt8(ascii: "X"), count: msgHi)
 
     Channel.clearStorageBlocking(name: name)
-    let ctrl = Channel.connectBlocking(name: name, mode: .sender)
+    let ctrl      = Channel.connectBlocking(name: name, mode: .sender)
+    let receivers = (0..<nReceivers).map { _ in Channel.connectBlocking(name: name, mode: .receiver) }
+    let senders   = (0..<nSenders).map   { _ in Channel.connectBlocking(name: name, mode: .sender) }
 
-    let recvReady = DispatchSemaphore(value: 0)
-    let recvDone  = DispatchSemaphore(value: 0)
     var doneFlag: Bool = false
+    let recvDone = DispatchSemaphore(value: 0)
+    let sendDone = DispatchSemaphore(value: 0)
 
-    let recvGroup = DispatchGroup()
-    for _ in 0..<nReceivers {
-        DispatchQueue.global().async(group: recvGroup) {
-            let ch = Channel.connectBlocking(name: name, mode: .receiver)
-            recvReady.signal()
-            while !doneFlag { _ = try? ch.recv(timeout: .milliseconds(100)) }
+    for ch in receivers {
+        DispatchQueue.global().async {
+            while !doneFlag { _ = try? ch.recv(timeout: .milliseconds(1)) }
             ch.disconnect()
             recvDone.signal()
         }
     }
 
-    for _ in 0..<nReceivers { recvReady.wait() }
-
     let t0 = nowMs()
 
-    let sendGroup = DispatchGroup()
-    let sendDone  = DispatchSemaphore(value: 0)
-    for s in 0..<nSenders {
+    for (s, ch) in senders.enumerated() {
         let base = s * perSender
-        DispatchQueue.global().async(group: sendGroup) {
-            let ch = Channel.connectBlocking(name: name, mode: .sender)
+        DispatchQueue.global().async {
             for i in 0..<perSender {
                 _ = try? ch.send(data: Array(payload[..<sizes[base + i]]))
             }

@@ -24,9 +24,10 @@ func asyncBenchRoute(nReceivers: Int, count: Int, msgLo: Int, msgHi: Int) async 
     for _ in 0..<nReceivers {
         recvTasks.append(Task.detached {
             let r = try! await Route.connect(name: name, mode: .receiver)
-            while !ready.load(ordering: .acquiring) { sched_yield() }
+            while !ready.load(ordering: .acquiring) { await Task.yield() }
             while !done.load(ordering: .acquiring) {
-                _ = try? r.recv(timeout: .milliseconds(100))
+                _ = try? r.tryRecv()
+                await Task.yield()
             }
             r.disconnect()
         })
@@ -66,9 +67,10 @@ func asyncBenchChannel(pattern: String, n: Int, count: Int, msgLo: Int, msgHi: I
     for _ in 0..<nReceivers {
         recvTasks.append(Task.detached {
             let ch = try! await Channel.connect(name: name, mode: .receiver)
-            while !ready.load(ordering: .acquiring) { sched_yield() }
+            while !ready.load(ordering: .acquiring) { await Task.yield() }
             while !done.load(ordering: .acquiring) {
-                _ = try? ch.recv(timeout: .milliseconds(100))
+                _ = try? ch.tryRecv()
+                await Task.yield()
             }
             ch.disconnect()
         })

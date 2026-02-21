@@ -1,26 +1,28 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
 //
-// Port of Rust bench_ipc.rs — three backends selectable at runtime.
+// Port of Rust bench_ipc.rs — two backends selectable at runtime.
 //
 // Usage:
-//   bench-ipc [--async] [--threads] [--gcd] [max_threads]
+//   bench-ipc [--threads] [--gcd] [max_threads]
 //
-//   --async    Swift structured concurrency / Task.detached  [default if none given]
-//   --threads  POSIX pthread_create — mirrors the Rust benchmark
+//   --threads  POSIX pthread_create — mirrors the Rust benchmark  [default]
 //   --gcd      Grand Central Dispatch (DispatchQueue.global)
 //
+// Note: a Swift async (Task.detached) backend was attempted but is not viable
+// for N>1 because send/recv call pthread_cond_wait internally, which blocks
+// the OS thread backing the cooperative pool and causes deadlocks under load.
+//
 // Examples:
-//   swift run -c release bench-ipc                        # async, up to 8
-//   swift run -c release bench-ipc --threads 4            # pthreads, up to 4
+//   swift run -c release bench-ipc                        # pthreads, up to 8
 //   swift run -c release bench-ipc --gcd 4                # GCD, up to 4
-//   swift run -c release bench-ipc --threads --gcd 4      # both sync backends
+//   swift run -c release bench-ipc --threads --gcd 4      # both backends
 
 import Darwin.POSIX
 
 // MARK: - Argument parsing
 
-enum Backend { case async_, threads, gcd }
+enum Backend { case threads, gcd }
 
 var backends: [Backend] = []
 nonisolated(unsafe) var maxThreads = 8
@@ -28,7 +30,6 @@ nonisolated(unsafe) var maxThreads = 8
 var i = 1
 while i < CommandLine.arguments.count {
     switch CommandLine.arguments[i] {
-    case "--async":   backends.append(.async_)
     case "--threads": backends.append(.threads)
     case "--gcd":     backends.append(.gcd)
     default:
@@ -37,7 +38,7 @@ while i < CommandLine.arguments.count {
     }
     i += 1
 }
-if backends.isEmpty { backends = [.async_] }
+if backends.isEmpty { backends = [.threads] }
 
 // MARK: - Sync runner (shared by threads + gcd)
 
@@ -88,46 +89,10 @@ print("Platform: macOS, \(nCPU) hardware threads")
 
 for backend in backends {
     switch backend {
-    case .async_:
-        let tag = "async (Task.detached)"
-        print("\n\n╔══════════════════════════════════════════════════════╗")
-        print(  "║  Backend: \(tag)\(String(repeating: " ", count: max(0, 42 - tag.count)))║")
-        print(  "╚══════════════════════════════════════════════════════╝")
-
-        printHeader("ipc::route — 1 sender, N receivers (random 2–256 bytes × 100 000)")
-        printTableHeader(col1: "Receivers")
-        var n = 1
-        while n <= maxThreads {
-            printTableRow(label: n, stats: await asyncBenchRoute(nReceivers: n, count: 100_000, msgLo: 2, msgHi: 256))
-            n *= 2
-        }
-        printHeader("ipc::channel — 1-N (random 2–256 bytes × 100 000)")
-        printTableHeader(col1: "Receivers")
-        n = 1
-        while n <= maxThreads {
-            printTableRow(label: n, stats: await asyncBenchChannel(pattern: "1-N", n: n, count: 100_000, msgLo: 2, msgHi: 256))
-            n *= 2
-        }
-        printHeader("ipc::channel — N-1 (random 2–256 bytes × 100 000)")
-        printTableHeader(col1: "Senders")
-        n = 1
-        while n <= maxThreads {
-            printTableRow(label: n, stats: await asyncBenchChannel(pattern: "N-1", n: n, count: 100_000, msgLo: 2, msgHi: 256))
-            n *= 2
-        }
-        printHeader("ipc::channel — N-N (random 2–256 bytes × 100 000)")
-        printTableHeader(col1: "Threads")
-        n = 1
-        while n <= maxThreads {
-            printTableRow(label: n, stats: await asyncBenchChannel(pattern: "N-N", n: n, count: 100_000, msgLo: 2, msgHi: 256))
-            n *= 2
-        }
-
     case .threads:
         runSyncBackend(.threads,
             routeFn: { threadsBenchRoute(nReceivers: $0, count: $1, msgLo: $2, msgHi: $3) },
             chanFn:  { threadsBenchChannel(pattern: $0, n: $1, count: $2, msgLo: $3, msgHi: $4) })
-
     case .gcd:
         runSyncBackend(.gcd,
             routeFn: { gcdBenchRoute(nReceivers: $0, count: $1, msgLo: $2, msgHi: $3) },
