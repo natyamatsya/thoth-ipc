@@ -14,6 +14,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
+        .package(url: "https://github.com/google/flatbuffers.git", from: "25.2.10"),
     ],
     targets: [
         .target(
@@ -26,6 +27,7 @@ let package = Package(
             dependencies: [
                 "LibIPCShim",
                 .product(name: "Atomics", package: "swift-atomics"),
+                .product(name: "FlatBuffers", package: "flatbuffers"),
             ],
             path: "Sources/LibIPC",
             swiftSettings: [
@@ -34,7 +36,10 @@ let package = Package(
         ),
         .testTarget(
             name: "LibIPCTests",
-            dependencies: ["LibIPC"],
+            dependencies: [
+                "LibIPC",
+                .product(name: "FlatBuffers", package: "flatbuffers"),
+            ],
             path: "Tests/LibIPCTests"
         ),
     ]

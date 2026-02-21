@@ -1,6 +1,15 @@
 {
-  "originHash" : "4f4f0cdc2be4544cc8957349f65b7b35da935611f22aeb05ce395fb575b64f77",
+  "originHash" : "5552de974484cc413833d7b72ce7829554b01a40cb5ed1eb09cc08bda48d0eb5",
   "pins" : [
+    {
+      "identity" : "flatbuffers",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/google/flatbuffers.git",
+      "state" : {
+        "revision" : "7e163021e59cca4f8e1e35a7c828b5c6b7915953",
+        "version" : "25.12.19"
+      }
+    },
     {
       "identity" : "swift-atomics",
       "kind" : "remoteSourceControl",
