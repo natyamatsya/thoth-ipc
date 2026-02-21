@@ -62,29 +62,50 @@
 
 ---
 
-## Phase 3 post-optimization results (C++ ulock, after `waiters` counter fix)
+## Post-optimization results (both backends, after `waiters` counter fix)
 
-### ipc::channel N-1 — before vs after Phase 3 (µs/datum)
+The `waiters` counter optimisation was applied to both the ulock backend
+(`platform/apple/condition.h`) and the Mach backend (`platform/apple/mach/condition.h`).
 
-| Senders | Before | After | Speedup |
-|:-------:|-------:|------:|:-------:|
-| 1       | 4.33   | 0.537 | **8×**  |
-| 2       | 2.84   | 0.975 | **3×**  |
-| 4       | 5.35   | 0.887 | **6×**  |
-| 8       | 4.01   | 1.036 | **4×**  |
+### ipc::route — 1 sender, N receivers, post-optimization (µs/datum)
 
-### ipc::channel N-N — before vs after Phase 3 (µs/datum)
+| Receivers | C++ ulock | C++ Mach |
+|:---------:|----------:|---------:|
+| 1         | 3.09      | 3.09     |
+| 2         | 3.05      | 3.63     |
+| 4         | 3.03      | 3.03     |
+| 8         | 3.04      | 3.06     |
 
-| Threads | Before | After | Speedup |
-|:-------:|-------:|------:|:-------:|
-| 1       | 4.13   | 0.560 | **7×**  |
-| 2       | 3.77   | 0.841 | **4×**  |
-| 4       | 11.08  | 1.075 | **10×** |
-| 8       | 20.98  | 1.936 | **11×** |
+`ipc::route` remains at ~3 µs/datum — the receiver is always sleeping waiting for new
+data, so `waiters > 0` on every push and the signal syscall cannot be skipped. This is
+the irreducible condvar round-trip cost.
 
-`ipc::route` (1 sender, N receivers) remains at ~3 µs/datum — the receiver is always
-sleeping waiting for new data, so `waiters > 0` on every push and `__ulock_wake` cannot
-be skipped. This is the irreducible round-trip cost of the ulock condvar.
+### ipc::channel 1-N — before vs after (µs/datum)
+
+| Receivers | ulock before | ulock after | Mach after |
+|:---------:|-------------:|------------:|-----------:|
+| 1         | 3.13         | 0.62        | 0.50       |
+| 2         | 3.61         | 0.57        | 0.63       |
+| 4         | 8.25         | 0.98        | 0.96       |
+| 8         | 13.07        | 1.89        | 1.93       |
+
+### ipc::channel N-1 — before vs after (µs/datum)
+
+| Senders | ulock before | ulock after | Mach after |
+|:-------:|-------------:|------------:|-----------:|
+| 1       | 4.33         | 0.51        | 0.50       |
+| 2       | 2.84         | 0.58        | 0.65       |
+| 4       | 5.35         | 0.92        | 0.84       |
+| 8       | 4.01         | 0.94        | 0.98       |
+
+### ipc::channel N-N — before vs after (µs/datum)
+
+| Threads | ulock before | ulock after | Mach after |
+|:-------:|-------------:|------------:|-----------:|
+| 1       | 4.13         | 0.79        | 0.56       |
+| 2       | 3.77         | 0.94        | 0.76       |
+| 4       | 11.08        | 1.06        | 1.03       |
+| 8       | 20.98        | 2.98        | 1.91       |
 
 ---
 
@@ -135,8 +156,8 @@ the **irreducible ulock condvar round-trip** when a receiver is genuinely sleepi
 
 1. **`ipc::route` ~3 µs** — irreducible when receiver is always sleeping. Could be
    reduced by batching wakeups (signal once per N pushes) at the cost of latency.
-2. **Mach backend** — apply the same `waiters` counter optimisation to
-   `mach/condition.h` (already has `waiters` field but `broadcast()` always calls
-   `semaphore_signal_all`).
-3. **`ipc::channel` 1-N at N=1** — still ~4 µs; the `wt_waiter_.broadcast()` call in
-   `recv()` is the bottleneck when only one sender is waiting.
+2. **ulock N-N at N=8** — 2.98 µs vs Mach 1.91 µs; the ulock mutex `ULF_WAKE_ALL`
+   still causes some thundering herd under very high sender+receiver contention.
+3. **Blocking vs non-blocking send** — the C++ benchmark uses blocking send (waits for
+   ring space); the Rust benchmark uses non-blocking send (drops messages). A fair
+   comparison requires matching semantics.

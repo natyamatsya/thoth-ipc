@@ -204,7 +204,8 @@ public:
         LIBIPC_LOG();
         if (!valid()) return false;
         cond_->seq.fetch_add(1, std::memory_order_acq_rel);
-        semaphore_signal(sem_);
+        if (cond_->waiters.load(std::memory_order_acquire) > 0)
+            semaphore_signal(sem_);
         return true;
     }
 
@@ -212,7 +213,8 @@ public:
         LIBIPC_LOG();
         if (!valid()) return false;
         cond_->seq.fetch_add(1, std::memory_order_acq_rel);
-        semaphore_signal_all(sem_);
+        if (cond_->waiters.load(std::memory_order_acquire) > 0)
+            semaphore_signal_all(sem_);
         return true;
     }
 };
