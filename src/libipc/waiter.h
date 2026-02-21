@@ -14,9 +14,9 @@ namespace ipc {
 namespace detail {
 
 class waiter {
-    ipc::sync::condition cond_;
-    ipc::sync::mutex     lock_;
-    std::atomic<bool>    quit_ {false};
+    ipc::sync::condition  cond_;
+    ipc::sync::mutex      lock_;
+    std::atomic<bool>     quit_ {false};
 
 public:
     static void init();
@@ -63,6 +63,11 @@ public:
 
     template <typename F>
     bool wait_if(F &&pred, std::uint64_t tm = ipc::invalid_value) noexcept {
+        // Fast path: if the predicate is already false, skip the lock entirely.
+        // Safe because the ulock condvar prevents lost wakeups via seq counter:
+        // if notify() fires after this check but before __ulock_wait, the kernel
+        // sees seq != expected and returns immediately without sleeping.
+        if (quit_.load(std::memory_order_relaxed) || !pred()) return true;
         LIBIPC_UNUSED std::lock_guard<ipc::sync::mutex> guard {lock_};
         while ([this, &pred] {
                     return !quit_.load(std::memory_order_relaxed)
@@ -74,16 +79,10 @@ public:
     }
 
     bool notify() noexcept {
-        {
-            LIBIPC_UNUSED std::lock_guard<ipc::sync::mutex> barrier{lock_}; // barrier
-        }
         return cond_.notify(lock_);
     }
 
     bool broadcast() noexcept {
-        {
-            LIBIPC_UNUSED std::lock_guard<ipc::sync::mutex> barrier{lock_}; // barrier
-        }
         return cond_.broadcast(lock_);
     }
 

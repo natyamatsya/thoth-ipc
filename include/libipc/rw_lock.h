@@ -78,10 +78,21 @@ inline void yield(K& k) noexcept {
     ++k;
 }
 
-template <std::size_t N = 32, typename K, typename F>
+template <std::size_t N = 64, typename K, typename F>
 inline void sleep(K& k, F&& f) {
     if (k < static_cast<K>(N)) {
-        std::this_thread::yield();
+        // Exponential pause backoff for the first 8 iterations (matching
+        // parking_lot's SpinWait: 1, 2, 4, 8, ... spin_loop() calls), then
+        // fall back to thread::yield() for the remaining iterations.
+        // This keeps the fast path in user space longer before the kernel
+        // condvar round-trip, which costs ~3-13 µs on macOS.
+        if (k < 8) {
+            K count = static_cast<K>(1) << k;
+            for (K i = 0; i < count; ++i)
+                IPC_LOCK_PAUSE_();
+        } else {
+            std::this_thread::yield();
+        }
     }
     else {
         static_cast<void>(std::forward<F>(f)());
@@ -90,7 +101,7 @@ inline void sleep(K& k, F&& f) {
     ++k;
 }
 
-template <std::size_t N = 32, typename K>
+template <std::size_t N = 64, typename K>
 inline void sleep(K& k) {
     sleep<N>(k, [] {
         std::this_thread::sleep_for(std::chrono::microseconds(50));

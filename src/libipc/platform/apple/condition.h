@@ -47,7 +47,8 @@ namespace sync {
 // physical page, so it works across processes sharing the same mapping.
 
 struct ulock_cond_t {
-    std::atomic<std::uint32_t> seq; // monotonically incremented on notify/broadcast
+    std::atomic<std::uint32_t> seq;     // monotonically incremented on notify/broadcast
+    std::atomic<std::int32_t>  waiters; // count of threads blocked in __ulock_wait
 };
 
 class condition {
@@ -87,6 +88,7 @@ public:
         if (shm_.ref() <= 1) {
             // First opener: initialize.
             cond_->seq.store(0, std::memory_order_release);
+            cond_->waiters.store(0, std::memory_order_release);
         }
         return valid();
     }
@@ -128,6 +130,7 @@ public:
         // Release the mutex before sleeping.
         mtx.unlock();
 
+        cond_->waiters.fetch_add(1, std::memory_order_relaxed);
         bool notified = false;
         if (tm == invalid_value) {
             // Infinite wait: loop on EINTR.
@@ -170,6 +173,7 @@ public:
                 break;
             }
         }
+        cond_->waiters.fetch_sub(1, std::memory_order_relaxed);
 
         // Reacquire the mutex before returning.
         // Always use infinite wait here: the caller (e.g. lock_guard) will
@@ -182,7 +186,8 @@ public:
         LIBIPC_LOG();
         if (!valid()) return false;
         cond_->seq.fetch_add(1, std::memory_order_acq_rel);
-        ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED, &cond_->seq, 0);
+        if (cond_->waiters.load(std::memory_order_acquire) > 0)
+            ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED, &cond_->seq, 0);
         return true;
     }
 
@@ -190,7 +195,8 @@ public:
         LIBIPC_LOG();
         if (!valid()) return false;
         cond_->seq.fetch_add(1, std::memory_order_acq_rel);
-        ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL, &cond_->seq, 0);
+        if (cond_->waiters.load(std::memory_order_acquire) > 0)
+            ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL, &cond_->seq, 0);
         return true;
     }
 };

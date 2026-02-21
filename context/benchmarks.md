@@ -62,36 +62,64 @@
 
 ---
 
+## Phase 3 post-optimization results (C++ ulock, after `waiters` counter fix)
+
+### ipc::channel N-1 — before vs after Phase 3 (µs/datum)
+
+| Senders | Before | After | Speedup |
+|:-------:|-------:|------:|:-------:|
+| 1       | 4.33   | 0.537 | **8×**  |
+| 2       | 2.84   | 0.975 | **3×**  |
+| 4       | 5.35   | 0.887 | **6×**  |
+| 8       | 4.01   | 1.036 | **4×**  |
+
+### ipc::channel N-N — before vs after Phase 3 (µs/datum)
+
+| Threads | Before | After | Speedup |
+|:-------:|-------:|------:|:-------:|
+| 1       | 4.13   | 0.560 | **7×**  |
+| 2       | 3.77   | 0.841 | **4×**  |
+| 4       | 11.08  | 1.075 | **10×** |
+| 8       | 20.98  | 1.936 | **11×** |
+
+`ipc::route` (1 sender, N receivers) remains at ~3 µs/datum — the receiver is always
+sleeping waiting for new data, so `waiters > 0` on every push and `__ulock_wake` cannot
+be skipped. This is the irreducible round-trip cost of the ulock condvar.
+
+---
+
 ## Analysis
 
-### C++ ulock vs C++ Mach
+### C++ ulock vs C++ Mach (before Phase 3)
 
-The two C++ backends are **roughly equivalent on `ipc::route`** (broadcast, 1 sender) —
-both around 3 µs/datum. On multi-sender/multi-receiver `ipc::channel` patterns the Mach
-backend is consistently **2–5× faster**. The likely cause:
+The two C++ backends were **roughly equivalent on `ipc::route`** — both around 3 µs/datum.
+On multi-sender/multi-receiver `ipc::channel` patterns the Mach backend was consistently
+**2–5× faster** due to the ulock mutex waking all waiters simultaneously (`ULF_WAKE_ALL`)
+while Mach uses `SYNC_POLICY_FIFO` (one at a time).
 
-* The ulock mutex uses `ULF_WAKE_ALL` on unlock when state=2, which wakes every waiter
-  simultaneously. Under high N-sender or N-receiver contention this causes a thundering
-  herd on the ring-buffer spin lock.
-* The Mach backend uses `SYNC_POLICY_FIFO` semaphores which wake exactly one waiter at a
-  time, naturally serialising access and reducing cache-line bouncing.
+### Root cause of the C++/Rust gap (revised after Phase 3)
 
-The ulock backend has lower latency in the uncontended single-thread case (3.1 µs vs
-4.1 µs for channel 1-1) because `__ulock_wait` has lower kernel-entry overhead than a
-Mach port transition.
+The initial hypothesis (spin threshold difference) was incorrect. Code inspection confirmed
+identical `SPIN_COUNT=32` in both C++ and Rust `wait_for` loops. The actual cause was:
 
-### C++ vs Rust
+**`waiter::broadcast()` was called unconditionally on every successful push and pop**, even
+when no thread was sleeping. Each call paid:
 
-The Rust port is **~55–480× faster** across all configurations. This gap is **not** due
-to the synchronisation backend — both use ulock internally. The gap is in the
-**ring-buffer wait loop**: the Rust port's `adaptive_yield` spins aggressively before
-ever calling into the kernel, while the C++ `ipc::sleep` escalates to `waiter.wait_if`
-(a full mutex+condvar round-trip) after only 32 `yield` iterations. Each kernel round-trip
-costs ~3–13 µs; the Rust port avoids almost all of them for the 100 000-message workload.
+1. A mutex lock/unlock (barrier) — ~1 µs
+2. A `__ulock_wake` syscall — ~1–2 µs even with no waiters
 
-The remaining work to close this gap is in `ipc.cpp`'s `wait_for` loop — increasing the
-spin threshold before calling `waiter.wait_if`, or using a dedicated lock-free fast path
-for the common uncontended case.
+**Fix:** Added a `waiters` counter to `ulock_cond_t`. `broadcast()`/`notify()` now skip
+`__ulock_wake` when `waiters == 0`. Also removed the redundant barrier lock from
+`waiter::broadcast()` (the ulock seq-counter condvar prevents lost wakeups independently).
+
+**Result:** `ipc::channel` dropped from ~3–21 µs to **0.5–2 µs/datum** (3–11× improvement).
+
+### Remaining gap vs Rust
+
+The Rust benchmark sends with `timeout_ms=0` (non-blocking, drops messages when ring full),
+while the C++ benchmark uses blocking send (waits until ring has space). These measure
+different workloads. For the blocking send case, `ipc::route` at ~3 µs/datum represents
+the **irreducible ulock condvar round-trip** when a receiver is genuinely sleeping.
 
 ---
 
@@ -101,16 +129,14 @@ for the common uncontended case.
 | --- | --- |
 | Default / highest throughput | **C++ ulock** (already default) |
 | Mac App Store distribution | **C++ Mach** (`LIBIPC_APPLE_APP_STORE_SAFE=ON`) |
-| High N-sender contention | **C++ Mach** (FIFO wake avoids thundering herd) |
-| Lowest possible latency | **Rust port** (lock-free fast path in ring buffer) |
+| Lowest possible latency | **Rust port** (non-blocking send, no kernel sleep) |
 
-### Next steps to close the C++/Rust gap
+### Remaining optimisation opportunities
 
-1. **Increase spin threshold in `ipc::sleep`** — raise `N` from 32 to ~512 before
-   calling `waiter.wait_if`. This keeps the fast path in user space for lightly loaded
-   channels.
-2. **Replace `ULF_WAKE_ALL` with `ULF_WAKE_ONE`** in the ulock mutex unlock — wake only
-   one waiter and let it re-signal if needed (same as the Mach FIFO policy). This
-   eliminates the thundering herd under high contention.
-3. **Lock-free ring pop** — the C++ `circ` ring buffer uses a spin lock; replacing it
-   with a CAS-based MPMC queue would eliminate the mutex entirely on the data path.
+1. **`ipc::route` ~3 µs** — irreducible when receiver is always sleeping. Could be
+   reduced by batching wakeups (signal once per N pushes) at the cost of latency.
+2. **Mach backend** — apply the same `waiters` counter optimisation to
+   `mach/condition.h` (already has `waiters` field but `broadcast()` always calls
+   `semaphore_signal_all`).
+3. **`ipc::channel` 1-N at N=1** — still ~4 µs; the `wt_waiter_.broadcast()` call in
+   `recv()` is the bottleneck when only one sender is waiting.
