@@ -1,21 +1,30 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
 
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
     name: "libipc",
     platforms: [
-        .macOS(.v13),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "LibIPC", targets: ["LibIPC"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
+    ],
     targets: [
         .target(
             name: "LibIPC",
-            path: "Sources/LibIPC"
+            dependencies: [
+                .product(name: "Atomics", package: "swift-atomics"),
+            ],
+            path: "Sources/LibIPC",
+            swiftSettings: [
+                .strictConcurrency(.complete),
+            ]
         ),
         .testTarget(
             name: "LibIPCTests",
