@@ -1,0 +1,3 @@
+[submodule "rust/parking_lot"]
+	path = rust/parking_lot
+	url = https://github.com/Amanieu/parking_lot.git
