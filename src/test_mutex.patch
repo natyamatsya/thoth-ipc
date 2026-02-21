@@ -1,0 +1,11 @@
+--- src/libipc/platform/apple/mutex.h
++++ src/libipc/platform/apple/mutex.h
+@@ -261,7 +261,7 @@
+         // Phase 2: escalating sleep — 1µs → 10µs → 100µs → 1ms
+         static constexpr std::chrono::microseconds sleep_steps[] = {
+             std::chrono::microseconds(1),
+-            std::chrono::microseconds(10),
++            std::chrono::microseconds(5),
+             std::chrono::microseconds(100),
+             std::chrono::microseconds(1000),
+         };

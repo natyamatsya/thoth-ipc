@@ -11,9 +11,9 @@
 #include <chrono>
 #include <thread>
 
-#include <pthread.h>
 #include <unistd.h>
 #include <signal.h>
+#include <errno.h>
 
 #include "libipc/platform/detail.h"
 #include "libipc/imp/log.h"
@@ -21,25 +21,34 @@
 #include "libipc/mem/resource.h"
 #include "libipc/shm.h"
 
-#include "libipc/platform/posix/get_wait_time.h"
 #include "libipc/platform/apple/spin_lock.h"
+#include "libipc/platform/apple/ulock.h"
 
 namespace ipc {
 namespace detail {
 namespace sync {
 
-// Shared memory layout for the macOS robust mutex emulation.
-// The holder PID is stored alongside the mutex so that other processes
-// can detect a dead holder and reinitialize the mutex.
-struct robust_mutex_t {
-    pthread_mutex_t     mtx;
-    std::atomic<pid_t>  holder; // 0 = unlocked
+// Shared memory layout for the macOS ulock-based mutex.
+//
+// State encoding (32-bit word, used as the ulock address):
+//   0  — UNLOCKED
+//   1  — LOCKED, no waiters
+//   2  — LOCKED, one or more waiters sleeping in __ulock_wait
+//
+// holder stores the PID of the current lock owner so that other processes
+// can detect a dead holder and reset the mutex.
+struct ulock_mutex_t {
+    std::atomic<std::uint32_t> state;  // 0=unlocked, 1=locked, 2=locked+waiters
+    std::atomic<pid_t>         holder; // 0 = no holder
 };
+
+// Spin budget before falling back to __ulock_wait.
+static constexpr int kMutexSpinCount = 40;
 
 class mutex {
     ipc::shm::handle *shm_ = nullptr;
     std::atomic<std::int32_t> *ref_ = nullptr;
-    robust_mutex_t *data_ = nullptr;
+    ulock_mutex_t *data_ = nullptr;
 
     struct curr_prog {
         struct shm_data {
@@ -62,23 +71,23 @@ class mutex {
         }
     };
 
-    robust_mutex_t *acquire_mutex(char const *name) {
+    ulock_mutex_t *acquire_mutex(char const *name) {
         if (name == nullptr) return nullptr;
         auto &info = curr_prog::get();
         LIBIPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
         auto it = info.mutex_handles.find(name);
         if (it == info.mutex_handles.end()) {
-          it = info.mutex_handles
-                   .emplace(std::piecewise_construct,
-                            std::forward_as_tuple(name),
-                            std::forward_as_tuple(curr_prog::shm_data::init{
-                                name, sizeof(robust_mutex_t)}))
-                   .first;
+            it = info.mutex_handles
+                     .emplace(std::piecewise_construct,
+                              std::forward_as_tuple(name),
+                              std::forward_as_tuple(curr_prog::shm_data::init{
+                                  name, sizeof(ulock_mutex_t)}))
+                     .first;
         }
         shm_ = &it->second.shm;
         ref_ = &it->second.ref;
         if (shm_ == nullptr) return nullptr;
-        return static_cast<robust_mutex_t *>(shm_->get());
+        return static_cast<ulock_mutex_t *>(shm_->get());
     }
 
     template <typename F>
@@ -92,11 +101,6 @@ class mutex {
             info.mutex_handles.erase(it);
     }
 
-    static pthread_mutex_t const &zero_mem() {
-        static const pthread_mutex_t tmp{};
-        return tmp;
-    }
-
     // Check if a PID is alive. Returns false if the process does not exist.
     static bool is_process_alive(pid_t pid) noexcept {
         if (pid <= 0) return false;
@@ -104,7 +108,7 @@ class mutex {
     }
 
     // Attempt to recover a mutex whose holder has died.
-    // Returns true if recovery succeeded (mutex was reinitialized).
+    // Returns true if recovery succeeded (state was reset to UNLOCKED).
     bool try_recover_dead_holder() noexcept {
         LIBIPC_LOG();
         if (data_ == nullptr) return false;
@@ -114,18 +118,54 @@ class mutex {
 
         log.debug("dead holder detected (pid=", holder, "), recovering mutex");
 
-        // Reinitialize: destroy + init. This is safe because the holder is dead
-        // and cannot be inside a critical section.
-        ::pthread_mutex_destroy(&data_->mtx);
+        // Reset state to UNLOCKED. If there were waiters, wake them all so
+        // they can re-compete for the lock.
+        std::uint32_t old = data_->state.exchange(0, std::memory_order_acq_rel);
         data_->holder.store(0, std::memory_order_release);
-
-        pthread_mutexattr_t attr;
-        if (::pthread_mutexattr_init(&attr) != 0) return false;
-        LIBIPC_UNUSED auto g = ipc::guard([&attr] { ::pthread_mutexattr_destroy(&attr); });
-        if (::pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED) != 0) return false;
-        data_->mtx = PTHREAD_MUTEX_INITIALIZER;
-        if (::pthread_mutex_init(&data_->mtx, &attr) != 0) return false;
+        if (old == 2) {
+            // Wake all waiters so they can observe the unlocked state.
+            ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL,
+                           &data_->state, 0);
+        }
         return true;
+    }
+
+    // Uncontended try-lock: CAS 0→1. Returns true on success.
+    bool try_lock_once() noexcept {
+        std::uint32_t expected = 0;
+        return data_->state.compare_exchange_strong(
+            expected, 1,
+            std::memory_order_acquire,
+            std::memory_order_relaxed);
+    }
+
+    // Contended try-lock (used after waking from __ulock_wait): CAS 0→2.
+    // Using 2 instead of 1 preserves the "waiters may be present" signal so
+    // that unlock() will always call __ulock_wake when there are other sleepers.
+    bool try_lock_contended() noexcept {
+        std::uint32_t expected = 0;
+        return data_->state.compare_exchange_strong(
+            expected, 2,
+            std::memory_order_acquire,
+            std::memory_order_relaxed);
+    }
+
+    // Block until state != current_val, with optional timeout (µs, 0 = infinite).
+    // Returns false on timeout.
+    bool ulock_wait(std::uint32_t current_val, std::uint32_t timeout_us) noexcept {
+        int ret = ::__ulock_wait(UL_COMPARE_AND_WAIT_SHARED,
+                                 &data_->state,
+                                 static_cast<std::uint64_t>(current_val),
+                                 timeout_us);
+        if (ret >= 0) return true;
+        int err = errno;
+        // ETIMEDOUT → timed out, EINTR → spurious wakeup (treat as success to retry)
+        return (err == EINTR);
+    }
+
+    // Wake one waiter.
+    void ulock_wake_one() noexcept {
+        ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED, &data_->state, 0);
     }
 
 public:
@@ -133,21 +173,19 @@ public:
     ~mutex() = default;
 
     static void init() {
-        zero_mem();
         curr_prog::get();
     }
 
-    pthread_mutex_t const *native() const noexcept {
-        return data_ ? &data_->mtx : nullptr;
+    ulock_mutex_t const *native() const noexcept {
+        return data_;
     }
 
-    pthread_mutex_t *native() noexcept {
-        return data_ ? &data_->mtx : nullptr;
+    ulock_mutex_t *native() noexcept {
+        return data_;
     }
 
     bool valid() const noexcept {
-        return (shm_ != nullptr) && (ref_ != nullptr) && (data_ != nullptr)
-            && (std::memcmp(&zero_mem(), &data_->mtx, sizeof(pthread_mutex_t)) != 0);
+        return (shm_ != nullptr) && (ref_ != nullptr) && (data_ != nullptr);
     }
 
     bool open(char const *name) noexcept {
@@ -156,27 +194,9 @@ public:
         if ((data_ = acquire_mutex(name)) == nullptr) return false;
         auto self_ref = ref_->fetch_add(1, std::memory_order_relaxed);
         if (shm_->ref() > 1 || self_ref > 0) return valid();
-        ::pthread_mutex_destroy(&data_->mtx);
-        auto finally = ipc::guard([this] { close(); });
-        int eno;
-        pthread_mutexattr_t mutex_attr;
-        if ((eno = ::pthread_mutexattr_init(&mutex_attr)) != 0) {
-            log.error("fail pthread_mutexattr_init[", eno, "]");
-            return false;
-        }
-        LIBIPC_UNUSED auto guard_mutex_attr = guard([&mutex_attr] { ::pthread_mutexattr_destroy(&mutex_attr); });
-        if ((eno = ::pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED)) != 0) {
-            log.error("fail pthread_mutexattr_setpshared[", eno, "]");
-            return false;
-        }
-        // macOS lacks pthread_mutexattr_setrobust — emulate via PID liveness check
-        data_->mtx = PTHREAD_MUTEX_INITIALIZER;
+        // First opener: initialize state.
+        data_->state.store(0, std::memory_order_release);
         data_->holder.store(0, std::memory_order_release);
-        if ((eno = ::pthread_mutex_init(&data_->mtx, &mutex_attr)) != 0) {
-            log.error("fail pthread_mutex_init[", eno, "]");
-            return false;
-        }
-        finally.dismiss();
         return valid();
     }
 
@@ -184,14 +204,14 @@ public:
         LIBIPC_LOG();
         if ((ref_ != nullptr) && (shm_ != nullptr) && (data_ != nullptr)) {
             if (shm_->name() != nullptr) {
-                release_mutex(shm_->name(), [this, &log] {
+                release_mutex(shm_->name(), [this] {
                     auto self_ref = ref_->fetch_sub(1, std::memory_order_relaxed);
                     if ((shm_->ref() <= 1) && (self_ref <= 1)) {
-                        ::pthread_mutex_unlock(&data_->mtx);
+                        // Last user: reset state and wake any stuck waiters.
+                        data_->state.store(0, std::memory_order_release);
                         data_->holder.store(0, std::memory_order_release);
-                        int eno;
-                        if ((eno = ::pthread_mutex_destroy(&data_->mtx)) != 0)
-                            log.error("fail pthread_mutex_destroy[", eno, "]");
+                        ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL,
+                                       &data_->state, 0);
                         return true;
                     }
                     return false;
@@ -207,12 +227,11 @@ public:
         LIBIPC_LOG();
         if ((shm_ != nullptr) && (data_ != nullptr)) {
             if (shm_->name() != nullptr) {
-                release_mutex(shm_->name(), [this, &log] {
-                    ::pthread_mutex_unlock(&data_->mtx);
+                release_mutex(shm_->name(), [this] {
+                    data_->state.store(0, std::memory_order_release);
                     data_->holder.store(0, std::memory_order_release);
-                    int eno;
-                    if ((eno = ::pthread_mutex_destroy(&data_->mtx)) != 0)
-                        log.error("fail pthread_mutex_destroy[", eno, "]");
+                    ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL,
+                                   &data_->state, 0);
                     shm_->clear();
                     return true;
                 });
@@ -229,104 +248,122 @@ public:
         ipc::shm::handle::clear_storage(name);
     }
 
-    // macOS lacks pthread_mutex_timedlock — emulate with adaptive polling.
-    // Also emulates robust mutex behavior via PID liveness checking.
+    // Lock with optional timeout (ms). Pass invalid_value for infinite wait.
+    //
+    // Algorithm (word-lock / "futex mutex"):
+    //   1. Spin up to kMutexSpinCount times attempting CAS 0→1.
+    //   2. If still not acquired, transition state to 2 (locked+waiters) and
+    //      call __ulock_wait. The kernel wakes us when state != 2.
+    //   3. On wakeup, retry from step 1.
     bool lock(std::uint64_t tm) noexcept {
         LIBIPC_LOG();
         if (!valid()) return false;
-        if (tm == invalid_value) {
-            int eno = ::pthread_mutex_lock(&data_->mtx);
-            if (eno != 0) {
-                log.error("fail pthread_mutex_lock[", eno, "]");
-                return false;
-            }
-            data_->holder.store(::getpid(), std::memory_order_release);
-            return true;
-        }
-        // Adaptive timed lock: spin → escalating sleep
+
+        // Compute deadline for timed waits.
         using clock = std::chrono::steady_clock;
-        auto deadline = clock::now() + std::chrono::milliseconds(tm);
-        // Phase 1: spin (no sleep) — ~1000 iterations for low-latency acquire
-        for (int i = 0; i < 1000; ++i) {
-            int eno = ::pthread_mutex_trylock(&data_->mtx);
-            if (eno == 0) {
-                data_->holder.store(::getpid(), std::memory_order_release);
-                return true;
-            }
-            if (eno != EBUSY) {
-                log.error("fail pthread_mutex_trylock[", eno, "]");
-                return false;
-            }
-        }
-        // Phase 2: escalating sleep — 1µs → 10µs → 100µs → 1ms
-        static constexpr std::chrono::microseconds sleep_steps[] = {
-            std::chrono::microseconds(1),
-            std::chrono::microseconds(10),
-            std::chrono::microseconds(100),
-            std::chrono::microseconds(1000),
-        };
-        constexpr int n_steps = sizeof(sleep_steps) / sizeof(sleep_steps[0]);
-        int step = 0;
-        int iters_at_step = 0;
+        clock::time_point deadline{};
+        bool has_deadline = (tm != invalid_value);
+        if (has_deadline)
+            deadline = clock::now() + std::chrono::milliseconds(tm);
+
         bool tried_recovery = false;
+
+        bool contended = false; // true after first sleep — use CAS 0→2 on acquire
+
         for (;;) {
-            int eno = ::pthread_mutex_trylock(&data_->mtx);
-            if (eno == 0) {
-                data_->holder.store(::getpid(), std::memory_order_release);
-                return true;
+            // Phase 1: optimistic spin.
+            // After sleeping (contended=true) use CAS 0→2 to preserve the
+            // "waiters present" signal so unlock() keeps waking sleepers.
+            for (int i = 0; i < kMutexSpinCount; ++i) {
+                bool got = contended ? try_lock_contended() : try_lock_once();
+                if (got) {
+                    data_->holder.store(::getpid(), std::memory_order_release);
+                    return true;
+                }
+#if defined(__arm64__) || defined(__aarch64__)
+                __asm__ __volatile__("isb sy" ::: "memory");
+#else
+                __asm__ __volatile__("pause" ::: "memory");
+#endif
             }
-            if (eno != EBUSY) {
-                log.error("fail pthread_mutex_trylock[", eno, "]");
-                return false;
+
+            // Phase 2: transition to "locked with waiters" and sleep.
+            // We must set state to 2 before sleeping so the unlocker knows
+            // to call __ulock_wake.
+            std::uint32_t s = data_->state.load(std::memory_order_relaxed);
+            if (s == 0) {
+                // State changed to unlocked between spin and here — retry spin.
+                continue;
             }
-            if (clock::now() >= deadline) {
-                // Before giving up, try to recover from a dead holder (once).
+            if (s == 1) {
+                // Announce that we are about to wait.
+                if (!data_->state.compare_exchange_strong(
+                        s, 2,
+                        std::memory_order_relaxed,
+                        std::memory_order_relaxed)) {
+                    // CAS failed: state changed (either unlocked or already 2).
+                    continue;
+                }
+            }
+            // state is now 2 (either we set it or it was already 2).
+
+            // Check deadline before sleeping.
+            std::uint32_t timeout_us = 0; // 0 = infinite for __ulock_wait
+            if (has_deadline) {
+                auto now = clock::now();
+                if (now >= deadline) {
+                    if (!tried_recovery) {
+                        tried_recovery = true;
+                        if (try_recover_dead_holder()) continue;
+                    }
+                    return false;
+                }
+                auto remaining = std::chrono::duration_cast<std::chrono::microseconds>(
+                    deadline - now).count();
+                timeout_us = (remaining > 0 && remaining < UINT32_MAX)
+                    ? static_cast<std::uint32_t>(remaining) : UINT32_MAX;
+            }
+
+            // Sleep until state != 2 (or timeout).
+            bool woken = ulock_wait(2, timeout_us);
+            contended = true; // from now on, acquire with CAS 0→2
+            if (!woken && has_deadline) {
+                // Timed out. Try dead-holder recovery once before giving up.
                 if (!tried_recovery) {
                     tried_recovery = true;
-                    if (try_recover_dead_holder()) continue; // retry after recovery
+                    if (try_recover_dead_holder()) continue;
                 }
                 return false;
             }
-            std::this_thread::sleep_for(sleep_steps[step]);
-            if (++iters_at_step >= 100 && step < n_steps - 1) {
-                ++step;
-                iters_at_step = 0;
-            }
+            // Woken (or spurious): loop back to spin phase.
         }
     }
 
     bool try_lock() noexcept(false) {
         LIBIPC_LOG();
         if (!valid()) return false;
-        int eno = ::pthread_mutex_trylock(&data_->mtx);
-        if (eno == 0) {
+        if (try_lock_once()) {
             data_->holder.store(::getpid(), std::memory_order_release);
             return true;
         }
-        if (eno == EBUSY) {
-            // Check for dead holder on contention
-            if (try_recover_dead_holder()) {
-                eno = ::pthread_mutex_trylock(&data_->mtx);
-                if (eno == 0) {
-                    data_->holder.store(::getpid(), std::memory_order_release);
-                    return true;
-                }
+        // Check for dead holder on contention.
+        if (try_recover_dead_holder()) {
+            if (try_lock_once()) {
+                data_->holder.store(::getpid(), std::memory_order_release);
+                return true;
             }
-            return false;
         }
-        log.error("fail pthread_mutex_trylock[", eno, "]");
-        throw std::system_error{eno, std::system_category()};
+        return false;
     }
 
     bool unlock() noexcept {
         LIBIPC_LOG();
         if (!valid()) return false;
         data_->holder.store(0, std::memory_order_release);
-        int eno;
-        if ((eno = ::pthread_mutex_unlock(&data_->mtx)) != 0) {
-            log.error("fail pthread_mutex_unlock[", eno, "]");
-            return false;
-        }
+        // Atomically set state to 0. If it was 2 (waiters present), wake one.
+        std::uint32_t prev = data_->state.exchange(0, std::memory_order_release);
+        if (prev == 2)
+            ulock_wake_one();
         return true;
     }
 };

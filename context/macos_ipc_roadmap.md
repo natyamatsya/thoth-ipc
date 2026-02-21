@@ -27,25 +27,28 @@ Because macOS restricts certain high-performance APIs (like `ulock`) from the Ma
 
 ## Execution Plan
 
-### Phase 1: Establish Baseline & Inspiration (In Progress)
+### Phase 1: Establish Baseline & Inspiration ✅
 
-- [x] Add the Rust `parking_lot` crate as a Git submodule in the `inspiration/` folder.
-* [ ] Analyze `parking_lot_core/src/thread_parker/darwin.rs` to extract the exact `ulock` syscall signatures and flag definitions for shared memory.
+* [x] Add the Rust `parking_lot` crate as a Git submodule in the `inspiration/` folder.
+* [x] Analyze XNU source to extract `ulock` syscall signatures and flag definitions for shared memory.
 
-### Phase 2: Implement `ulock` Backend
+### Phase 2: Implement `ulock` Backend ✅
 
-- [ ] Create `src/libipc/platform/apple/ulock.h` with the C bindings for `__ulock_wait` and `__ulock_wake`.
-* [ ] Rewrite `ipc::detail::sync::mutex` (in `platform/apple/mutex.h`) to use a 32-bit atomic state and `ulock` for blocking, eliminating `pthread_mutex_t`.
-* [ ] Rewrite `ipc::detail::sync::condition` and `ipc::detail::sync::semaphore` to use `ulock`.
+* [x] Created `src/libipc/platform/apple/ulock.h` with C bindings for `__ulock_wait` and `__ulock_wake` (all flag constants from XNU).
+* [x] Rewrote `ipc::detail::sync::mutex` (`platform/apple/mutex.h`) — 32-bit word-lock (0=unlocked, 1=locked, 2=locked+waiters), eliminates `pthread_mutex_t` and all `sleep_for` polling. Dead-holder recovery preserved via PID liveness check.
+* [x] Created `src/libipc/platform/apple/condition.h` — sequence-counter condvar using `__ulock_wait/wake`, eliminates `pthread_cond_t`.
+* [x] Rewrote `src/libipc/platform/apple/semaphore_impl.h` — atomic count + `__ulock_wait/wake`, eliminates `sem_t` and 100µs polling loop.
+* [x] Updated `sync/condition.cpp` to select `apple/condition.h` on `LIBIPC_OS_APPLE`.
+* [x] All 254 C++ unit tests pass.
+* [ ] Run `bench_ipc` and record latency improvement vs. baseline.
 * [ ] Update CMake to enable/disable the `ulock` backend via a flag (e.g., `LIBIPC_APPLE_APP_STORE_SAFE=OFF`).
-* [ ] Run `bench_ipc` and verify sub-microsecond latency.
 
 ### Phase 3: Implement Mach Semaphore Backend
 
-- [ ] Rewrite the fallback path in `platform/apple/mutex.h`, `condition.h`, and `semaphore_impl.h` to use `semaphore_timedwait`.
+* [ ] Rewrite the fallback path in `platform/apple/mutex.h`, `condition.h`, and `semaphore_impl.h` to use `semaphore_timedwait`.
 * [ ] Ensure proper Mach port lifecycle management (avoiding port leaks across processes).
 * [ ] Run `bench_ipc` to verify performance is acceptable and no polling loops remain.
 
 ### Phase 4: Spinlock Tuning
 
-- [ ] Replace `std::this_thread::yield()` in `include/libipc/rw_lock.h` and circular buffer spin loops with native CPU pause instructions (`__builtin_arm_isb(15)` for Apple Silicon, `__builtin_ia32_pause()` for x86_64) for the first N backoff iterations before falling back to `ulock_wait` / `semaphore_timedwait`.
+* [ ] Replace `std::this_thread::yield()` in `include/libipc/rw_lock.h` and circular buffer spin loops with native CPU pause instructions (`isb sy` for Apple Silicon, `pause` for x86_64) for the first N backoff iterations before falling back to `ulock_wait` / `semaphore_timedwait`.

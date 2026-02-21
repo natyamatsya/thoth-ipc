@@ -4,112 +4,141 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
-#include <thread>
+#include <atomic>
 #include <chrono>
 
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <semaphore.h>
 #include <errno.h>
 
 #include "libipc/imp/log.h"
 #include "libipc/shm.h"
-#include "libipc/platform/posix/shm_name.h"
+
+#include "libipc/platform/apple/ulock.h"
 
 namespace ipc {
 namespace detail {
 namespace sync {
 
+// ulock-based counting semaphore for macOS.
+//
+// Shared state: a 32-bit atomic count stored in shared memory.
+//
+// post(n): count += n, then wake up to n waiters via __ulock_wake.
+//
+// wait(tm):
+//   Spin attempting count-- (CAS loop). If count == 0, sleep via
+//   __ulock_wait until count changes, then retry.
+//
+// This eliminates the 100µs polling loop from the previous sem_trywait
+// emulation, replacing it with true kernel-assisted blocking.
+
+struct ulock_sem_t {
+    std::atomic<std::uint32_t> count;
+};
+
 class semaphore {
     ipc::shm::handle shm_;
-    sem_t *h_ = SEM_FAILED;
-    std::string sem_name_;
+    ulock_sem_t *data_ = nullptr;
 
 public:
     semaphore() = default;
     ~semaphore() noexcept = default;
 
-    void *native() const noexcept {
-        return h_;
+    void const *native() const noexcept {
+        return data_;
+    }
+
+    void *native() noexcept {
+        return data_;
     }
 
     bool valid() const noexcept {
-        return h_ != SEM_FAILED;
+        return data_ != nullptr;
     }
 
     bool open(char const *name, std::uint32_t count) noexcept {
         LIBIPC_LOG();
         close();
-        if (!shm_.acquire(name, 1)) {
+        if (!shm_.acquire(name, sizeof(ulock_sem_t))) {
             log.error("[open_semaphore] fail shm.acquire: ", name);
             return false;
         }
-        // Use a separate namespace for semaphores to avoid conflicts with shm.
-        std::string raw = std::string(name) + "_s";
-        sem_name_ = ipc::posix_::detail::make_shm_name(raw.c_str());
-        h_ = ::sem_open(sem_name_.c_str(), O_CREAT, 0666, static_cast<unsigned>(count));
-        if (h_ == SEM_FAILED) {
-            log.error("fail sem_open[", errno, "]: ", sem_name_);
-            return false;
+        data_ = static_cast<ulock_sem_t *>(shm_.get());
+        if (shm_.ref() <= 1) {
+            // First opener: initialize count.
+            data_->count.store(count, std::memory_order_release);
         }
-        return true;
+        return valid();
     }
 
     void close() noexcept {
         LIBIPC_LOG();
-        if (!valid()) return;
-        ::sem_close(h_);
-        h_ = SEM_FAILED;
-        if (!sem_name_.empty()) {
-            ::sem_unlink(sem_name_.c_str());
-            sem_name_.clear();
-        }
         if (shm_.name() != nullptr)
             shm_.release();
+        data_ = nullptr;
     }
 
     void clear() noexcept {
         LIBIPC_LOG();
-        if (valid()) {
-            ::sem_close(h_);
-            h_ = SEM_FAILED;
-        }
-        if (!sem_name_.empty()) {
-            ::sem_unlink(sem_name_.c_str());
-            sem_name_.clear();
+        if (data_ != nullptr) {
+            // Wake all waiters so they don't sleep forever.
+            data_->count.store(UINT32_MAX, std::memory_order_release);
+            ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL,
+                           &data_->count, 0);
         }
         shm_.clear();
+        data_ = nullptr;
     }
 
     static void clear_storage(char const *name) noexcept {
-        std::string raw = std::string(name) + "_s";
-        std::string sem_name = ipc::posix_::detail::make_shm_name(raw.c_str());
-        ::sem_unlink(sem_name.c_str());
         ipc::shm::handle::clear_storage(name);
     }
 
     bool wait(std::uint64_t tm) noexcept {
         LIBIPC_LOG();
         if (!valid()) return false;
-        if (tm == invalid_value) {
-            if (::sem_wait(h_) != 0) {
-                log.error("fail sem_wait[", errno, "]");
-                return false;
-            }
-            return true;
-        }
-        // macOS lacks sem_timedwait — emulate with polling.
-        auto deadline = std::chrono::steady_clock::now()
-                      + std::chrono::milliseconds(tm);
+
+        using clock = std::chrono::steady_clock;
+        bool has_deadline = (tm != invalid_value);
+        clock::time_point deadline{};
+        if (has_deadline)
+            deadline = clock::now() + std::chrono::milliseconds(tm);
+
         for (;;) {
-            if (::sem_trywait(h_) == 0) return true;
-            if (errno != EAGAIN) {
-                log.error("fail sem_trywait[", errno, "]");
-                return false;
+            // Try to decrement count atomically.
+            std::uint32_t cur = data_->count.load(std::memory_order_acquire);
+            while (cur > 0) {
+                if (data_->count.compare_exchange_weak(
+                        cur, cur - 1,
+                        std::memory_order_acquire,
+                        std::memory_order_relaxed)) {
+                    return true; // successfully decremented
+                }
+                // cur was updated by CAS failure — retry inner loop
             }
-            if (std::chrono::steady_clock::now() >= deadline) return false;
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
+
+            // count == 0: need to sleep.
+            if (has_deadline) {
+                auto now = clock::now();
+                if (now >= deadline) return false;
+                auto remaining = std::chrono::duration_cast<std::chrono::microseconds>(
+                    deadline - now).count();
+                std::uint32_t timeout_us = (remaining > 0 && remaining < UINT32_MAX)
+                    ? static_cast<std::uint32_t>(remaining) : UINT32_MAX;
+                int ret = ::__ulock_wait(UL_COMPARE_AND_WAIT_SHARED,
+                                         &data_->count, 0, timeout_us);
+                if (ret < 0 && errno != EINTR) {
+                    // ETIMEDOUT or other error
+                    return false;
+                }
+            } else {
+                // Infinite wait — loop on EINTR.
+                int ret = ::__ulock_wait(UL_COMPARE_AND_WAIT_SHARED,
+                                         &data_->count, 0, 0);
+                if (ret < 0 && errno != EINTR) {
+                    // Unexpected error; treat conservatively as wakeup and retry.
+                }
+            }
+            // Woken or spurious: loop back and retry the CAS.
         }
     }
 
@@ -117,10 +146,9 @@ public:
         LIBIPC_LOG();
         if (!valid()) return false;
         for (std::uint32_t i = 0; i < count; ++i) {
-            if (::sem_post(h_) != 0) {
-                log.error("fail sem_post[", errno, "]");
-                return false;
-            }
+            data_->count.fetch_add(1, std::memory_order_release);
+            // Wake one waiter per post.
+            ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED, &data_->count, 0);
         }
         return true;
     }

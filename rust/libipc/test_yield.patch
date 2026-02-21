@@ -1,0 +1,24 @@
+--- include/libipc/rw_lock.h
++++ include/libipc/rw_lock.h
+@@ -62,11 +62,10 @@
+ template <typename K>
+ inline void yield(K& k) noexcept {
+     if (k < 4)  { /* Do nothing */ }
+-    else
+-    if (k < 16) { IPC_LOCK_PAUSE_(); }
+     else {
+-        std::this_thread::yield();
++        IPC_LOCK_PAUSE_();
+     }
+     ++k;
+ }
+ 
+ template <std::size_t N = 32, typename K, typename F>
+ inline void sleep(K& k, F&& f) {
+-    if (k < static_cast<K>(N)) {
+-        std::this_thread::yield();
++    if (k < static_cast<K>(N * 10)) {
++        IPC_LOCK_PAUSE_();
+     }
+     else {
+         static_cast<void>(std::forward<F>(f)());
