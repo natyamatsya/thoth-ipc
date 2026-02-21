@@ -11,6 +11,9 @@ let package = Package(
     ],
     products: [
         .library(name: "LibIPC", targets: ["LibIPC"]),
+        .executable(name: "demo-send-recv", targets: ["DemoSendRecv"]),
+        .executable(name: "demo-chat",      targets: ["DemoChat"]),
+        .executable(name: "demo-msg-que",   targets: ["DemoMsgQue"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
@@ -33,6 +36,21 @@ let package = Package(
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
+        ),
+        .executableTarget(
+            name: "DemoSendRecv",
+            dependencies: ["LibIPC"],
+            path: "Sources/Demos/DemoSendRecv"
+        ),
+        .executableTarget(
+            name: "DemoChat",
+            dependencies: ["LibIPC"],
+            path: "Sources/Demos/DemoChat"
+        ),
+        .executableTarget(
+            name: "DemoMsgQue",
+            dependencies: ["LibIPC"],
+            path: "Sources/Demos/DemoMsgQue"
         ),
         .testTarget(
             name: "LibIPCTests",
