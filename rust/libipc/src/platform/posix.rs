@@ -33,7 +33,7 @@ pub(crate) struct ShmCache {
 }
 
 impl ShmCache {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             map: HashMap::new(),
         }

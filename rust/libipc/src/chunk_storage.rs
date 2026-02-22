@@ -24,8 +24,13 @@
 
 use std::io;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
-use crate::shm::{ShmHandle, ShmOpenMode};
+#[cfg(unix)]
+use crate::platform::posix::{cached_shm_acquire, cached_shm_purge, cached_shm_release, CachedShm};
+use crate::shm::ShmHandle;
+#[cfg(not(unix))]
+use crate::shm::ShmOpenMode;
 
 /// Maximum number of large-message slots per chunk size (matches C++ `large_msg_cache = 32`).
 pub const MAX_COUNT: usize = 32;
@@ -133,11 +138,53 @@ pub fn calc_chunk_size(payload_size: usize) -> usize {
 }
 
 // ---------------------------------------------------------------------------
+// Process-local chunk shm cache
+// ---------------------------------------------------------------------------
+
+/// A cached chunk shm handle — wraps a `CachedShm` so same-process endpoints
+/// share the same mmap (required for data coherency on macOS with MAP_SHARED).
+#[cfg(unix)]
+pub struct ChunkShmHandle {
+    cached: Arc<CachedShm>,
+    name: String,
+}
+
+#[cfg(unix)]
+impl ChunkShmHandle {
+    pub fn get(&self) -> *mut u8 {
+        self.cached.shm.as_mut_ptr()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ChunkShmHandle {
+    fn drop(&mut self) {
+        cached_shm_release(chunk_cache(), &self.name);
+    }
+}
+
+#[cfg(unix)]
+fn chunk_cache() -> &'static std::sync::Mutex<crate::platform::posix::ShmCache> {
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<crate::platform::posix::ShmCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(crate::platform::posix::ShmCache::new()))
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /// Open (or create) the chunk-storage shm segment for `chunk_size`-byte chunks.
-/// Returns the `ShmHandle`; the caller must keep it alive for the duration of use.
+/// Returns a handle whose mmap is shared within the process (required on macOS).
+#[cfg(unix)]
+pub fn open_chunk_shm(full_prefix: &str, chunk_size: usize) -> io::Result<ChunkShmHandle> {
+    let name = format!("{full_prefix}CH_CONN__{chunk_size}");
+    let size = ChunkInfo::shm_size(chunk_size);
+    let cached = cached_shm_acquire(chunk_cache(), &name, size, |_| Ok(()))?;
+    Ok(ChunkShmHandle { cached, name })
+}
+
+#[cfg(not(unix))]
 pub fn open_chunk_shm(full_prefix: &str, chunk_size: usize) -> io::Result<ShmHandle> {
     let name = format!("{full_prefix}CH_CONN__{chunk_size}");
     let size = ChunkInfo::shm_size(chunk_size);
@@ -151,11 +198,10 @@ pub fn open_chunk_shm(full_prefix: &str, chunk_size: usize) -> io::Result<ShmHan
 ///
 /// Mirrors C++ `acquire_storage`.
 pub fn acquire_storage(
-    shm: &ShmHandle,
+    base: *mut u8,
     chunk_size: usize,
     conns: u32,
 ) -> Option<(StorageId, *mut u8)> {
-    let base = shm.get();
     let info = unsafe { &mut *(base as *mut ChunkInfo) };
 
     spin_lock(&info.lock);
@@ -179,23 +225,22 @@ pub fn acquire_storage(
 /// Return a pointer to the payload of chunk `id`.
 ///
 /// Mirrors C++ `chunk_info_t::at(chunk_size, id)->data()`.
-pub fn find_storage(shm: &ShmHandle, chunk_size: usize, id: StorageId) -> Option<*mut u8> {
+pub fn find_storage(base: *mut u8, chunk_size: usize, id: StorageId) -> Option<*mut u8> {
     if id < 0 || id as usize >= MAX_COUNT {
         return None;
     }
-    Some(chunk_payload_ptr(shm.get(), chunk_size, id))
+    Some(chunk_payload_ptr(base, chunk_size, id))
 }
 
 /// Clear the receiver's bit from the chunk's connection bitmask.
 /// When the bitmask reaches zero (last reader), release the slot back to the pool.
 ///
 /// Mirrors C++ `recycle_storage` / `sub_rc<broadcast>`.
-pub fn recycle_storage(shm: &ShmHandle, chunk_size: usize, id: StorageId, conn_id: u32) {
+pub fn recycle_storage(base: *mut u8, chunk_size: usize, id: StorageId, conn_id: u32) {
     if id < 0 || id as usize >= MAX_COUNT {
         return;
     }
 
-    let base = shm.get();
     let conns_ptr = unsafe { chunk_conns_ptr(base, chunk_size, id) };
     let conns = unsafe { &*conns_ptr };
 
@@ -224,6 +269,8 @@ pub fn recycle_storage(shm: &ShmHandle, chunk_size: usize, id: StorageId, conn_i
 /// Remove the chunk-storage shm segment for `chunk_size`.
 pub fn clear_chunk_shm(full_prefix: &str, chunk_size: usize) {
     let name = format!("{full_prefix}CH_CONN__{chunk_size}");
+    #[cfg(unix)]
+    cached_shm_purge(chunk_cache(), &name);
     ShmHandle::clear_storage(&name);
 }
 

@@ -14,12 +14,15 @@
 // are stored in a separate shared-memory "chunk" and only the chunk ID
 // is placed in the ring slot.
 
+use std::collections::HashMap;
 use std::io;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::buffer::IpcBuffer;
 use crate::chunk_storage as cs;
+#[cfg(unix)]
+use crate::chunk_storage::ChunkShmHandle;
 use crate::shm::{ShmHandle, ShmOpenMode};
 use crate::waiter::Waiter;
 
@@ -119,15 +122,18 @@ struct ChanInner {
     _prefix: String, // chunk_prefix = "{full_prefix}{name}_"
     mode: Mode,
     ring_shm: ShmHandle,
-    conn_id: u32,                 // bitmask for this receiver (0 for senders)
-    cc_id: u32,                   // unique endpoint identity for self-message filtering
-    read_cursor: u32,             // receiver's read position
-    wt_waiter: Waiter,            // write-side waiter (senders block here when ring is full)
-    rd_waiter: Waiter,            // read-side waiter (receivers block here when ring is empty)
-    cc_waiter: Waiter,            // connection waiter (wait_for_recv)
-    cc_id_shm: ShmHandle,         // shared atomic counter for cc_id allocation (CA_CONN__)
-    chunk_shm: Option<ShmHandle>, // large-message chunk storage (CH_CONN__), lazily opened
-    disconnected: bool,           // true after explicit disconnect()
+    conn_id: u32,         // bitmask for this receiver (0 for senders)
+    cc_id: u32,           // unique endpoint identity for self-message filtering
+    read_cursor: u32,     // receiver's read position
+    wt_waiter: Waiter,    // write-side waiter (senders block here when ring is full)
+    rd_waiter: Waiter,    // read-side waiter (receivers block here when ring is empty)
+    cc_waiter: Waiter,    // connection waiter (wait_for_recv)
+    cc_id_shm: ShmHandle, // shared atomic counter for cc_id allocation (CA_CONN__)
+    #[cfg(unix)]
+    chunk_shm: HashMap<usize, ChunkShmHandle>, // large-message chunk storage (CH_CONN__), keyed by chunk_size
+    #[cfg(not(unix))]
+    chunk_shm: HashMap<usize, ShmHandle>, // large-message chunk storage (CH_CONN__), keyed by chunk_size
+    disconnected: bool, // true after explicit disconnect()
 }
 
 impl ChanInner {
@@ -214,18 +220,19 @@ impl ChanInner {
             rd_waiter,
             cc_waiter,
             cc_id_shm,
-            chunk_shm: None,
+            chunk_shm: HashMap::new(),
             disconnected: false,
         })
     }
 
     /// Open (or return cached) the chunk-storage shm for `chunk_size`-byte chunks.
-    fn chunk_shm(&mut self, chunk_size: usize) -> Option<&ShmHandle> {
-        if self.chunk_shm.is_none() {
+    /// Returns a raw pointer to the shm base (valid for the lifetime of the handle in the map).
+    fn chunk_shm_base(&mut self, chunk_size: usize) -> Option<*mut u8> {
+        if !self.chunk_shm.contains_key(&chunk_size) {
             let shm = cs::open_chunk_shm(&self._prefix, chunk_size).ok()?;
-            self.chunk_shm = Some(shm);
+            self.chunk_shm.insert(chunk_size, shm);
         }
-        self.chunk_shm.as_ref()
+        self.chunk_shm.get(&chunk_size).map(|h| h.get())
     }
 
     fn hdr(&self) -> &RingHeader {
@@ -439,16 +446,15 @@ impl ChanInner {
         let chunk_size = cs::calc_chunk_size(data.len());
 
         // Open (or reuse) the chunk shm — do this before borrowing hdr.
-        let shm: *const ShmHandle = match self.chunk_shm(chunk_size) {
-            Some(s) => s as *const ShmHandle,
+        let chunk_base: *mut u8 = match self.chunk_shm_base(chunk_size) {
+            Some(b) => b,
             None => return Ok(None), // storage unavailable, fall back
         };
-        let shm = unsafe { &*shm };
 
         let hdr = self.hdr();
         let conns = hdr.connections.load(Ordering::Relaxed);
 
-        let (storage_id, payload_ptr) = match cs::acquire_storage(shm, chunk_size, conns) {
+        let (storage_id, payload_ptr) = match cs::acquire_storage(chunk_base, chunk_size, conns) {
             Some(pair) => pair,
             None => return Ok(None), // pool exhausted, fall back to fragmentation
         };
@@ -464,7 +470,7 @@ impl ChanInner {
         'claim: loop {
             let cc = hdr.connections.load(Ordering::Relaxed) as u64;
             if cc == 0 {
-                cs::recycle_storage(shm, chunk_size, storage_id, !0u32);
+                cs::recycle_storage(chunk_base, chunk_size, storage_id, !0u32);
                 return Ok(Some(false));
             }
             let epoch = hdr.epoch.load(Ordering::Relaxed);
@@ -496,7 +502,7 @@ impl ChanInner {
                         .fetch_and(!(rem_cc2 as u32), Ordering::AcqRel)
                         & !(rem_cc2 as u32);
                     if new_cc == 0 {
-                        cs::recycle_storage(shm, chunk_size, storage_id, !0u32);
+                        cs::recycle_storage(chunk_base, chunk_size, storage_id, !0u32);
                         return Ok(Some(false));
                     }
                     slot.rc.fetch_and(!rem_cc2, Ordering::AcqRel);
@@ -638,19 +644,16 @@ impl ChanInner {
             if !is_own {
                 if is_storage {
                     let chunk_size = cs::calc_chunk_size(payload_size);
-                    let shm_ptr: *const ShmHandle = match self.chunk_shm(chunk_size) {
-                        Some(s) => s as *const ShmHandle,
-                        None => std::ptr::null(),
-                    };
-                    if !shm_ptr.is_null() {
-                        let shm = unsafe { &*shm_ptr };
-                        if let Some(payload_ptr) = cs::find_storage(shm, chunk_size, storage_id) {
+                    if let Some(chunk_base) = self.chunk_shm_base(chunk_size) {
+                        if let Some(payload_ptr) =
+                            cs::find_storage(chunk_base, chunk_size, storage_id)
+                        {
                             let payload = unsafe {
                                 std::slice::from_raw_parts(payload_ptr as *const u8, payload_size)
                             };
                             assembled.extend_from_slice(payload);
                         }
-                        cs::recycle_storage(shm, chunk_size, storage_id, self.conn_id);
+                        cs::recycle_storage(chunk_base, chunk_size, storage_id, self.conn_id);
                     }
                 } else if let Some(data) = inline_data {
                     assembled.extend_from_slice(&data);
