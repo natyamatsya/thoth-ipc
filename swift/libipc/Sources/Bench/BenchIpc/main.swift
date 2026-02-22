@@ -26,19 +26,21 @@ enum Backend { case threads, gcd }
 
 var backends: [Backend] = []
 nonisolated(unsafe) var maxThreads = 8
+var runAlloc = false
 
 var i = 1
 while i < CommandLine.arguments.count {
     switch CommandLine.arguments[i] {
     case "--threads": backends.append(.threads)
     case "--gcd":     backends.append(.gcd)
+    case "--alloc":   runAlloc = true
     default:
         if let n = Int(CommandLine.arguments[i]) { maxThreads = n }
         else { fputs("unknown argument: \(CommandLine.arguments[i])\n", stderr); exit(1) }
     }
     i += 1
 }
-if backends.isEmpty { backends = [.threads] }
+if backends.isEmpty && !runAlloc { backends = [.threads] }
 
 // MARK: - Sync runner (shared by threads + gcd)
 
@@ -99,5 +101,7 @@ for backend in backends {
             chanFn:  { gcdBenchChannel(pattern: $0, n: $1, count: $2, msgLo: $3, msgHi: $4) })
     }
 }
+
+if runAlloc { runAllocBench() }
 
 print("\nDone.")
