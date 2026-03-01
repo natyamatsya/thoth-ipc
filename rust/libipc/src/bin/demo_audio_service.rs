@@ -10,10 +10,12 @@
 
 #![allow(dead_code)]
 
-include!(concat!(env!("OUT_DIR"), "/audio_protocol_generated.rs"));
+#[allow(unused_imports, mismatched_lifetime_syntaxes)]
+mod audio_generated {
+    include!(concat!(env!("OUT_DIR"), "/audio_protocol_generated.rs"));
+}
 
-// Note: the generated file imports `core::cmp::Ordering`; use full paths for
-// `std::sync::atomic` to avoid a name collision.
+use audio_generated::audio;
 
 use libipc::channel::Mode;
 use libipc::proto::message::Builder;

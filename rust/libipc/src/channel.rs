@@ -122,13 +122,13 @@ struct ChanInner {
     _prefix: String, // chunk_prefix = "{full_prefix}{name}_"
     mode: Mode,
     ring_shm: ShmHandle,
-    conn_id: u32,         // bitmask for this receiver (0 for senders)
-    cc_id: u32,           // unique endpoint identity for self-message filtering
-    read_cursor: u32,     // receiver's read position
-    wt_waiter: Waiter,    // write-side waiter (senders block here when ring is full)
-    rd_waiter: Waiter,    // read-side waiter (receivers block here when ring is empty)
-    cc_waiter: Waiter,    // connection waiter (wait_for_recv)
-    cc_id_shm: ShmHandle, // shared atomic counter for cc_id allocation (CA_CONN__)
+    conn_id: u32,          // bitmask for this receiver (0 for senders)
+    cc_id: u32,            // unique endpoint identity for self-message filtering
+    read_cursor: u32,      // receiver's read position
+    wt_waiter: Waiter,     // write-side waiter (senders block here when ring is full)
+    rd_waiter: Waiter,     // read-side waiter (receivers block here when ring is empty)
+    cc_waiter: Waiter,     // connection waiter (wait_for_recv)
+    _cc_id_shm: ShmHandle, // shared atomic counter for cc_id allocation (kept alive for counter lifetime)
     #[cfg(unix)]
     chunk_shm: HashMap<usize, ChunkShmHandle>, // large-message chunk storage (CH_CONN__), keyed by chunk_size
     #[cfg(not(unix))]
@@ -219,7 +219,7 @@ impl ChanInner {
             wt_waiter,
             rd_waiter,
             cc_waiter,
-            cc_id_shm,
+            _cc_id_shm: cc_id_shm,
             chunk_shm: HashMap::new(),
             disconnected: false,
         })
