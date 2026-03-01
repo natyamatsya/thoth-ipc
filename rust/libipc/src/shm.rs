@@ -81,6 +81,13 @@ impl ShmHandle {
         self.inner.ref_count()
     }
 
+    /// Grow the user-visible size of this shared memory segment.
+    ///
+    /// If `new_user_size` is not larger than the current size, this is a no-op.
+    pub fn grow(&mut self, new_user_size: usize) -> io::Result<()> {
+        self.inner.grow(new_user_size)
+    }
+
     /// Force-remove the backing file / kernel object.
     pub fn unlink(&self) {
         self.inner.unlink();

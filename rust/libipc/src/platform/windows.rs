@@ -46,6 +46,7 @@ pub struct PlatformShm {
     mem: *mut u8,
     size: usize,      // total mapped size
     user_size: usize, // user-requested size
+    logical_name: String,
 }
 
 unsafe impl Send for PlatformShm {}
@@ -67,6 +68,7 @@ impl PlatformShm {
 
         let handle;
         let total_size;
+        let mut opened_existing = false;
 
         if mode == ShmMode::Open {
             handle = unsafe { OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, wide_name.as_ptr()) };
@@ -96,6 +98,7 @@ impl PlatformShm {
                     "shm already exists",
                 ));
             }
+            opened_existing = err == ERROR_ALREADY_EXISTS;
             if handle == 0 {
                 return Err(io::Error::last_os_error());
             }
@@ -110,7 +113,7 @@ impl PlatformShm {
         }
 
         // Discover actual size if opening existing
-        let (final_total, final_user) = if total_size == 0 {
+        let (final_total, final_user) = if total_size == 0 || opened_existing {
             let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
             let ret = unsafe {
                 VirtualQuery(
@@ -142,7 +145,30 @@ impl PlatformShm {
             mem: mem as *mut u8,
             size: final_total,
             user_size: final_user,
+            logical_name: name.to_owned(),
         })
+    }
+
+    pub fn grow(&mut self, new_user_size: usize) -> io::Result<()> {
+        if new_user_size <= self.user_size {
+            return Ok(());
+        }
+
+        let logical_name = self.logical_name.clone();
+        let replacement = Self::acquire(&logical_name, new_user_size, ShmMode::CreateOrOpen)?;
+        if replacement.user_size < new_user_size {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!(
+                    "failed to grow shared memory to {new_user_size} bytes (actual {})",
+                    replacement.user_size
+                ),
+            ));
+        }
+
+        let previous = std::mem::replace(self, replacement);
+        drop(previous);
+        Ok(())
     }
 
     pub fn as_ptr(&self) -> *const u8 {

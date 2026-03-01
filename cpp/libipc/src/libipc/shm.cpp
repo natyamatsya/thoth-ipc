@@ -94,6 +94,22 @@ std::int32_t handle::release() {
     return shm::release(detach());
 }
 
+bool handle::grow(std::size_t size) {
+    LIBIPC_LOG();
+    if (size == 0) {
+        log.error("fail grow: size is 0");
+        return false;
+    }
+
+    const std::string name = impl(p_)->n_;
+    if (!is_valid_string(name.c_str())) {
+        log.error("fail grow: handle has no name");
+        return false;
+    }
+
+    return acquire(name.c_str(), size, create | open);
+}
+
 void handle::clear() noexcept {
     if (impl(p_)->id_ == nullptr) return;
     shm::remove(detach());

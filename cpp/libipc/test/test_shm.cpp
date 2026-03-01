@@ -360,6 +360,28 @@ TEST_F(ShmTest, HandleAcquire) {
   EXPECT_GE(h.size(), 512u);
 }
 
+// Test handle grow() method
+TEST_F(ShmTest, HandleGrow) {
+  std::string name = generate_unique_name("handle_grow");
+
+  shm::handle h(name.c_str(), 256);
+  ASSERT_TRUE(h.valid());
+  EXPECT_GE(h.size(), 256u);
+
+  EXPECT_TRUE(h.grow(2048));
+  EXPECT_TRUE(h.valid());
+  EXPECT_GE(h.size(), 2048u);
+
+  char* data = static_cast<char*>(h.get());
+  ASSERT_NE(data, nullptr);
+  std::strcpy(data, "grow works");
+
+  shm::handle h2(name.c_str(), 2048, shm::open);
+  ASSERT_TRUE(h2.valid());
+  EXPECT_GE(h2.size(), 2048u);
+  EXPECT_STREQ(static_cast<char*>(h2.get()), "grow works");
+}
+
 // Test handle release() method
 TEST_F(ShmTest, HandleRelease) {
   std::string name = generate_unique_name("handle_release");

@@ -23,8 +23,7 @@ fn acquire_create() {
     let name = unique_name("acquire_create");
     ShmHandle::unlink_by_name(&name);
 
-    let shm = ShmHandle::acquire(&name, 1024, ShmOpenMode::Create)
-        .expect("acquire create");
+    let shm = ShmHandle::acquire(&name, 1024, ShmOpenMode::Create).expect("acquire create");
     assert!(shm.mapped_size() >= 1024);
     assert_ne!(shm.as_ptr() as usize, 0);
 }
@@ -46,8 +45,8 @@ fn acquire_create_or_open() {
     let name = unique_name("acquire_both");
     ShmHandle::unlink_by_name(&name);
 
-    let shm = ShmHandle::acquire(&name, 2048, ShmOpenMode::CreateOrOpen)
-        .expect("acquire create_or_open");
+    let shm =
+        ShmHandle::acquire(&name, 2048, ShmOpenMode::CreateOrOpen).expect("acquire create_or_open");
     assert!(shm.mapped_size() >= 2048);
     assert_ne!(shm.as_ptr() as usize, 0);
 }
@@ -58,8 +57,7 @@ fn get_memory_write_read() {
     let name = unique_name("get_mem");
     ShmHandle::unlink_by_name(&name);
 
-    let shm = ShmHandle::acquire(&name, 512, ShmOpenMode::Create)
-        .expect("acquire");
+    let shm = ShmHandle::acquire(&name, 512, ShmOpenMode::Create).expect("acquire");
     assert_ne!(shm.as_ptr() as usize, 0);
     assert!(shm.mapped_size() >= 512);
 
@@ -77,8 +75,7 @@ fn release_memory_ref_count() {
     let name = unique_name("release");
     ShmHandle::unlink_by_name(&name);
 
-    let shm = ShmHandle::acquire(&name, 128, ShmOpenMode::Create)
-        .expect("acquire");
+    let shm = ShmHandle::acquire(&name, 128, ShmOpenMode::Create).expect("acquire");
     assert_eq!(shm.ref_count(), 1);
 
     drop(shm);
@@ -91,12 +88,10 @@ fn reference_count() {
     let name = unique_name("ref_count");
     ShmHandle::unlink_by_name(&name);
 
-    let shm1 = ShmHandle::acquire(&name, 512, ShmOpenMode::CreateOrOpen)
-        .expect("acquire 1");
+    let shm1 = ShmHandle::acquire(&name, 512, ShmOpenMode::CreateOrOpen).expect("acquire 1");
     assert_eq!(shm1.ref_count(), 1);
 
-    let shm2 = ShmHandle::acquire(&name, 512, ShmOpenMode::CreateOrOpen)
-        .expect("acquire 2");
+    let shm2 = ShmHandle::acquire(&name, 512, ShmOpenMode::CreateOrOpen).expect("acquire 2");
     assert_eq!(shm1.ref_count(), 2);
     assert_eq!(shm2.ref_count(), 2);
 
@@ -112,8 +107,7 @@ fn handle_with_params() {
     let name = unique_name("handle_ctor");
     ShmHandle::unlink_by_name(&name);
 
-    let shm = ShmHandle::acquire(&name, 1024, ShmOpenMode::CreateOrOpen)
-        .expect("acquire");
+    let shm = ShmHandle::acquire(&name, 1024, ShmOpenMode::CreateOrOpen).expect("acquire");
     assert!(shm.mapped_size() >= 1024);
     assert_ne!(shm.as_ptr() as usize, 0);
 }
@@ -125,8 +119,7 @@ fn handle_valid() {
     let name = unique_name("handle_valid");
     ShmHandle::unlink_by_name(&name);
 
-    let shm = ShmHandle::acquire(&name, 128, ShmOpenMode::CreateOrOpen)
-        .expect("acquire");
+    let shm = ShmHandle::acquire(&name, 128, ShmOpenMode::CreateOrOpen).expect("acquire");
     assert_ne!(shm.as_ptr() as usize, 0);
     assert!(shm.mapped_size() > 0);
 }
@@ -138,9 +131,83 @@ fn handle_size() {
     ShmHandle::unlink_by_name(&name);
 
     let requested_size = 2048;
-    let shm = ShmHandle::acquire(&name, requested_size, ShmOpenMode::CreateOrOpen)
-        .expect("acquire");
+    let shm =
+        ShmHandle::acquire(&name, requested_size, ShmOpenMode::CreateOrOpen).expect("acquire");
     assert!(shm.mapped_size() >= requested_size);
+}
+
+// Port of ShmTest.HandleGrow
+#[test]
+fn handle_grow() {
+    let name = unique_name("handle_grow");
+    ShmHandle::unlink_by_name(&name);
+
+    let mut h1 = ShmHandle::acquire(&name, 256, ShmOpenMode::CreateOrOpen).expect("acquire 1");
+    assert!(h1.user_size() >= 256);
+
+    let payload = b"grow works";
+    unsafe {
+        std::ptr::copy_nonoverlapping(payload.as_ptr(), h1.as_mut_ptr(), payload.len());
+    }
+
+    let grow_result = h1.grow(2048);
+
+    #[cfg(target_os = "windows")]
+    {
+        assert!(
+            grow_result.is_err(),
+            "Windows cannot resize an existing mapping via CreateOrOpen"
+        );
+        return;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        grow_result.expect("grow");
+        assert!(h1.user_size() >= 2048);
+
+        let read_back_1 = unsafe { std::slice::from_raw_parts(h1.as_ptr(), payload.len()) };
+        assert_eq!(read_back_1, payload);
+
+        // macOS can map the same shm object multiple times in one process at
+        // different VAs with non-coherent plain-data views. Keep the open/size
+        // check on macOS; assert payload visibility via a second handle on
+        // other platforms.
+        #[cfg(target_os = "macos")]
+        {
+            let h2 = ShmHandle::acquire(&name, 2048, ShmOpenMode::CreateOrOpen).expect("acquire 2");
+            assert!(h2.user_size() >= 2048);
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let h2 = ShmHandle::acquire(&name, 2048, ShmOpenMode::CreateOrOpen).expect("acquire 2");
+            assert!(h2.user_size() >= 2048);
+
+            let read_back_2 = unsafe { std::slice::from_raw_parts(h2.as_ptr(), payload.len()) };
+            assert_eq!(read_back_2, payload);
+        }
+    }
+}
+
+// Grow is a no-op when requested size does not increase.
+#[test]
+fn handle_grow_noop_when_size_not_increased() {
+    let name = unique_name("handle_grow_noop");
+    ShmHandle::unlink_by_name(&name);
+
+    let mut h = ShmHandle::acquire(&name, 1024, ShmOpenMode::CreateOrOpen).expect("acquire");
+
+    let ptr_before = h.as_ptr();
+    let user_size_before = h.user_size();
+
+    h.grow(user_size_before).expect("grow same size");
+    assert_eq!(h.as_ptr(), ptr_before);
+    assert_eq!(h.user_size(), user_size_before);
+
+    h.grow(512).expect("grow smaller size");
+    assert_eq!(h.as_ptr(), ptr_before);
+    assert_eq!(h.user_size(), user_size_before);
 }
 
 // Port of ShmTest.HandleRef
@@ -149,8 +216,7 @@ fn handle_ref() {
     let name = unique_name("handle_ref");
     ShmHandle::unlink_by_name(&name);
 
-    let shm = ShmHandle::acquire(&name, 256, ShmOpenMode::CreateOrOpen)
-        .expect("acquire");
+    let shm = ShmHandle::acquire(&name, 256, ShmOpenMode::CreateOrOpen).expect("acquire");
     assert!(shm.ref_count() > 0);
 }
 
@@ -160,8 +226,7 @@ fn handle_get_write_read() {
     let name = unique_name("handle_get");
     ShmHandle::unlink_by_name(&name);
 
-    let shm = ShmHandle::acquire(&name, 512, ShmOpenMode::CreateOrOpen)
-        .expect("acquire");
+    let shm = ShmHandle::acquire(&name, 512, ShmOpenMode::CreateOrOpen).expect("acquire");
 
     let test_str = b"Handle get test";
     unsafe {
@@ -184,8 +249,7 @@ fn write_read_struct() {
         text: [u8; 64],
     }
 
-    let shm1 = ShmHandle::acquire(&name, 1024, ShmOpenMode::CreateOrOpen)
-        .expect("acquire 1");
+    let shm1 = ShmHandle::acquire(&name, 1024, ShmOpenMode::CreateOrOpen).expect("acquire 1");
 
     let data = TestData {
         value: 42,
@@ -203,8 +267,7 @@ fn write_read_struct() {
     }
 
     // Open in a second handle (simulating different process)
-    let shm2 = ShmHandle::acquire(&name, 1024, ShmOpenMode::CreateOrOpen)
-        .expect("acquire 2");
+    let shm2 = ShmHandle::acquire(&name, 1024, ShmOpenMode::CreateOrOpen).expect("acquire 2");
     let read_data = unsafe { &*(shm2.as_ptr() as *const TestData) };
     assert_eq!(read_data.value, 42);
     assert_eq!(&read_data.text[..18], b"Shared memory data");
@@ -217,18 +280,15 @@ fn handle_modes() {
     ShmHandle::unlink_by_name(&name);
 
     // Create only
-    let h1 = ShmHandle::acquire(&name, 256, ShmOpenMode::Create)
-        .expect("create");
+    let h1 = ShmHandle::acquire(&name, 256, ShmOpenMode::Create).expect("create");
     assert!(h1.mapped_size() >= 256);
 
     // Open existing
-    let h2 = ShmHandle::acquire(&name, 256, ShmOpenMode::Open)
-        .expect("open");
+    let h2 = ShmHandle::acquire(&name, 256, ShmOpenMode::Open).expect("open");
     assert!(h2.mapped_size() >= 256);
 
     // Create-or-open (existing)
-    let h3 = ShmHandle::acquire(&name, 256, ShmOpenMode::CreateOrOpen)
-        .expect("create_or_open");
+    let h3 = ShmHandle::acquire(&name, 256, ShmOpenMode::CreateOrOpen).expect("create_or_open");
     assert!(h3.mapped_size() >= 256);
 }
 
@@ -238,10 +298,8 @@ fn multiple_handles_shared_data() {
     let name = unique_name("multiple_handles");
     ShmHandle::unlink_by_name(&name);
 
-    let h1 = ShmHandle::acquire(&name, 512, ShmOpenMode::CreateOrOpen)
-        .expect("acquire 1");
-    let h2 = ShmHandle::acquire(&name, 512, ShmOpenMode::CreateOrOpen)
-        .expect("acquire 2");
+    let h1 = ShmHandle::acquire(&name, 512, ShmOpenMode::CreateOrOpen).expect("acquire 1");
+    let h2 = ShmHandle::acquire(&name, 512, ShmOpenMode::CreateOrOpen).expect("acquire 2");
 
     // Write through h1, read through h2
     unsafe {
@@ -260,8 +318,7 @@ fn large_segment() {
     ShmHandle::unlink_by_name(&name);
 
     let size = 10 * 1024 * 1024; // 10 MB
-    let shm = ShmHandle::acquire(&name, size, ShmOpenMode::CreateOrOpen)
-        .expect("acquire 10MB");
+    let shm = ShmHandle::acquire(&name, size, ShmOpenMode::CreateOrOpen).expect("acquire 10MB");
     assert!(shm.mapped_size() >= size);
 
     // Write a pattern to a portion
@@ -288,13 +345,15 @@ fn handle_clear_storage() {
     ShmHandle::unlink_by_name(&name);
 
     {
-        let _shm = ShmHandle::acquire(&name, 256, ShmOpenMode::CreateOrOpen)
-            .expect("acquire");
+        let _shm = ShmHandle::acquire(&name, 256, ShmOpenMode::CreateOrOpen).expect("acquire");
     }
     // After drop, unlink should have happened (ref_count was 1).
     // Verify we can't open it.
     let result = ShmHandle::acquire(&name, 256, ShmOpenMode::Open);
-    assert!(result.is_err(), "should not be able to open after last handle dropped");
+    assert!(
+        result.is_err(),
+        "should not be able to open after last handle dropped"
+    );
 }
 
 // Additional: empty name should fail
@@ -317,10 +376,12 @@ fn create_exclusive_fails_if_exists() {
     let name = unique_name("create_excl");
     ShmHandle::unlink_by_name(&name);
 
-    let _h1 = ShmHandle::acquire(&name, 256, ShmOpenMode::Create)
-        .expect("first create");
+    let _h1 = ShmHandle::acquire(&name, 256, ShmOpenMode::Create).expect("first create");
     let result = ShmHandle::acquire(&name, 256, ShmOpenMode::Create);
-    assert!(result.is_err(), "exclusive create should fail when segment already exists");
+    assert!(
+        result.is_err(),
+        "exclusive create should fail when segment already exists"
+    );
 }
 
 // Additional: open after unlink should fail
@@ -329,8 +390,7 @@ fn open_after_unlink_fails() {
     let name = unique_name("open_after_unlink");
     ShmHandle::unlink_by_name(&name);
 
-    let shm = ShmHandle::acquire(&name, 256, ShmOpenMode::CreateOrOpen)
-        .expect("create");
+    let shm = ShmHandle::acquire(&name, 256, ShmOpenMode::CreateOrOpen).expect("create");
     shm.unlink(); // force-remove the backing file
 
     // A new open-only attempt should fail (backing file is gone)
@@ -391,13 +451,19 @@ fn data_persistence() {
 // Additional: various sizes
 #[test]
 fn various_sizes() {
-    for &size in &[1usize, 4, 7, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128,
-                   255, 256, 512, 1023, 1024, 4096, 8192, 65536] {
+    for &size in &[
+        1usize, 4, 7, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128, 255, 256, 512, 1023, 1024,
+        4096, 8192, 65536,
+    ] {
         let name = unique_name(&format!("size_{size}"));
         ShmHandle::unlink_by_name(&name);
 
         let shm = ShmHandle::acquire(&name, size, ShmOpenMode::CreateOrOpen)
             .unwrap_or_else(|e| panic!("failed to acquire shm of size {size}: {e}"));
-        assert!(shm.mapped_size() >= size, "mapped_size {} < requested {size}", shm.mapped_size());
+        assert!(
+            shm.mapped_size() >= size,
+            "mapped_size {} < requested {size}",
+            shm.mapped_size()
+        );
     }
 }

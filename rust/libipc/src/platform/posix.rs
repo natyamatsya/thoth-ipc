@@ -152,8 +152,9 @@ pub struct PlatformShm {
     mem: *mut u8,
     size: usize,      // total mapped size (including ref counter)
     user_size: usize, // user-requested size
-    name: String,     // POSIX name (with leading '/')
-    prev_ref: i32,    // ref count *before* our fetch_add (0 means we were first)
+    logical_name: String,
+    name: String,  // POSIX name (with leading '/')
+    prev_ref: i32, // ref count *before* our fetch_add (0 means we were first)
 }
 
 // Safety: the shared memory region is process-shared by design.
@@ -189,7 +190,7 @@ impl PlatformShm {
         // For CreateOrOpen: try exclusive create first so we only call ftruncate
         // when we actually own the new object.  On macOS, calling ftruncate on an
         // already-sized shm object can zero its contents before returning EINVAL.
-        let (fd, need_truncate) = match mode {
+        let (fd, mut need_truncate) = match mode {
             ShmMode::Create => {
                 let f = unsafe {
                     libc::shm_open(
@@ -240,6 +241,19 @@ impl PlatformShm {
             }
         };
 
+        if !need_truncate && mode == ShmMode::CreateOrOpen {
+            let mut st: libc::stat = unsafe { std::mem::zeroed() };
+            let ret = unsafe { libc::fstat(fd, &mut st) };
+            if ret != 0 {
+                let err = io::Error::last_os_error();
+                unsafe { libc::close(fd) };
+                return Err(err);
+            }
+            if (st.st_size as usize) < total_size {
+                need_truncate = true;
+            }
+        }
+
         // Ensure permissions (mirrors fchmod in C++)
         unsafe { libc::fchmod(fd, perms) };
 
@@ -252,13 +266,14 @@ impl PlatformShm {
             }
         }
 
-        Self::mmap_and_finish(fd, total_size, user_size, posix_name)
+        Self::mmap_and_finish(fd, total_size, user_size, name.to_owned(), posix_name)
     }
 
     fn mmap_and_finish(
         fd: i32,
         total_size: usize,
         user_size: usize,
+        logical_name: String,
         posix_name: String,
     ) -> io::Result<Self> {
         let mem = unsafe {
@@ -284,9 +299,22 @@ impl PlatformShm {
             mem: mem as *mut u8,
             size: total_size,
             user_size,
+            logical_name,
             name: posix_name,
             prev_ref: prev,
         })
+    }
+
+    pub fn grow(&mut self, new_user_size: usize) -> io::Result<()> {
+        if new_user_size <= self.user_size {
+            return Ok(());
+        }
+
+        let logical_name = self.logical_name.clone();
+        let replacement = Self::acquire(&logical_name, new_user_size, ShmMode::CreateOrOpen)?;
+        let previous = std::mem::replace(self, replacement);
+        drop(previous);
+        Ok(())
     }
 
     /// Pointer to the user-visible region (excluding the trailing ref counter).

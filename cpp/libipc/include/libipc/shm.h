@@ -67,6 +67,10 @@ public:
     bool acquire(char const * name, std::size_t size, unsigned mode = create | open);
     std::int32_t release();
 
+    // Grow the shared memory object to at least `size` user-visible bytes.
+    // Returns false on error.
+    bool grow(std::size_t size);
+
     // Clean the handle file.
     void clear() noexcept;
     static void clear_storage(char const * name) noexcept;
