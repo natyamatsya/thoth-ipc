@@ -12,7 +12,7 @@ import FlatBuffers
 /// `Channel` is multi-writer, multiple-reader (broadcast).
 ///
 /// Port of `ipc::proto::typed_channel<T>`.
-public final class TypedChannel<T: FlatBufferObject & Verifiable>: @unchecked Sendable {
+public final class TypedChannel<T: FlatBufferTable & Verifiable>: @unchecked Sendable {
 
     private let channel: Channel
 
