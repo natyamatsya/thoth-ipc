@@ -10,10 +10,12 @@
 
 #![allow(dead_code)]
 
-include!(concat!(env!("OUT_DIR"), "/audio_protocol_generated.rs"));
+#[allow(unused_imports, mismatched_lifetime_syntaxes)]
+mod audio_generated {
+    include!(concat!(env!("OUT_DIR"), "/audio_protocol_generated.rs"));
+}
 
-// Note: the generated file imports `core::cmp::Ordering`; avoid importing
-// std::sync::atomic names directly to prevent conflicts.
+use audio_generated::audio;
 
 use std::thread;
 use std::time::Duration;
