@@ -266,7 +266,7 @@ std::int32_t release(id_t id) noexcept {
 #else
             int unlink_ret = ::shm_unlink(ii->name_.c_str());
 #endif
-            if (unlink_ret == -1) {
+            if (unlink_ret == -1 && errno != ENOENT) {
                 log.error("fail shm_unlink[", errno, "]: ", ii->name_);
             }
         }
@@ -283,17 +283,20 @@ void remove(id_t id) noexcept {
         return;
     }
     auto ii = static_cast<id_info_t*>(id);
-    auto name = std::move(ii->name_);
-    release(id);
-    if (!name.empty()) {
+    auto name = ii->name_;
+    std::int32_t released_ref = release(id);
+    if (name.empty()) return;
+
+    // release() already unlinks as the last owner (ref <= 1).
+    if (released_ref <= 1 && released_ref != -1) return;
+
 #if defined(LIBIPC_USE_FILE_SHM)
-        int unlink_ret = file_shm_unlink(name.c_str());
+    int unlink_ret = file_shm_unlink(name.c_str());
 #else
-        int unlink_ret = ::shm_unlink(name.c_str());
+    int unlink_ret = ::shm_unlink(name.c_str());
 #endif
-        if (unlink_ret == -1) {
-            log.error("fail shm_unlink[", errno, "]: ", name);
-        }
+    if (unlink_ret == -1 && errno != ENOENT) {
+        log.error("fail shm_unlink[", errno, "]: ", name);
     }
 }
 
@@ -310,7 +313,7 @@ void remove(char const * name) noexcept {
     std::string op_name = ipc::posix_::detail::make_shm_name(name);
     int unlink_ret = ::shm_unlink(op_name.c_str());
 #endif
-    if (unlink_ret == -1) {
+    if (unlink_ret == -1 && errno != ENOENT) {
         log.error("fail shm_unlink[", errno, "]: ", op_name);
     }
 }

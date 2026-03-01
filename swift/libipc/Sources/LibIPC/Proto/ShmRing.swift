@@ -87,9 +87,12 @@ public final class ShmRing<T: BitwiseCopyable>: @unchecked Sendable {
 
     /// Unmap and unlink the SHM segment.
     public func destroy() {
-        let pname = posixName
+        let shouldUnlink = !posixName.isEmpty
         closeMapping()
-        if !pname.isEmpty { _ = pname.withCString { shm_unlink($0) } }
+        if !shouldUnlink {
+            return
+        }
+        ShmHandle.clearStorage(name: shmName)
     }
 
     public var valid: Bool { mem != nil }
@@ -167,7 +170,7 @@ public final class ShmRing<T: BitwiseCopyable>: @unchecked Sendable {
 // MARK: - Raw SHM acquire (bypasses ShmHandle ~Copyable)
 
 private func rawAcquire(name: String, size: Int, create: Bool) throws(IpcError) -> (UnsafeMutableRawPointer, Int, String) {
-    let posixName = "/" + name.prefix(255)
+    let posixName = makeShmName(name)
     let total = size + MemoryLayout<Int32>.size
     let perms: mode_t = 0o666
 
