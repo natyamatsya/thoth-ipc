@@ -12,7 +12,7 @@ import FlatBuffers
 /// `Route` is single-writer, multiple-reader (broadcast).
 ///
 /// Port of `ipc::proto::typed_route<T>`.
-public final class TypedRoute<T: FlatBufferTable & Verifiable>: @unchecked Sendable {
+public final class TypedRoute<T: FlatBufferObject & Verifiable>: @unchecked Sendable {
 
     private let route: Route
 
