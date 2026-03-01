@@ -134,6 +134,23 @@ pub(crate) fn calc_size(user_size: usize) -> usize {
     aligned + std::mem::size_of::<AtomicI32>()
 }
 
+fn unlink_posix_shm_name_if_exists(posix_name: &str) {
+    let Ok(c_name) = CString::new(posix_name.as_bytes()) else {
+        return;
+    };
+
+    if unsafe { libc::shm_unlink(c_name.as_ptr()) } == 0 {
+        return;
+    }
+
+    // ENOENT means the segment is already gone, which is equivalent to
+    // successful cleanup.
+    let err = io::Error::last_os_error();
+    if err.raw_os_error() == Some(libc::ENOENT) {
+        return;
+    }
+}
+
 /// Returns a reference to the trailing `AtomicI32` ref-counter inside a mapped
 /// region of `total_size` bytes starting at `mem`.
 ///
@@ -358,17 +375,13 @@ impl PlatformShm {
 
     /// Force-remove the backing file (shm_unlink). Does NOT release the mapping.
     pub fn unlink(&self) {
-        if let Ok(c_name) = CString::new(self.name.as_bytes()) {
-            unsafe { libc::shm_unlink(c_name.as_ptr()) };
-        }
+        unlink_posix_shm_name_if_exists(&self.name);
     }
 
     /// Unlink a named shm segment by name (static helper).
     pub fn unlink_by_name(name: &str) {
         let posix_name = shm_name::make_shm_name(name);
-        if let Ok(c_name) = CString::new(posix_name.as_bytes()) {
-            unsafe { libc::shm_unlink(c_name.as_ptr()) };
-        }
+        unlink_posix_shm_name_if_exists(&posix_name);
     }
 }
 

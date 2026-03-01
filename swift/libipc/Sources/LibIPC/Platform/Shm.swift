@@ -139,12 +139,12 @@ public struct ShmHandle: ~Copyable, @unchecked Sendable {
 
     /// Force-remove the backing file. Does NOT release the mapping.
     public func unlink() {
-        _ = posixName.withCString { shm_unlink($0) }
+        unlinkPosixShmNameIfExists(posixName)
     }
 
     /// Remove a named shm segment by name without needing an open handle.
     public static func unlink(name: String) {
-        _ = makeShmName(name).withCString { shm_unlink($0) }
+        unlinkPosixShmNameIfExists(makeShmName(name))
     }
 
     /// Remove the backing storage for a named shm segment.
@@ -182,4 +182,23 @@ private func withRefCount<R>(
     return body(atomic)
     // Note: UnsafeAtomic.destroy() must NOT be called here — we do not own
     // the storage (it lives in the shm region).
+}
+
+@discardableResult
+private func unlinkPosixShmNameIfExists(_ posixName: String) -> Bool {
+    let (ret, err): (Int32, Int32) = posixName.withCString {
+        errno = 0
+        let unlinkRet = shm_unlink($0)
+        return (unlinkRet, errno)
+    }
+    if ret == 0 {
+        return true
+    }
+
+    // ENOENT means the segment is already gone, which is equivalent to
+    // successful cleanup.
+    if err == ENOENT {
+        return true
+    }
+    return false
 }
