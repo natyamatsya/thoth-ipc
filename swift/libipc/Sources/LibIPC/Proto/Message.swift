@@ -11,13 +11,13 @@ import FlatBuffers
 /// A received FlatBuffer message with typed access.
 ///
 /// `T` must be a FlatBuffers-generated table type conforming to
-/// `FlatBufferObject & Verifiable`.
+/// `FlatBufferTable & Verifiable`.
 ///
 /// The buffer is owned; access to the root is a zero-copy pointer cast
 /// into the underlying `ByteBuffer`.
 ///
 /// Port of `ipc::proto::message<T>`.
-public struct Message<T: FlatBufferObject & Verifiable>: Sendable {
+public struct Message<T: FlatBufferTable & Verifiable>: Sendable {
 
     public let buffer: IpcBuffer
 
