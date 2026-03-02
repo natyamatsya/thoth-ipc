@@ -4,6 +4,9 @@
 #[cfg(unix)]
 pub mod posix;
 
+#[cfg(target_os = "macos")]
+pub mod apple;
+
 #[cfg(windows)]
 pub mod windows;
 
@@ -11,10 +14,15 @@ pub mod windows;
 
 #[cfg(unix)]
 pub use posix::PlatformShm;
-#[cfg(unix)]
+
+// On macOS use the ulock-based mutex (binary-compatible with C++ apple/mutex.h).
+// On other Unix platforms use the pthread-based mutex.
+#[cfg(target_os = "macos")]
+pub use apple::PlatformMutex;
+#[cfg(all(unix, not(target_os = "macos")))]
 pub use posix::PlatformMutex;
 
 #[cfg(windows)]
-pub use windows::PlatformShm;
-#[cfg(windows)]
 pub use windows::PlatformMutex;
+#[cfg(windows)]
+pub use windows::PlatformShm;
