@@ -77,6 +77,14 @@ public enum Mode: Sendable { case sender, receiver }
 
 // MARK: - ChanInner
 
+final class ChunkShmEntry: @unchecked Sendable {
+    let shm: ShmHandle
+
+    init(shm: consuming ShmHandle) {
+        self.shm = shm
+    }
+}
+
 final class ChanInner: @unchecked Sendable {
     let name: String
     let prefix: String
@@ -84,7 +92,7 @@ final class ChanInner: @unchecked Sendable {
     let mode: Mode
     let ringShm:  ShmHandle
     let ccIdShm:  ShmHandle
-    var chunkShm: ShmHandle?
+    var chunkShms: [Int: ChunkShmEntry] = [:]
     var connId:     UInt32
     var ccId:       UInt32
     var readCursor: UInt32
@@ -202,11 +210,16 @@ final class ChanInner: @unchecked Sendable {
     var recvCount: Int {
         Int(ua32(&hdrPtr.pointee.connections).load(ordering: .acquiring).nonzeroBitCount)
     }
-    func getOrOpenChunkShm(chunkSize: Int) -> UnsafeMutablePointer<ShmHandle>? {
-        if chunkShm == nil { chunkShm = try? openChunkShm(prefix: chunkPrefix, chunkSize: chunkSize) }
-        guard chunkShm != nil else { return nil }
-        return withUnsafeMutablePointer(to: &chunkShm!) { $0 }
+
+    func withChunkShm<R>(chunkSize: Int, _ body: (borrowing ShmHandle) -> R) -> R? {
+        if chunkShms[chunkSize] == nil {
+            guard let shm = try? openChunkShm(prefix: chunkPrefix, chunkSize: chunkSize) else { return nil }
+            chunkShms[chunkSize] = ChunkShmEntry(shm: shm)
+        }
+        guard let entry = chunkShms[chunkSize] else { return nil }
+        return body(entry.shm)
     }
+
     var valid: Bool { !disconnected }
     func disconnect() {
         guard !disconnected else { return }
@@ -310,17 +323,21 @@ extension ChanInner {
 
     private func sendLarge(data: [UInt8], timeout: Duration) throws(IpcError) -> Bool? {
         let chunkSize = calcChunkSize(data.count)
-        guard let shmPtr = getOrOpenChunkShm(chunkSize: chunkSize) else { return nil }
         let hdr   = hdrPtr
         let conns = ua32(&hdr.pointee.connections).load(ordering: .relaxed)
-        guard let (storageId, payloadPtr) = acquireStorage(shm: shmPtr.pointee, chunkSize: chunkSize, conns: conns)
+        guard let storage = withChunkShm(chunkSize: chunkSize, {
+            acquireStorage(shm: $0, chunkSize: chunkSize, conns: conns)
+        }),
+        let (storageId, payloadPtr) = storage
         else { return nil }
         data.withUnsafeBytes { payloadPtr.copyMemory(from: $0.baseAddress!, byteCount: data.count) }
         var claimedWt: UInt32 = 0
         claimLoop: while true {
             let cc = UInt64(ua32(&hdr.pointee.connections).load(ordering: .relaxed))
             if cc == 0 {
-                recycleStorage(shm: shmPtr.pointee, chunkSize: chunkSize, id: storageId, connId: ~0)
+                _ = withChunkShm(chunkSize: chunkSize) {
+                    recycleStorage(shm: $0, chunkSize: chunkSize, id: storageId, connId: ~0)
+                }
                 return false
             }
             let epoch = ua64(&hdr.pointee.epoch).load(ordering: .relaxed)
@@ -345,7 +362,9 @@ extension ChanInner {
                     let newCc = ua32(&hdr.pointee.connections)
                         .loadThenBitwiseAnd(with: ~UInt32(remCc2), ordering: .acquiringAndReleasing) & ~UInt32(remCc2)
                     if newCc == 0 {
-                        recycleStorage(shm: shmPtr.pointee, chunkSize: chunkSize, id: storageId, connId: ~0)
+                        _ = withChunkShm(chunkSize: chunkSize) {
+                            recycleStorage(shm: $0, chunkSize: chunkSize, id: storageId, connId: ~0)
+                        }
                         return false
                     }
                     _ = ua64(&slot.pointee.rc).loadThenBitwiseAnd(with: ~remCc2, ordering: .acquiringAndReleasing)
@@ -417,11 +436,12 @@ extension ChanInner {
                     let storageId   = idBytes.withUnsafeBytes { $0.load(as: StorageId.self) }
                     let payloadSize = Int(szBytes.withUnsafeBytes { $0.load(as: UInt32.self) })
                     let chunkSize   = calcChunkSize(payloadSize)
-                    if let shmPtr = getOrOpenChunkShm(chunkSize: chunkSize) {
-                        if let ptr = findStorage(shm: shmPtr.pointee, chunkSize: chunkSize, id: storageId) {
-                            assembled.append(contentsOf: UnsafeRawBufferPointer(start: ptr, count: payloadSize))
-                        }
-                        recycleStorage(shm: shmPtr.pointee, chunkSize: chunkSize, id: storageId, connId: connId)
+                    if let chunkBytes = withChunkShm(chunkSize: chunkSize, { shm -> [UInt8] in
+                        defer { recycleStorage(shm: shm, chunkSize: chunkSize, id: storageId, connId: connId) }
+                        guard let ptr = findStorage(shm: shm, chunkSize: chunkSize, id: storageId) else { return [] }
+                        return Array(UnsafeRawBufferPointer(start: ptr, count: payloadSize))
+                    }) {
+                        assembled.append(contentsOf: chunkBytes)
                     }
                 } else {
                     withUnsafeBytes(of: slot.pointee.data) { assembled.append(contentsOf: $0.prefix(chunkLen)) }
