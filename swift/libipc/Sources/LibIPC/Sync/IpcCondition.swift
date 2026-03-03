@@ -20,6 +20,7 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
     // callers are responsible for correct concurrent use.
 
     private let cached: CachedShm
+    private let abiGuard: SyncAbiGuard
     private let name_: String
     private let inCache: Bool
     private let syncOpened: Bool
@@ -33,6 +34,7 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
     public static func open(name: String) async throws(IpcError) -> IpcCondition {
         let size = MemoryLayout<pthread_cond_t>.size
         let cached: CachedShm
+        let abiGuard = try SyncAbiGuard.openCondition(name: name)
         do {
             cached = try await condCache.acquire(name: name, size: size) { base in
             let ptr = base.assumingMemoryBound(to: pthread_cond_t.self)
@@ -57,13 +59,14 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
         } catch {
             throw IpcError.osError(EINVAL)
         }
-        return IpcCondition(cached: cached, name_: name, inCache: true, syncOpened: false)
+        return IpcCondition(cached: cached, abiGuard: abiGuard, name_: name, inCache: true, syncOpened: false)
     }
 
     /// Open via the shared cache without an actor hop — for use from POSIX threads.
     static func openSync(name: String) throws(IpcError) -> IpcCondition {
         let size = MemoryLayout<pthread_cond_t>.size
         let cached: CachedShm
+        let abiGuard = try SyncAbiGuard.openCondition(name: name)
         do {
             cached = try condCache.acquireSync(name: name, size: size) { base in
                 let ptr = base.assumingMemoryBound(to: pthread_cond_t.self)
@@ -79,7 +82,7 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
             }
         } catch let e as IpcError { throw e }
           catch { throw IpcError.osError(EINVAL) }
-        return IpcCondition(cached: cached, name_: name, inCache: true, syncOpened: true)
+        return IpcCondition(cached: cached, abiGuard: abiGuard, name_: name, inCache: true, syncOpened: true)
     }
 
     // MARK: Wait / Notify / Broadcast
@@ -129,6 +132,7 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
     /// Remove the backing shared memory for a named condition variable.
     public static func clearStorage(name: String) async {
         await condCache.purge(name: name)
+        SyncAbiGuard.clearConditionStorage(name: name)
         ShmHandle.clearStorage(name: name)
     }
 

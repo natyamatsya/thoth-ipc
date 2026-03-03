@@ -32,6 +32,7 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
     // callers are responsible for correct concurrent use.
 
     private let cached: CachedShm
+    private let abiGuard: SyncAbiGuard
     private let name_: String
     private let inCache: Bool
     private let syncOpened: Bool
@@ -45,6 +46,7 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
     public static func open(name: String) async throws(IpcError) -> IpcMutex {
         let size = MemoryLayout<pthread_mutex_t>.size
         let cached: CachedShm
+        let abiGuard = try SyncAbiGuard.openMutex(name: name)
         do {
             cached = try await mutexCache.acquire(name: name, size: size) { base in
                 let ptr = base.assumingMemoryBound(to: pthread_mutex_t.self)
@@ -69,13 +71,14 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
         } catch {
             throw IpcError.osError(EINVAL)
         }
-        return IpcMutex(cached: cached, name_: name, inCache: true, syncOpened: false)
+        return IpcMutex(cached: cached, abiGuard: abiGuard, name_: name, inCache: true, syncOpened: false)
     }
 
     /// Open via the shared cache without an actor hop — for use from POSIX threads.
     static func openSync(name: String) throws(IpcError) -> IpcMutex {
         let size = MemoryLayout<pthread_mutex_t>.size
         let cached: CachedShm
+        let abiGuard = try SyncAbiGuard.openMutex(name: name)
         do {
             cached = try mutexCache.acquireSync(name: name, size: size) { base in
                 let ptr = base.assumingMemoryBound(to: pthread_mutex_t.self)
@@ -91,7 +94,7 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
             }
         } catch let e as IpcError { throw e }
           catch { throw IpcError.osError(EINVAL) }
-        return IpcMutex(cached: cached, name_: name, inCache: true, syncOpened: true)
+        return IpcMutex(cached: cached, abiGuard: abiGuard, name_: name, inCache: true, syncOpened: true)
     }
 
     // MARK: Lock / Unlock
@@ -146,6 +149,7 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
     /// Remove the backing shared memory for a named mutex.
     public static func clearStorage(name: String) async {
         await mutexCache.purge(name: name)
+        SyncAbiGuard.clearMutexStorage(name: name)
         ShmHandle.clearStorage(name: name)
     }
 
