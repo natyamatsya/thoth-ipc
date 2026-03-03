@@ -7,23 +7,31 @@
 use std::io;
 
 use crate::platform::PlatformMutex;
+use crate::sync_abi::SyncAbiGuard;
 
 /// A named, inter-process mutex.
 ///
-/// On POSIX this is a `pthread_mutex_t` stored in shared memory with
-/// `PTHREAD_PROCESS_SHARED` and `PTHREAD_MUTEX_ROBUST` attributes.
+/// On macOS this is a ulock-based word mutex in shared memory, binary-compatible
+/// with the C++ Apple backend.
+/// On other POSIX platforms this is a `pthread_mutex_t` stored in shared memory
+/// with `PTHREAD_PROCESS_SHARED` and `PTHREAD_MUTEX_ROBUST` attributes.
 /// On Windows this is a kernel named mutex via `CreateMutex`.
 ///
 /// Binary-compatible with `ipc::sync::mutex` from the C++ libipc library.
 pub struct IpcMutex {
     inner: PlatformMutex,
+    _abi_guard: SyncAbiGuard,
 }
 
 impl IpcMutex {
     /// Open (or create) a named inter-process mutex.
     pub fn open(name: &str) -> io::Result<Self> {
+        let abi_guard = crate::sync_abi::open_mutex_guard(name)?;
         let inner = PlatformMutex::open(name)?;
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            _abi_guard: abi_guard,
+        })
     }
 
     /// Whether this mutex handle is valid (always true after successful `open`).  
@@ -61,12 +69,13 @@ impl IpcMutex {
 
     /// Remove the backing storage for a named mutex (static helper).
     pub fn clear_storage(name: &str) {
+        crate::sync_abi::clear_mutex_storage(name);
         PlatformMutex::clear_storage(name);
     }
 
     /// Raw pointer to the underlying platform mutex.
-    /// On POSIX this is `*mut pthread_mutex_t`, on Windows a `HANDLE`.
-    /// Used internally by `IpcCondition` for `pthread_cond_wait`.
+    /// Used internally by the non-macOS POSIX condition backend.
+    #[cfg(all(unix, not(target_os = "macos")))]
     pub(crate) fn native_mutex_ptr(&self) -> *mut u8 {
         self.inner.native_ptr()
     }
