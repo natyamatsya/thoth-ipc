@@ -12,6 +12,16 @@ private let syncAbiVersionMinor: UInt32 = 0
 // Swift macOS sync uses the Apple ulock profile.
 private let syncAbiBackendId: UInt32 = 2 // apple_ulock
 
+// Payload sizes derived from the actual shared-memory layout structs, mirroring
+// the C++ sizeof(ulock_mutex_t) / sizeof(ulock_cond_t) approach.
+//
+// Mutex layout:     state(UInt32) + holder(UInt32)  = 8 bytes
+// Condition layout: seq(UInt32)   + waiters(Int32)  = 8 bytes
+private let syncAbiMutexPayloadSize: UInt32 =
+    UInt32(MemoryLayout<UInt32>.stride + MemoryLayout<UInt32>.stride) // = 8
+private let syncAbiConditionPayloadSize: UInt32 =
+    UInt32(MemoryLayout<UInt32>.stride + MemoryLayout<Int32>.stride)  // = 8
+
 private enum SyncAbiPrimitive: UInt32 {
     case mutex = 1
     case condition = 2
@@ -32,10 +42,8 @@ private enum SyncAbiPrimitive: UInt32 {
 
     var payloadSize: UInt32 {
         switch self {
-        case .mutex:
-            return 8 // state(u32) + holder(u32)
-        case .condition:
-            return 8 // seq(u32) + waiters(i32)
+        case .mutex:     return syncAbiMutexPayloadSize
+        case .condition: return syncAbiConditionPayloadSize
         }
     }
 }
