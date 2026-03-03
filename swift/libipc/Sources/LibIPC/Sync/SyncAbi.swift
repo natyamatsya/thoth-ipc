@@ -9,8 +9,8 @@ private let syncAbiInitInProgress: UInt32 = .max
 private let syncAbiVersionMajor: UInt32 = 1
 private let syncAbiVersionMinor: UInt32 = 0
 
-// Swift currently uses pthread-based sync primitives on Darwin.
-private let syncAbiBackendId: UInt32 = 1 // posix_pthread
+// Swift macOS sync uses the Apple ulock profile.
+private let syncAbiBackendId: UInt32 = 2 // apple_ulock
 
 private enum SyncAbiPrimitive: UInt32 {
     case mutex = 1
@@ -33,9 +33,9 @@ private enum SyncAbiPrimitive: UInt32 {
     var payloadSize: UInt32 {
         switch self {
         case .mutex:
-            return UInt32(MemoryLayout<pthread_mutex_t>.size)
+            return 8 // state(u32) + holder(u32)
         case .condition:
-            return UInt32(MemoryLayout<pthread_cond_t>.size)
+            return 8 // seq(u32) + waiters(i32)
         }
     }
 }

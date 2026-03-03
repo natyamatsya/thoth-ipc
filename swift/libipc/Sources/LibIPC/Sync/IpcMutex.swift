@@ -1,34 +1,29 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
 //
-// Port of cpp-ipc/src/libipc/platform/posix/mutex.h + mutex.rs
-// Named inter-process mutex: pthread_mutex_t in shared memory.
+// Port of cpp-ipc/src/libipc/platform/apple/mutex.h + rust/libipc/platform/apple.rs
+// Named inter-process mutex: ulock word-lock in shared memory.
 
 import Darwin.POSIX
+import Atomics
 
-// MARK: - pthread_mutex_trylock async-safe wrapper
-
-/// Calls `pthread_mutex_trylock` from a nonisolated context, bypassing the
-/// Swift 6 `__PTHREAD_SWIFT_UNAVAILABLE_FROM_ASYNC` annotation.
-/// This is intentional: we are polling (not blocking), so it is safe to call
-/// from the cooperative thread pool.
-@inline(__always)
-private nonisolated func tryLockSync(_ ptr: UnsafeMutablePointer<pthread_mutex_t>) -> Int32 {
-    pthread_mutex_trylock(ptr)
-}
+private let kMutexSpinCount = 40
 
 // MARK: - IpcMutex
 
 /// A named, inter-process mutex.
 ///
-/// On Darwin this is a `pthread_mutex_t` stored in shared memory with
-/// `PTHREAD_PROCESS_SHARED` attribute, binary-compatible with
-/// `ipc::sync::mutex` from the C++ libipc library.
+/// On Darwin this is an Apple ulock-based word mutex in shared memory,
+/// binary-compatible with `ipc::sync::mutex` from the C++ libipc library.
+///
+/// Shared-memory layout (8 bytes):
+///   offset 0: atomic<u32>  state   — 0=UNLOCKED, 1=LOCKED, 2=LOCKED+waiters
+///   offset 4: atomic<u32>  holder  — PID of current owner, 0 if unlocked
 ///
 /// `IpcMutex` is `~Copyable`: each value represents a unique open handle.
 /// Use `ScopedAccess` for RAII locking.
 public struct IpcMutex: ~Copyable, @unchecked Sendable {
-    // @unchecked Sendable: the pthread_mutex_t lives in process-shared shm;
+    // @unchecked Sendable: mutex state lives in process-shared shm;
     // callers are responsible for correct concurrent use.
 
     private let cached: CachedShm
@@ -44,27 +39,13 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
     /// All callers within the same process that open the same `name` share a
     /// single mmap (via `mutexCache`), matching the C++ `curr_prog` pattern.
     public static func open(name: String) async throws(IpcError) -> IpcMutex {
-        let size = MemoryLayout<pthread_mutex_t>.size
+        let size = 8 // state(u32) + holder(u32)
         let cached: CachedShm
         let abiGuard = try SyncAbiGuard.openMutex(name: name)
         do {
             cached = try await mutexCache.acquire(name: name, size: size) { base in
-                let ptr = base.assumingMemoryBound(to: pthread_mutex_t.self)
-                ptr.initialize(to: pthread_mutex_t())
-
-                var attr = pthread_mutexattr_t()
-                var eno = pthread_mutexattr_init(&attr)
-                guard eno == 0 else { throw IpcError.osError(eno) }
-
-                eno = pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED)
-                guard eno == 0 else {
-                    pthread_mutexattr_destroy(&attr)
-                    throw IpcError.osError(eno)
-                }
-
-                eno = pthread_mutex_init(ptr, &attr)
-                pthread_mutexattr_destroy(&attr)
-                guard eno == 0 else { throw IpcError.osError(eno) }
+                shmAtomicU32(at: base).store(0, ordering: .releasing)
+                shmAtomicU32(at: base.advanced(by: 4)).store(0, ordering: .releasing)
             }
         } catch let e as IpcError {
             throw e
@@ -76,72 +57,167 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
 
     /// Open via the shared cache without an actor hop — for use from POSIX threads.
     static func openSync(name: String) throws(IpcError) -> IpcMutex {
-        let size = MemoryLayout<pthread_mutex_t>.size
+        let size = 8 // state(u32) + holder(u32)
         let cached: CachedShm
         let abiGuard = try SyncAbiGuard.openMutex(name: name)
         do {
             cached = try mutexCache.acquireSync(name: name, size: size) { base in
-                let ptr = base.assumingMemoryBound(to: pthread_mutex_t.self)
-                ptr.initialize(to: pthread_mutex_t())
-                var attr = pthread_mutexattr_t()
-                var eno = pthread_mutexattr_init(&attr)
-                guard eno == 0 else { throw IpcError.osError(eno) }
-                eno = pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED)
-                guard eno == 0 else { pthread_mutexattr_destroy(&attr); throw IpcError.osError(eno) }
-                eno = pthread_mutex_init(ptr, &attr)
-                pthread_mutexattr_destroy(&attr)
-                guard eno == 0 else { throw IpcError.osError(eno) }
+                shmAtomicU32(at: base).store(0, ordering: .releasing)
+                shmAtomicU32(at: base.advanced(by: 4)).store(0, ordering: .releasing)
             }
         } catch let e as IpcError { throw e }
           catch { throw IpcError.osError(EINVAL) }
         return IpcMutex(cached: cached, abiGuard: abiGuard, name_: name, inCache: true, syncOpened: true)
     }
 
+    // MARK: Internal accessors
+
+    private var stateWordPtr: UnsafeMutablePointer<UInt32> {
+        cached.shm.ptr.assumingMemoryBound(to: UInt32.self)
+    }
+
+    private var stateAtomic: UnsafeAtomic<UInt32> {
+        shmAtomicU32(at: cached.shm.ptr)
+    }
+
+    private var holderAtomic: UnsafeAtomic<UInt32> {
+        shmAtomicU32(at: cached.shm.ptr.advanced(by: 4))
+    }
+
+    private static func isProcessAlive(_ pid: UInt32) -> Bool {
+        if pid == 0 { return false }
+        return kill(pid_t(pid), 0) == 0 || errno != ESRCH
+    }
+
+    private func tryRecoverDeadHolder() -> Bool {
+        let holder = holderAtomic.load(ordering: .acquiring)
+        if holder == 0 || Self.isProcessAlive(holder) { return false }
+        let old = stateAtomic.exchange(0, ordering: .acquiringAndReleasing)
+        holderAtomic.store(0, ordering: .releasing)
+        if old == 2 {
+            _ = _ulockWake(kULCompareAndWaitShared | kULFWakeAll, stateWordPtr, 0)
+        }
+        return true
+    }
+
     // MARK: Lock / Unlock
 
     /// Lock the mutex (blocking, no timeout).
     public func lock() throws(IpcError) {
-        let eno = pthread_mutex_lock(mutexPtr)
-        guard eno == 0 else { throw .osError(eno) }
+        var contended = false
+        while true {
+            for _ in 0..<kMutexSpinCount {
+                let desired: UInt32 = contended ? 2 : 1
+                let (got, _) = stateAtomic.weakCompareExchange(
+                    expected: 0, desired: desired,
+                    successOrdering: .acquiring, failureOrdering: .relaxed)
+                if got {
+                    holderAtomic.store(UInt32(getpid()), ordering: .releasing)
+                    return
+                }
+            }
+
+            let s = stateAtomic.load(ordering: .relaxed)
+            if s == 0 { continue }
+            if s == 1 {
+                let (exchanged, _) = stateAtomic.weakCompareExchange(
+                    expected: 1, desired: 2,
+                    successOrdering: .relaxed, failureOrdering: .relaxed)
+                if !exchanged { continue }
+            }
+
+            _ = _ulockWait(kULCompareAndWaitShared, stateWordPtr, 2, 0)
+            contended = true
+        }
     }
 
     /// Try to lock without blocking.
     /// Returns `true` if acquired, `false` if contended.
     public func tryLock() throws(IpcError) -> Bool {
-        let eno = tryLockSync(mutexPtr)
-        switch eno {
-        case 0:      return true
-        case EBUSY:  return false
-        default:     throw .osError(eno)
+        let (got, _) = stateAtomic.weakCompareExchange(
+            expected: 0, desired: 1,
+            successOrdering: .acquiring, failureOrdering: .relaxed)
+        if got {
+            holderAtomic.store(UInt32(getpid()), ordering: .releasing)
+            return true
         }
+        if tryRecoverDeadHolder() {
+            let (got2, _) = stateAtomic.weakCompareExchange(
+                expected: 0, desired: 1,
+                successOrdering: .acquiring, failureOrdering: .relaxed)
+            if got2 {
+                holderAtomic.store(UInt32(getpid()), ordering: .releasing)
+                return true
+            }
+        }
+        return false
     }
 
     /// Lock with a timeout.
     /// Returns `true` if acquired within `timeout`, `false` on timeout.
-    ///
-    /// macOS lacks `pthread_mutex_timedlock` — emulated via `tryLock` polling
-    /// with adaptive backoff, matching the C++ and Rust implementations.
     public func lock(timeout: Duration) async throws(IpcError) -> Bool {
         let deadline = ContinuousClock.now + timeout
-        var k: UInt32 = 0
+        var triedRecovery = false
+        var contended = false
         while true {
-            // pthread_mutex_trylock is annotated unavailable-from-async in Swift 6;
-            // call it through a nonisolated sync wrapper to satisfy the compiler.
-            let eno = tryLockSync(mutexPtr)
-            switch eno {
-            case 0:     return true
-            case EBUSY: break
-            default:    throw .osError(eno)
+            for _ in 0..<kMutexSpinCount {
+                let desired: UInt32 = contended ? 2 : 1
+                let (got, _) = stateAtomic.weakCompareExchange(
+                    expected: 0, desired: desired,
+                    successOrdering: .acquiring, failureOrdering: .relaxed)
+                if got {
+                    holderAtomic.store(UInt32(getpid()), ordering: .releasing)
+                    return true
+                }
             }
-            if ContinuousClock.now >= deadline { return false }
-            await adaptiveYield(&k)
+
+            let s = stateAtomic.load(ordering: .relaxed)
+            if s == 0 { continue }
+            if s == 1 {
+                let (exchanged, _) = stateAtomic.weakCompareExchange(
+                    expected: 1, desired: 2,
+                    successOrdering: .relaxed, failureOrdering: .relaxed)
+                if !exchanged { continue }
+            }
+
+            let now = ContinuousClock.now
+            if now >= deadline {
+                if !triedRecovery {
+                    triedRecovery = true
+                    if tryRecoverDeadHolder() { continue }
+                }
+                return false
+            }
+
+            let remainingUs: UInt32 = {
+                let ns = (deadline - now).components.attoseconds / 1_000_000_000
+                let us = ns / 1_000
+                return us > 0 && us < Int64(UInt32.max) ? UInt32(us) : UInt32.max
+            }()
+
+            let ret = _ulockWait(kULCompareAndWaitShared, stateWordPtr, 2, remainingUs)
+            contended = true
+            if ret < 0 {
+                let err = errno
+                if err == ETIMEDOUT {
+                    if !triedRecovery {
+                        triedRecovery = true
+                        if tryRecoverDeadHolder() { continue }
+                    }
+                    return false
+                }
+                // EINTR or other: spurious, retry
+            }
         }
     }
 
     /// Unlock the mutex.
     public func unlock() throws(IpcError) {
-        let eno = pthread_mutex_unlock(mutexPtr)
-        guard eno == 0 else { throw .osError(eno) }
+        holderAtomic.store(0, ordering: .releasing)
+        let prev = stateAtomic.exchange(0, ordering: .releasing)
+        if prev == 2 {
+            _ = _ulockWake(kULCompareAndWaitShared, stateWordPtr, 0)
+        }
     }
 
     // MARK: Storage
@@ -155,9 +231,9 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
 
     // MARK: Internal
 
-    /// Raw pointer to the `pthread_mutex_t` — used by `IpcCondition`.
-    var mutexPtr: UnsafeMutablePointer<pthread_mutex_t> {
-        cached.shm.ptr.assumingMemoryBound(to: pthread_mutex_t.self)
+    /// Raw pointer to the 8-byte ulock state block — used by `IpcCondition`.
+    var shmBase: UnsafeMutableRawPointer {
+        cached.shm.ptr
     }
 
     deinit {
@@ -166,10 +242,6 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
             mutexCache.releaseSync(name: name_)
             return
         }
-        // Do NOT call pthread_mutex_destroy here. On macOS the virtual address
-        // may be recycled to a different shm segment after munmap, and destroy
-        // would corrupt whatever mutex now lives at that address.
-        // The shm munmap + unlink in ShmHandle.deinit is sufficient.
         let n = name_
         Task { await mutexCache.release(name: n) }
     }

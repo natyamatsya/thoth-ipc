@@ -1,22 +1,27 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
 //
-// Port of cpp-ipc/src/libipc/platform/posix/condition.h + condition.rs
-// Named inter-process condition variable: pthread_cond_t in shared memory.
+// Port of cpp-ipc/src/libipc/platform/apple/condition.h + rust/libipc/src/condition.rs
+// Named inter-process condition variable: ulock sequence-counter in shared memory.
 
 import Darwin.POSIX
+import Atomics
 
 // MARK: - IpcCondition
 
 /// A named, inter-process condition variable.
 ///
-/// On Darwin this is a `pthread_cond_t` stored in shared memory with
-/// `PTHREAD_PROCESS_SHARED` attribute, binary-compatible with
-/// `ipc::sync::condition` from the C++ libipc library.
+/// On Darwin this is a ulock sequence-counter condition variable in shared
+/// memory, binary-compatible with `ipc::sync::condition` from the C++ libipc
+/// library.
+///
+/// Shared-memory layout (8 bytes):
+///   offset 0: atomic<u32>  seq     — monotonically incremented on notify/broadcast
+///   offset 4: atomic<i32>  waiters — count of threads in __ulock_wait
 ///
 /// `IpcCondition` is `~Copyable`: each value represents a unique open handle.
 public struct IpcCondition: ~Copyable, @unchecked Sendable {
-    // @unchecked Sendable: the pthread_cond_t lives in process-shared shm;
+    // @unchecked Sendable: state lives in process-shared shm;
     // callers are responsible for correct concurrent use.
 
     private let cached: CachedShm
@@ -32,27 +37,13 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
     /// All callers within the same process that open the same `name` share a
     /// single mmap (via `condCache`), matching the C++ `curr_prog` pattern.
     public static func open(name: String) async throws(IpcError) -> IpcCondition {
-        let size = MemoryLayout<pthread_cond_t>.size
+        let size = 8 // seq(u32) + waiters(i32)
         let cached: CachedShm
         let abiGuard = try SyncAbiGuard.openCondition(name: name)
         do {
             cached = try await condCache.acquire(name: name, size: size) { base in
-            let ptr = base.assumingMemoryBound(to: pthread_cond_t.self)
-            ptr.initialize(to: pthread_cond_t())
-
-            var attr = pthread_condattr_t()
-            var eno = pthread_condattr_init(&attr)
-            guard eno == 0 else { throw IpcError.osError(eno) }
-
-            eno = pthread_condattr_setpshared(&attr, PTHREAD_PROCESS_SHARED)
-            guard eno == 0 else {
-                pthread_condattr_destroy(&attr)
-                throw IpcError.osError(eno)
-            }
-
-            eno = pthread_cond_init(ptr, &attr)
-            pthread_condattr_destroy(&attr)
-            guard eno == 0 else { throw IpcError.osError(eno) }
+                shmAtomicU32(at: base).store(0, ordering: .releasing)
+                shmAtomicI32(at: base.advanced(by: 4)).store(0, ordering: .releasing)
             }
         } catch let e as IpcError {
             throw e
@@ -64,25 +55,31 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
 
     /// Open via the shared cache without an actor hop — for use from POSIX threads.
     static func openSync(name: String) throws(IpcError) -> IpcCondition {
-        let size = MemoryLayout<pthread_cond_t>.size
+        let size = 8 // seq(u32) + waiters(i32)
         let cached: CachedShm
         let abiGuard = try SyncAbiGuard.openCondition(name: name)
         do {
             cached = try condCache.acquireSync(name: name, size: size) { base in
-                let ptr = base.assumingMemoryBound(to: pthread_cond_t.self)
-                ptr.initialize(to: pthread_cond_t())
-                var attr = pthread_condattr_t()
-                var eno = pthread_condattr_init(&attr)
-                guard eno == 0 else { throw IpcError.osError(eno) }
-                eno = pthread_condattr_setpshared(&attr, PTHREAD_PROCESS_SHARED)
-                guard eno == 0 else { pthread_condattr_destroy(&attr); throw IpcError.osError(eno) }
-                eno = pthread_cond_init(ptr, &attr)
-                pthread_condattr_destroy(&attr)
-                guard eno == 0 else { throw IpcError.osError(eno) }
+                shmAtomicU32(at: base).store(0, ordering: .releasing)
+                shmAtomicI32(at: base.advanced(by: 4)).store(0, ordering: .releasing)
             }
         } catch let e as IpcError { throw e }
           catch { throw IpcError.osError(EINVAL) }
         return IpcCondition(cached: cached, abiGuard: abiGuard, name_: name, inCache: true, syncOpened: true)
+    }
+
+    // MARK: Internal accessors
+
+    private var seqWordPtr: UnsafeMutablePointer<UInt32> {
+        cached.shm.ptr.assumingMemoryBound(to: UInt32.self)
+    }
+
+    private var seqAtomic: UnsafeAtomic<UInt32> {
+        shmAtomicU32(at: cached.shm.ptr)
+    }
+
+    private var waitersAtomic: UnsafeAtomic<Int32> {
+        shmAtomicI32(at: cached.shm.ptr.advanced(by: 4))
     }
 
     // MARK: Wait / Notify / Broadcast
@@ -91,40 +88,71 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
     /// The mutex is atomically released and re-acquired around the wait.
     /// Blocks indefinitely until signalled.
     public func wait(mutex: borrowing IpcMutex) throws(IpcError) {
-        let eno = pthread_cond_wait(condPtr, mutex.mutexPtr)
-        guard eno == 0 else { throw .osError(eno) }
+        let expectedSeq = seqAtomic.load(ordering: .acquiring)
+        _ = waitersAtomic.loadThenWrappingIncrement(ordering: .relaxed)
+        try mutex.unlock()
+        while true {
+            if seqAtomic.load(ordering: .acquiring) != expectedSeq { break }
+            let ret = _ulockWait(kULCompareAndWaitShared, seqWordPtr, UInt64(expectedSeq), 0)
+            if ret >= 0 { break }
+            let err = errno
+            if err == EINTR { continue }
+            break
+        }
+        _ = waitersAtomic.loadThenWrappingDecrement(ordering: .relaxed)
+        try mutex.lock()
     }
 
     /// Wait on the condition variable with a timeout.
     /// Returns `true` if signalled within `timeout`, `false` on timeout.
     /// The caller must hold `mutex` locked.
     public func wait(mutex: borrowing IpcMutex, timeout: Duration) throws(IpcError) -> Bool {
-        var ts = timespec()
-        var tv = timeval()
-        gettimeofday(&tv, nil)
-        let totalNs = Int64(tv.tv_usec) * 1_000 + Int64(timeout.components.attoseconds / 1_000_000_000)
-        let totalSec = Int64(tv.tv_sec) + Int64(timeout.components.seconds) + totalNs / 1_000_000_000
-        ts.tv_sec = __darwin_time_t(totalSec)
-        ts.tv_nsec = Int(totalNs % 1_000_000_000)
-
-        let eno = pthread_cond_timedwait(condPtr, mutex.mutexPtr, &ts)
-        switch eno {
-        case 0:         return true
-        case ETIMEDOUT: return false
-        default:        throw .osError(eno)
+        let expectedSeq = seqAtomic.load(ordering: .acquiring)
+        _ = waitersAtomic.loadThenWrappingIncrement(ordering: .relaxed)
+        try mutex.unlock()
+        var notified = false
+        let deadline = ContinuousClock.now + timeout
+        outer: while true {
+            if seqAtomic.load(ordering: .acquiring) != expectedSeq {
+                notified = true
+                break
+            }
+            let now = ContinuousClock.now
+            if now >= deadline { break }
+            let remainingUs: UInt32 = {
+                let ns = (deadline - now).components.attoseconds / 1_000_000_000
+                let us = ns / 1_000
+                return us > 0 && us < Int64(UInt32.max) ? UInt32(us) : UInt32.max
+            }()
+            let ret = _ulockWait(kULCompareAndWaitShared, seqWordPtr, UInt64(expectedSeq), remainingUs)
+            if ret >= 0 {
+                continue
+            }
+            let err = errno
+            if err == EINTR { continue }
+            if err == ETIMEDOUT { break }
+            break outer
         }
+        if seqAtomic.load(ordering: .acquiring) != expectedSeq { notified = true }
+        _ = waitersAtomic.loadThenWrappingDecrement(ordering: .relaxed)
+        try mutex.lock()
+        return notified
     }
 
     /// Wake one waiter.
     public func notify() throws(IpcError) {
-        let eno = pthread_cond_signal(condPtr)
-        guard eno == 0 else { throw .osError(eno) }
+        _ = seqAtomic.loadThenWrappingIncrement(ordering: .acquiringAndReleasing)
+        if waitersAtomic.load(ordering: .acquiring) > 0 {
+            _ = _ulockWake(kULCompareAndWaitShared, seqWordPtr, 0)
+        }
     }
 
     /// Wake all waiters.
     public func broadcast() throws(IpcError) {
-        let eno = pthread_cond_broadcast(condPtr)
-        guard eno == 0 else { throw .osError(eno) }
+        _ = seqAtomic.loadThenWrappingIncrement(ordering: .acquiringAndReleasing)
+        if waitersAtomic.load(ordering: .acquiring) > 0 {
+            _ = _ulockWake(kULCompareAndWaitShared | kULFWakeAll, seqWordPtr, 0)
+        }
     }
 
     // MARK: Storage
@@ -134,12 +162,6 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
         await condCache.purge(name: name)
         SyncAbiGuard.clearConditionStorage(name: name)
         ShmHandle.clearStorage(name: name)
-    }
-
-    // MARK: Internal
-
-    private var condPtr: UnsafeMutablePointer<pthread_cond_t> {
-        cached.shm.ptr.assumingMemoryBound(to: pthread_cond_t.self)
     }
 
     deinit {
