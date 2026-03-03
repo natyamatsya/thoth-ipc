@@ -1,10 +1,8 @@
-
-#include <type_traits>
+#include <cstddef>
 #include <cstring>
 #include <algorithm>
 #include <utility>          // std::pair, std::move, std::forward
 #include <atomic>
-#include <type_traits>      // aligned_storage_t
 #include <string>
 #include <vector>
 #include <array>
@@ -47,7 +45,7 @@ struct msg_t<0, AlignSize> {
 
 template <std::size_t DataSize, std::size_t AlignSize>
 struct msg_t : msg_t<0, AlignSize> {
-    std::aligned_storage_t<DataSize, AlignSize> data_ {};
+    alignas(AlignSize) ipc::byte_t data_[DataSize] {};
 
     msg_t() = default;
     msg_t(msg_id_t cc_id, msg_id_t id, std::int32_t remain, void const * data, std::size_t size)
@@ -55,11 +53,11 @@ struct msg_t : msg_t<0, AlignSize> {
         if (this->storage_) {
             if (data != nullptr) {
                 // copy storage-id
-                *reinterpret_cast<ipc::storage_id_t*>(&data_) =
+                *reinterpret_cast<ipc::storage_id_t*>(data_) =
                      *static_cast<ipc::storage_id_t const *>(data);
             }
         }
-        else std::memcpy(&data_, data, size);
+        else std::memcpy(data_, data, size);
     }
 };
 

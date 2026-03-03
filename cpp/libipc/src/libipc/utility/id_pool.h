@@ -1,6 +1,6 @@
 #pragma once
 
-#include <type_traits>  // std::aligned_storage_t
+#include <cstddef>
 #include <cstring>      // std::memcmp
 #include <cstdint>
 
@@ -30,7 +30,7 @@ struct id_type<0, AlignSize> {
 
 template <std::size_t DataSize, std::size_t AlignSize>
 struct id_type : id_type<0, AlignSize> {
-    std::aligned_storage_t<DataSize, AlignSize> data_;
+    alignas(AlignSize) byte_t data_[DataSize] {};
 };
 
 template <std::size_t DataSize  = 0,
@@ -87,8 +87,8 @@ public:
         return true;
     }
 
-    void       * at(storage_id_t id)       { return &(next_[id].data_); }
-    void const * at(storage_id_t id) const { return &(next_[id].data_); }
+    void       * at(storage_id_t id)       { return static_cast<void *>(next_[id].data_); }
+    void const * at(storage_id_t id) const { return static_cast<void const *>(next_[id].data_); }
 };
 
 template <typename T>

@@ -3,7 +3,6 @@
 #include <atomic>
 #include <utility>
 #include <cstring>
-#include <type_traits>
 #include <cstdint>
 
 #include "libipc/def.h"
@@ -27,7 +26,7 @@ struct prod_cons_impl<wr<relat::single, relat::single, trans::unicast>> {
 
     template <std::size_t DataSize, std::size_t AlignSize>
     struct elem_t {
-        std::aligned_storage_t<DataSize, AlignSize> data_ {};
+        alignas(AlignSize) byte_t data_[DataSize] {};
     };
 
     alignas(cache_line_size) std::atomic<circ::u2_t> rd_; // read index
@@ -110,7 +109,7 @@ struct prod_cons_impl<wr<relat::multi , relat::multi, trans::unicast>>
 
     template <std::size_t DataSize, std::size_t AlignSize>
     struct elem_t {
-        std::aligned_storage_t<DataSize, AlignSize> data_ {};
+        alignas(AlignSize) byte_t data_[DataSize] {};
         std::atomic<flag_t> f_ct_ { 0 }; // commit flag
     };
 
@@ -204,7 +203,7 @@ struct prod_cons_impl<wr<relat::single, relat::multi, trans::broadcast>> {
 
     template <std::size_t DataSize, std::size_t AlignSize>
     struct elem_t {
-        std::aligned_storage_t<DataSize, AlignSize> data_ {};
+        alignas(AlignSize) byte_t data_[DataSize] {};
         std::atomic<rc_t> rc_ { 0 }; // read-counter
     };
 
@@ -306,7 +305,7 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
 
     template <std::size_t DataSize, std::size_t AlignSize>
     struct elem_t {
-        std::aligned_storage_t<DataSize, AlignSize> data_ {};
+        alignas(AlignSize) byte_t data_[DataSize] {};
         std::atomic<rc_t  > rc_   { 0 }; // read-counter
         std::atomic<flag_t> f_ct_ { 0 }; // commit flag
     };
