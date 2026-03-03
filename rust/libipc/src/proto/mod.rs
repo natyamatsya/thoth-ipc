@@ -4,6 +4,8 @@
 // Higher-level protocol layer built on top of the core IPC transport.
 // Port of cpp-ipc/include/libipc/proto/.
 
+pub mod codec;
+pub mod codecs;
 pub mod message;
 pub mod process_manager;
 pub mod rt_prio;
@@ -11,7 +13,9 @@ pub mod service_group;
 pub mod service_registry;
 pub mod shm_ring;
 pub mod typed_channel;
+pub mod typed_channel_codec;
 pub mod typed_route;
+pub mod typed_route_codec;
 
 pub use message::{Builder, Message};
 pub use process_manager::{
@@ -23,4 +27,6 @@ pub use service_group::{InstanceRole, ManagedInstance, ServiceGroup, ServiceGrou
 pub use service_registry::{ServiceEntry, ServiceRegistry, MAX_NAME_LEN, MAX_SERVICES};
 pub use shm_ring::ShmRing;
 pub use typed_channel::TypedChannel;
+pub use typed_channel_codec::TypedChannelCodec;
 pub use typed_route::TypedRoute;
+pub use typed_route_codec::TypedRouteCodec;

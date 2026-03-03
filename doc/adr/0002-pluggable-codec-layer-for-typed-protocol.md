@@ -93,7 +93,7 @@ Interop tests must be added for every supported codec/profile pair before claimi
 4. **Phase D (optional negotiation envelope):**
    - Add codec envelope only if dynamic codec selection per channel is required.
 
-See `doc/serialization-phase-a-plan.md` for the minimal concrete patch plan.
+See `context/serialization-phase-a-plan.md` for the minimal concrete patch plan.
 
 ## Alternatives considered
 

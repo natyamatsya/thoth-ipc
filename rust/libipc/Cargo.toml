@@ -9,6 +9,8 @@ publish = false
 [features]
 bump_alloc = ["dep:bumpalo"]
 slab_pool = ["dep:slab"]
+codec-protobuf = []
+codec-capnp = []
 
 [dependencies]
 flatbuffers = "24.3.25"
