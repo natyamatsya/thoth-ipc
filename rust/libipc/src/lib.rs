@@ -30,6 +30,8 @@ pub use semaphore::IpcSemaphore;
 mod condition;
 pub use condition::IpcCondition;
 
+mod sync_abi;
+
 pub mod buffer;
 pub use buffer::IpcBuffer;
 
