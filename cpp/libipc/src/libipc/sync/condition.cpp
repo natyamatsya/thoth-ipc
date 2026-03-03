@@ -5,6 +5,7 @@
 #include "libipc/imp/log.h"
 #include "libipc/mem/resource.h"
 #include "libipc/platform/detail.h"
+#include "libipc/sync/sync_abi.h"
 #if defined(LIBIPC_OS_WIN)
 #include "libipc/platform/win/condition.h"
 #elif defined(LIBIPC_OS_LINUX)
@@ -27,6 +28,7 @@ namespace sync {
 class condition::condition_ : public ipc::pimpl<condition_> {
 public:
     ipc::detail::sync::condition cond_;
+    ipc::detail::sync_abi::guard abi_guard_;
 };
 
 condition::condition()
@@ -61,18 +63,27 @@ bool condition::open(char const *name) noexcept {
         log.error("fail condition open: name is empty");
         return false;
     }
-    return impl(p_)->cond_.open(name);
+    auto *self = impl(p_);
+    if (!self->abi_guard_.open_condition(name)) return false;
+    if (self->cond_.open(name)) return true;
+    self->abi_guard_.close();
+    return false;
 }
 
 void condition::close() noexcept {
-    impl(p_)->cond_.close();
+    auto *self = impl(p_);
+    self->cond_.close();
+    self->abi_guard_.close();
 }
 
 void condition::clear() noexcept {
-    impl(p_)->cond_.clear();
+    auto *self = impl(p_);
+    self->cond_.clear();
+    self->abi_guard_.clear();
 }
 
 void condition::clear_storage(char const * name) noexcept {
+    ipc::detail::sync_abi::guard::clear_condition_storage(name);
     ipc::detail::sync::condition::clear_storage(name);
 }
 

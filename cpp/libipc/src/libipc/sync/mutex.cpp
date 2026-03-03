@@ -5,6 +5,7 @@
 #include "libipc/imp/log.h"
 #include "libipc/mem/resource.h"
 #include "libipc/platform/detail.h"
+#include "libipc/sync/sync_abi.h"
 #if defined(LIBIPC_OS_WIN)
 #include "libipc/platform/win/mutex.h"
 #elif defined(LIBIPC_OS_LINUX)
@@ -27,6 +28,7 @@ namespace sync {
 class mutex::mutex_ : public ipc::pimpl<mutex_> {
 public:
     ipc::detail::sync::mutex lock_;
+    ipc::detail::sync_abi::guard abi_guard_;
 };
 
 mutex::mutex()
@@ -61,18 +63,27 @@ bool mutex::open(char const *name) noexcept {
         log.error("fail mutex open: name is empty");
         return false;
     }
-    return impl(p_)->lock_.open(name);
+    auto *self = impl(p_);
+    if (!self->abi_guard_.open_mutex(name)) return false;
+    if (self->lock_.open(name)) return true;
+    self->abi_guard_.close();
+    return false;
 }
 
 void mutex::close() noexcept {
-    impl(p_)->lock_.close();
+    auto *self = impl(p_);
+    self->lock_.close();
+    self->abi_guard_.close();
 }
 
 void mutex::clear() noexcept {
-    impl(p_)->lock_.clear();
+    auto *self = impl(p_);
+    self->lock_.clear();
+    self->abi_guard_.clear();
 }
 
 void mutex::clear_storage(char const * name) noexcept {
+    ipc::detail::sync_abi::guard::clear_mutex_storage(name);
     ipc::detail::sync::mutex::clear_storage(name);
 }
 
