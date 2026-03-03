@@ -35,9 +35,8 @@ target_include_directories(audio_service PRIVATE
 )
 target_link_libraries(audio_service ipc flatbuffers)
 
-# The service process is compiled as C++23 to demonstrate that process
-# separation allows each component to use a different language standard.
-# The host remains at the project default (C++17).
+# Keep the service process explicitly at C++23 for clarity.
+# The project default is also C++23.
 set_target_properties(audio_service PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON)

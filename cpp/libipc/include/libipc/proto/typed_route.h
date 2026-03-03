@@ -3,13 +3,14 @@
 
 #pragma once
 
-#include "libipc/ipc.h"
-#include "libipc/proto/message.h"
+#include "libipc/proto/codecs/flatbuffers_codec.h"
+#include "libipc/proto/typed_route_codec.h"
 
 namespace ipc {
 namespace proto {
 
-// A typed wrapper around ipc::route for FlatBuffer messages.
+// A typed wrapper around ipc::route for FlatBuffer messages, implemented
+// through the generic codec-based typed_route_codec.
 // T is the FlatBuffers-generated root table type.
 // ipc::route is single-writer, multiple-reader (broadcast).
 //
@@ -27,51 +28,7 @@ namespace proto {
 //   if (msg) { auto *root = msg.root(); ... }
 //
 template <typename T>
-class typed_route {
-    ipc::route rt_;
-
-public:
-    typed_route() = default;
-
-    typed_route(char const *name, unsigned mode)
-        : rt_{name, mode} {}
-
-    void connect(char const *name, unsigned mode) {
-        rt_ = ipc::route{name, mode};
-    }
-
-    void disconnect() { rt_.disconnect(); }
-    bool valid() const noexcept { return rt_.valid(); }
-
-    // --- Sending ---
-
-    bool send(const builder &b) {
-        return rt_.send(b.data(), b.size());
-    }
-
-    bool send(const uint8_t *data, std::size_t size) {
-        return rt_.send(data, size);
-    }
-
-    // --- Receiving ---
-
-    message<T> recv(std::uint64_t tm = ipc::invalid_value) {
-        return message<T>{rt_.recv(tm)};
-    }
-
-    message<T> try_recv() {
-        return message<T>{rt_.try_recv()};
-    }
-
-    // --- Lifecycle ---
-
-    ipc::route &raw() noexcept { return rt_; }
-    const ipc::route &raw() const noexcept { return rt_; }
-
-    static void clear_storage(char const *name) {
-        ipc::route::clear_storage(name);
-    }
-};
+using typed_route = typed_route_codec<T, flatbuffers_codec>;
 
 } // namespace proto
 } // namespace ipc
