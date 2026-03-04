@@ -27,29 +27,74 @@ fn compile_secure_crypto_c() {
     }
 
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let secure_crypto_root = manifest.join("../../secure-crypto-c");
     let source = secure_crypto_root.join("src/secure_crypto_c.c");
     let include_root = secure_crypto_root.join("include");
     let abi_header = include_root.join("libipc/proto/codecs/secure_crypto_c.h");
+    let object = out_dir.join("secure_crypto_c.o");
+    let static_lib = out_dir.join("libipc_secure_crypto_c.a");
+
+    let compiler = cc::Build::new().get_compiler();
+    let mut compile_cmd = compiler.to_command();
+    compile_cmd.arg("-c");
+    compile_cmd.arg(&source);
+    compile_cmd.arg("-o");
+    compile_cmd.arg(&object);
+
+    if compiler.is_like_msvc() {
+        compile_cmd.arg(format!("/I{}", include_root.display()));
+    } else {
+        compile_cmd.arg(format!("-I{}", include_root.display()));
+    }
 
     println!("cargo:rerun-if-changed={}", source.display());
     println!("cargo:rerun-if-changed={}", abi_header.display());
     println!("cargo:rerun-if-env-changed=LIBIPC_OPENSSL_PREFIX");
 
-    let mut build = cc::Build::new();
-    build.file(&source);
-    build.include(&include_root);
-
     if secure_crypto_openssl_enabled() {
-        build.define("LIBIPC_SECURE_OPENSSL", None);
+        if compiler.is_like_msvc() {
+            compile_cmd.arg("/DLIBIPC_SECURE_OPENSSL");
+        } else {
+            compile_cmd.arg("-DLIBIPC_SECURE_OPENSSL");
+        }
         let prefix = std::env::var("LIBIPC_OPENSSL_PREFIX")
             .unwrap_or_else(|_| "/opt/homebrew/opt/openssl@3".to_string());
-        build.include(format!("{prefix}/include"));
+        if compiler.is_like_msvc() {
+            compile_cmd.arg(format!("/I{prefix}/include"));
+        } else {
+            compile_cmd.arg(format!("-I{prefix}/include"));
+        }
         println!("cargo:rustc-link-search=native={prefix}/lib");
         println!("cargo:rustc-link-lib=crypto");
     }
 
-    build.compile("ipc_secure_crypto_c");
+    let compile_status = compile_cmd
+        .status()
+        .expect("failed to compile secure_crypto_c.c");
+    assert!(compile_status.success(), "secure crypto C compile failed");
+
+    let target = std::env::var("TARGET").unwrap_or_default();
+    let archive_status = if target.contains("apple-darwin") {
+        Command::new("libtool")
+            .arg("-static")
+            .arg("-o")
+            .arg(&static_lib)
+            .arg(&object)
+            .status()
+            .expect("failed to archive secure crypto C library with libtool")
+    } else {
+        Command::new("ar")
+            .arg("crus")
+            .arg(&static_lib)
+            .arg(&object)
+            .status()
+            .expect("failed to archive secure crypto C library with ar")
+    };
+    assert!(archive_status.success(), "secure crypto C archive failed");
+
+    println!("cargo:rustc-link-search=native={}", out_dir.display());
+    println!("cargo:rustc-link-lib=static=ipc_secure_crypto_c");
 }
 
 fn find_flatc() -> Option<PathBuf> {

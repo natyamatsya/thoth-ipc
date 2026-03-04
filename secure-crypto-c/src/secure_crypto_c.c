@@ -11,9 +11,6 @@
 #include <openssl/rand.h>
 #endif
 
-static const size_t kNonceSize = 12;
-static const size_t kTagSize = 16;
-
 static void clear_blob(libipc_secure_blob *blob) {
     if (blob == NULL) return;
     blob->data = NULL;
@@ -25,6 +22,10 @@ static void free_blob(libipc_secure_blob *blob) {
     if (blob->data != NULL) free(blob->data);
     clear_blob(blob);
 }
+
+#ifdef LIBIPC_SECURE_OPENSSL
+static const size_t kNonceSize = 12;
+static const size_t kTagSize = 16;
 
 static libipc_secure_status allocate_blob(const size_t size,
                                           libipc_secure_blob *blob) {
@@ -41,7 +42,6 @@ static libipc_secure_status allocate_blob(const size_t size,
     return LIBIPC_SECURE_STATUS_OK;
 }
 
-#ifdef LIBIPC_SECURE_OPENSSL
 static const EVP_CIPHER *resolve_cipher(const libipc_secure_algorithm_id algorithm) {
     if (algorithm == LIBIPC_SECURE_ALG_AES_256_GCM) return EVP_aes_256_gcm();
     if (algorithm == LIBIPC_SECURE_ALG_CHACHA20_POLY1305) return EVP_chacha20_poly1305();
