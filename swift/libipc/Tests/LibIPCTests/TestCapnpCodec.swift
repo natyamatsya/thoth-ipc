@@ -80,4 +80,22 @@ struct TestCapnpCodec {
         sender.disconnect()
         receiver.disconnect()
     }
+
+    @Test("typed channel round-trip with capnp codec")
+    func typedChannelRoundTrip() async throws {
+        let name = "swift_capnp_ch_\(UInt32.random(in: 0..<UInt32.max))"
+        defer { Task { await TypedChannelCapnp<FakeCapnpMessage>.clearStorage(name: name) } }
+
+        let sender = try await TypedChannelCapnp<FakeCapnpMessage>.connect(name: name, mode: .sender)
+        let receiver = try await TypedChannelCapnp<FakeCapnpMessage>.connect(name: name, mode: .receiver)
+
+        _ = try sender.waitForRecv(count: 1, timeout: .seconds(1))
+        _ = try sender.send(builder: CapnpBuilder(message: FakeCapnpMessage(value: 84)), timeout: .seconds(1))
+
+        let message = try receiver.recv(timeout: .seconds(1))
+        #expect(message.root()?.value == 84)
+
+        sender.disconnect()
+        receiver.disconnect()
+    }
 }
