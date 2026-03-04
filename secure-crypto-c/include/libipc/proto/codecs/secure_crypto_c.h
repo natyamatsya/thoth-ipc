@@ -61,6 +61,10 @@ libipc_secure_status libipc_secure_aead_decrypt(
 
 void libipc_secure_blob_free(libipc_secure_blob *blob);
 
+// Runtime availability of secure backend implementation.
+// Returns 1 when OpenSSL EVP backend is enabled, otherwise 0.
+uint32_t libipc_secure_crypto_available(void);
+
 #ifdef __cplusplus
 }
 #endif

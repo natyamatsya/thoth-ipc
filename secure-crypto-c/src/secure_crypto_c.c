@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
 
-#include "libipc_secure_crypto_shim.h"
+#include "libipc/proto/codecs/secure_crypto_c.h"
 
 #include <limits.h>
 #include <stdlib.h>

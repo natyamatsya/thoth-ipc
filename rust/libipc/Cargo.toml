@@ -24,6 +24,9 @@ prost = { version = "0.13", optional = true, features = ["derive"] }
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 
+[build-dependencies]
+cc = "1"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 

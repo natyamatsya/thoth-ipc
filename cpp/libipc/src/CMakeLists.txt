@@ -60,10 +60,7 @@ if(APPLE AND LIBIPC_APPLE_APP_STORE_SAFE)
   target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_APPLE_APP_STORE_SAFE)
 endif()
 
-if(LIBIPC_SECURE_OPENSSL)
-  target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_SECURE_OPENSSL)
-  target_link_libraries(${PROJECT_NAME} PUBLIC OpenSSL::Crypto)
-endif()
+target_link_libraries(${PROJECT_NAME} PUBLIC libipc_secure_crypto_c)
 
 if(NOT MSVC)
   target_link_libraries(${PROJECT_NAME} PUBLIC

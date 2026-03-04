@@ -3,24 +3,6 @@
 
 // swift-tools-version: 6.0
 import PackageDescription
-import Foundation
-
-let packageEnv = ProcessInfo.processInfo.environment
-let secureOpenSSL = packageEnv["LIBIPC_SECURE_OPENSSL"] == "1"
-let openSSLPrefix = packageEnv["LIBIPC_OPENSSL_PREFIX"] ?? "/opt/homebrew/opt/openssl@3"
-
-let secureCryptoCSettings: [CSetting] = secureOpenSSL
-    ? [
-        .define("LIBIPC_SECURE_OPENSSL"),
-        .unsafeFlags(["-I\(openSSLPrefix)/include"]),
-    ]
-    : []
-
-let secureCryptoLinkerSettings: [LinkerSetting] = secureOpenSSL
-    ? [
-        .unsafeFlags(["-L\(openSSLPrefix)/lib", "-lcrypto"]),
-    ]
-    : []
 
 let package = Package(
     name: "libipc",
@@ -40,6 +22,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
         .package(url: "https://github.com/google/flatbuffers.git", from: "25.2.10"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.27.0"),
+        .package(path: "../../secure-crypto-c"),
     ],
     targets: [
         .target(
@@ -74,19 +57,12 @@ let package = Package(
             name: "LibIPCSecureCrypto",
             dependencies: [
                 "LibIPC",
-                "LibIPCSecureCryptoC",
+                .product(name: "LibIPCSecureCryptoC", package: "secure-crypto-c"),
             ],
             path: "Sources/LibIPCSecureCrypto",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
-        ),
-        .target(
-            name: "LibIPCSecureCryptoC",
-            path: "Sources/LibIPCSecureCryptoC",
-            publicHeadersPath: "include",
-            cSettings: secureCryptoCSettings,
-            linkerSettings: secureCryptoLinkerSettings
         ),
         .executableTarget(
             name: "DemoSendRecv",

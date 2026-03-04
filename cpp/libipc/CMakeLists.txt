@@ -34,8 +34,17 @@ option(LIBIPC_APPLE_APP_STORE_SAFE
     OFF)
 
 if(LIBIPC_SECURE_OPENSSL)
-    find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+    set(SECURE_CRYPTO_C_OPENSSL ON CACHE BOOL
+        "Enable OpenSSL EVP backend for secure crypto C ABI."
+        FORCE)
+else()
+    set(SECURE_CRYPTO_C_OPENSSL OFF CACHE BOOL
+        "Enable OpenSSL EVP backend for secure crypto C ABI."
+        FORCE)
 endif()
+set(SECURE_CRYPTO_C_EXPORT_SET cpp-ipc-targets)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../../secure-crypto-c
+                 ${CMAKE_CURRENT_BINARY_DIR}/secure-crypto-c)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_CXX_STANDARD 23)
