@@ -533,6 +533,7 @@ TEST_F(ChannelTest, MultipleSenders) {
 // Test multiple senders and receivers
 TEST_F(ChannelTest, MultipleSendersReceivers) {
   std::string name = generate_unique_ipc_name("channel_m_to_n");
+  channel::clear_storage(name.c_str());
   
   const int num_senders = 2;
   const int num_receivers = 2;
@@ -541,6 +542,7 @@ TEST_F(ChannelTest, MultipleSendersReceivers) {
   
   std::atomic<int> sent_count{0};
   std::atomic<int> received_count{0};
+  std::atomic<int> receivers_connected{0};
   
   // Use latch to ensure receivers are ready before senders start
   latch receivers_ready(num_receivers);
@@ -549,7 +551,9 @@ TEST_F(ChannelTest, MultipleSendersReceivers) {
   for (int i = 0; i < num_receivers; ++i) {
       receivers.emplace_back([&, i]() {
           channel ch(name.c_str(), receiver);
+          if (ch.valid()) ++receivers_connected;
           receivers_ready.count_down();  // Signal this receiver is ready
+          if (!ch.valid()) return;
           
           // Each receiver should receive ALL messages from ALL senders (broadcast mode)
           for (int j = 0; j < total_messages; ++j) {
@@ -563,11 +567,17 @@ TEST_F(ChannelTest, MultipleSendersReceivers) {
   
   // Wait for all receivers to be ready
   receivers_ready.wait();
+  ASSERT_EQ(receivers_connected.load(), num_receivers);
+
+  channel ready_sender(name.c_str(), sender);
+  ASSERT_TRUE(ready_sender.valid());
+  ASSERT_TRUE(ready_sender.wait_for_recv(num_receivers, 5000));
   
   std::vector<std::thread> senders;
   for (int i = 0; i < num_senders; ++i) {
       senders.emplace_back([&, i]() {
           channel ch(name.c_str(), sender);
+          if (!ch.valid()) return;
           for (int j = 0; j < messages_per_sender; ++j) {
               std::string msg = "S" + std::to_string(i) + "M" + std::to_string(j);
               if (ch.send(msg, 1000)) {
@@ -588,6 +598,8 @@ TEST_F(ChannelTest, MultipleSendersReceivers) {
   EXPECT_EQ(sent_count.load(), num_senders * messages_per_sender);
   // All messages should be received (broadcast mode)
   EXPECT_EQ(received_count.load(), num_senders * messages_per_sender * num_receivers);
+
+  channel::clear_storage(name.c_str());
 }
 
 // Test try_send and try_recv
