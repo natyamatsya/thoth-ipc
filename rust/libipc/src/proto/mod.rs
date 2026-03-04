@@ -33,3 +33,6 @@ pub use typed_route_codec::TypedRouteCodec;
 
 #[cfg(feature = "codec-protobuf")]
 pub use codecs::protobuf::{ProtobufBuilder, ProtobufCodec, ProtobufMessage, ProtobufWireMessage};
+
+#[cfg(feature = "codec-protobuf-prost")]
+pub use codecs::protobuf_prost::ProstProtobufMessage;
