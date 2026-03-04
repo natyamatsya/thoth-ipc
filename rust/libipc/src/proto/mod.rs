@@ -30,3 +30,6 @@ pub use typed_channel::TypedChannel;
 pub use typed_channel_codec::TypedChannelCodec;
 pub use typed_route::TypedRoute;
 pub use typed_route_codec::TypedRouteCodec;
+
+#[cfg(feature = "codec-protobuf")]
+pub use codecs::protobuf::{ProtobufBuilder, ProtobufCodec, ProtobufMessage, ProtobufWireMessage};
