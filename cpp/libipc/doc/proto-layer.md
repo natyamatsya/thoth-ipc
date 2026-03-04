@@ -4,8 +4,11 @@
 # Typed Protocol Layer
 
 The `libipc/proto/` headers provide a generic, header-only layer that combines
-cpp-ipc's shared-memory transport with [FlatBuffers](https://flatbuffers.dev/)
-for type-safe, zero-copy message passing between processes.
+cpp-ipc's shared-memory transport with pluggable wire codecs for typed IPC
+message passing between processes.
+
+The default codec is [FlatBuffers](https://flatbuffers.dev/), with additional
+scaffolding adapters available for Protocol Buffers and Cap'n Proto.
 
 ## Overview
 
@@ -69,6 +72,13 @@ if (msg) {
 `ipc::proto::typed_route<T>` — same API as `typed_channel`, but wraps
 `ipc::route` (single-writer, broadcast to N readers).
 
+### `libipc/proto/codecs/*.h`
+
+- **`flatbuffers_codec.h`** — default zero-copy codec used by
+  `typed_channel<T>`/`typed_route<T>`.
+- **`protobuf_codec.h`** — Phase B scaffolding for protobuf-like message types.
+- **`capnp_codec.h`** — Phase C scaffolding for Cap'n Proto-like message types.
+
 ### `libipc/proto/codecs/secure_codec.h`
 
 `ipc::proto::secure_codec<InnerCodec, CipherPolicy>` — an opt-in codec
@@ -88,11 +98,11 @@ struct my_cipher {
     static bool open(const std::uint8_t *data, std::size_t size, std::vector<std::uint8_t> &out);
 };
 
-using secure_flatbuffers_codec =
-    ipc::proto::secure_codec<ipc::proto::flatbuffers_codec, my_cipher>;
+using secure_capnp_codec =
+    ipc::proto::secure_codec<ipc::proto::capnp_codec, my_cipher>;
 
 using secure_route =
-    ipc::proto::typed_route_codec<MyMsg, secure_flatbuffers_codec>;
+    ipc::proto::typed_route_codec<MyMsg, secure_capnp_codec>;
 ```
 
 Important: sender/receiver must agree on the same secure profile. A plain

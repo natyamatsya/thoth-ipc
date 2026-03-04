@@ -6,11 +6,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <type_traits>
 #include <vector>
 
 #include "libipc/buffer.h"
 #include "libipc/proto/codec.h"
+#include "libipc/proto/codecs/capnp_codec.h"
 #include "libipc/proto/codecs/protobuf_codec.h"
 #include "libipc/proto/codecs/secure_codec.h"
 #include "libipc/proto/typed_channel_secure.h"
@@ -59,6 +61,30 @@ struct fake_proto_message {
         if (size != static_cast<int>(sizeof(value_))) return false;
         std::memcpy(&value_, src, sizeof(value_));
         return true;
+    }
+
+    std::uint32_t value() const {
+        return value_;
+    }
+};
+
+struct fake_capnp_message {
+    std::uint32_t value_ {0};
+
+    std::vector<std::uint8_t> encode_capnp() const {
+        std::vector<std::uint8_t> bytes(sizeof(value_));
+        std::memcpy(bytes.data(), &value_, sizeof(value_));
+        return bytes;
+    }
+
+    static std::optional<fake_capnp_message> decode_capnp(const std::uint8_t *data,
+                                                          const std::size_t size) {
+        if (data == nullptr) return std::nullopt;
+        if (size != sizeof(std::uint32_t)) return std::nullopt;
+
+        std::uint32_t value = 0;
+        std::memcpy(&value, data, sizeof(value));
+        return fake_capnp_message{value};
     }
 
     std::uint32_t value() const {
@@ -126,6 +152,11 @@ using secure_protobuf_channel =
     ipc::proto::typed_channel_secure<fake_proto_message, ipc::proto::protobuf_codec, xor_cipher>;
 using secure_protobuf_route =
     ipc::proto::typed_route_secure<fake_proto_message, ipc::proto::protobuf_codec, xor_cipher>;
+using secure_capnp_codec = ipc::proto::secure_codec<ipc::proto::capnp_codec, xor_cipher>;
+using secure_capnp_channel =
+    ipc::proto::typed_channel_secure<fake_capnp_message, ipc::proto::capnp_codec, xor_cipher>;
+using secure_capnp_route =
+    ipc::proto::typed_route_secure<fake_capnp_message, ipc::proto::capnp_codec, xor_cipher>;
 using secure_fail_open_codec = ipc::proto::secure_codec<fake_inner_codec, failing_open_cipher>;
 
 ipc::buff_t owning_buffer_from_bytes(const std::vector<std::uint8_t> &bytes) {
@@ -140,6 +171,8 @@ static_assert(ipc::proto::secure_cipher<xor_cipher>);
 static_assert(ipc::proto::proto_codec<secure_test_codec, int>);
 static_assert(std::is_default_constructible_v<secure_protobuf_channel>);
 static_assert(std::is_default_constructible_v<secure_protobuf_route>);
+static_assert(std::is_default_constructible_v<secure_capnp_channel>);
+static_assert(std::is_default_constructible_v<secure_capnp_route>);
 
 } // namespace
 
@@ -205,6 +238,25 @@ TEST(SecureCodec, ComposesWithProtobufCodec) {
 
     auto sealed_buf = owning_buffer_from_bytes(secure_builder.bytes());
     auto decoded = secure_protobuf_codec::decode<fake_proto_message>(std::move(sealed_buf));
+
+    ASSERT_TRUE(decoded.verify());
+    ASSERT_NE(decoded.root(), nullptr);
+    EXPECT_EQ(decoded->value(), plain_message.value());
+}
+
+TEST(SecureCodec, ComposesWithCapnpCodec) {
+    fake_capnp_message plain_message;
+    plain_message.value_ = 0x89ABCDEFu;
+
+    auto plain_builder = ipc::proto::capnp_builder::from_message(plain_message);
+    ASSERT_EQ(plain_builder.size(), sizeof(std::uint32_t));
+
+    ipc::proto::secure_builder<ipc::proto::capnp_codec, xor_cipher> secure_builder{plain_builder};
+    ASSERT_GT(secure_builder.size(), plain_builder.size());
+    ASSERT_NE(std::memcmp(secure_builder.data(), plain_builder.data(), plain_builder.size()), 0);
+
+    auto sealed_buf = owning_buffer_from_bytes(secure_builder.bytes());
+    auto decoded = secure_capnp_codec::decode<fake_capnp_message>(std::move(sealed_buf));
 
     ASSERT_TRUE(decoded.verify());
     ASSERT_NE(decoded.root(), nullptr);
