@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -17,6 +18,7 @@
 #include "libipc/proto/codecs/capnp_codec.h"
 #include "libipc/proto/codecs/protobuf_codec.h"
 #include "libipc/proto/codecs/secure_codec.h"
+#include "libipc/proto/codecs/secure_openssl_evp_cipher.h"
 #include "libipc/proto/typed_channel_secure.h"
 #include "libipc/proto/typed_route_secure.h"
 
@@ -237,6 +239,74 @@ using secure_capnp_route =
 using secure_capnp_builder = ipc::proto::secure_builder<ipc::proto::capnp_codec, xor_cipher>;
 using secure_fail_open_codec = ipc::proto::secure_codec<fake_inner_codec, failing_open_cipher>;
 
+#ifdef LIBIPC_SECURE_OPENSSL
+struct openssl_test_key_provider {
+    static constexpr std::uint32_t key_id() {
+        return 0x0A0B0C0Du;
+    }
+
+    static const std::uint8_t *key_data() {
+        static const std::array<std::uint8_t, 32> key {
+            0x00u, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u, 0x06u, 0x07u,
+            0x08u, 0x09u, 0x0Au, 0x0Bu, 0x0Cu, 0x0Du, 0x0Eu, 0x0Fu,
+            0x10u, 0x11u, 0x12u, 0x13u, 0x14u, 0x15u, 0x16u, 0x17u,
+            0x18u, 0x19u, 0x1Au, 0x1Bu, 0x1Cu, 0x1Du, 0x1Eu, 0x1Fu,
+        };
+        return key.data();
+    }
+
+    static constexpr std::size_t key_size() {
+        return 32;
+    }
+};
+
+struct openssl_wrong_key_provider {
+    static constexpr std::uint32_t key_id() {
+        return openssl_test_key_provider::key_id();
+    }
+
+    static const std::uint8_t *key_data() {
+        static const std::array<std::uint8_t, 32> key {
+            0xF0u, 0xE1u, 0xD2u, 0xC3u, 0xB4u, 0xA5u, 0x96u, 0x87u,
+            0x78u, 0x69u, 0x5Au, 0x4Bu, 0x3Cu, 0x2Du, 0x1Eu, 0x0Fu,
+            0x00u, 0x11u, 0x22u, 0x33u, 0x44u, 0x55u, 0x66u, 0x77u,
+            0x88u, 0x99u, 0xAAu, 0xBBu, 0xCCu, 0xDDu, 0xEEu, 0xFFu,
+        };
+        return key.data();
+    }
+
+    static constexpr std::size_t key_size() {
+        return 32;
+    }
+};
+
+struct openssl_mismatched_key_id_provider {
+    static constexpr std::uint32_t key_id() {
+        return openssl_test_key_provider::key_id() + 1u;
+    }
+
+    static const std::uint8_t *key_data() {
+        return openssl_test_key_provider::key_data();
+    }
+
+    static constexpr std::size_t key_size() {
+        return openssl_test_key_provider::key_size();
+    }
+};
+
+using secure_openssl_cipher =
+    ipc::proto::secure_openssl_evp_cipher<LIBIPC_SECURE_ALG_AES_256_GCM, openssl_test_key_provider>;
+using secure_openssl_codec = ipc::proto::secure_codec<ipc::proto::protobuf_codec, secure_openssl_cipher>;
+using secure_openssl_wrong_key_cipher =
+    ipc::proto::secure_openssl_evp_cipher<LIBIPC_SECURE_ALG_AES_256_GCM, openssl_wrong_key_provider>;
+using secure_openssl_wrong_key_codec =
+    ipc::proto::secure_codec<ipc::proto::protobuf_codec, secure_openssl_wrong_key_cipher>;
+using secure_openssl_mismatched_key_id_cipher =
+    ipc::proto::secure_openssl_evp_cipher<LIBIPC_SECURE_ALG_AES_256_GCM, openssl_mismatched_key_id_provider>;
+using secure_openssl_mismatched_key_id_codec =
+    ipc::proto::secure_codec<ipc::proto::protobuf_codec, secure_openssl_mismatched_key_id_cipher>;
+#endif
+
 ipc::buff_t owning_buffer_from_bytes(const std::vector<std::uint8_t> &bytes) {
     auto *data = new std::uint8_t[bytes.size()];
     std::memcpy(data, bytes.data(), bytes.size());
@@ -258,6 +328,9 @@ static_assert(std::is_default_constructible_v<secure_protobuf_channel>);
 static_assert(std::is_default_constructible_v<secure_protobuf_route>);
 static_assert(std::is_default_constructible_v<secure_capnp_channel>);
 static_assert(std::is_default_constructible_v<secure_capnp_route>);
+#ifdef LIBIPC_SECURE_OPENSSL
+static_assert(ipc::proto::secure_cipher_aead<secure_openssl_cipher>);
+#endif
 
 } // namespace
 
@@ -400,6 +473,74 @@ TEST(SecureCodec, ComposesWithProtobufCodec) {
     ASSERT_NE(decoded.root(), nullptr);
     EXPECT_EQ(decoded->value(), plain_message.value());
 }
+
+#ifdef LIBIPC_SECURE_OPENSSL
+TEST(SecureCodec, OpenSslEvpAes256GcmRoundTrip) {
+    fake_proto_message plain_message;
+    plain_message.value_ = 0x10203040u;
+
+    auto plain_builder = ipc::proto::protobuf_builder::from_message(plain_message);
+    ASSERT_EQ(plain_builder.size(), sizeof(std::uint32_t));
+
+    ipc::proto::secure_builder<ipc::proto::protobuf_codec, secure_openssl_cipher> secure_builder{plain_builder};
+    ASSERT_GT(secure_builder.size(), plain_builder.size());
+
+    auto sealed_buf = owning_buffer_from_bytes(secure_builder.bytes());
+    auto decoded = secure_openssl_codec::decode<fake_proto_message>(std::move(sealed_buf));
+
+    ASSERT_TRUE(decoded.verify());
+    ASSERT_NE(decoded.root(), nullptr);
+    EXPECT_EQ(decoded->value(), plain_message.value());
+}
+
+TEST(SecureCodec, OpenSslEvpFailsClosedWhenKeyIdMismatches) {
+    fake_proto_message plain_message;
+    plain_message.value_ = 0x55667788u;
+
+    auto plain_builder = ipc::proto::protobuf_builder::from_message(plain_message);
+    ipc::proto::secure_builder<ipc::proto::protobuf_codec, secure_openssl_cipher> secure_builder{plain_builder};
+
+    auto sealed_buf = owning_buffer_from_bytes(secure_builder.bytes());
+    auto decoded = secure_openssl_mismatched_key_id_codec::decode<fake_proto_message>(
+        std::move(sealed_buf));
+
+    EXPECT_TRUE(decoded.empty());
+    EXPECT_FALSE(decoded.verify());
+}
+
+TEST(SecureCodec, OpenSslEvpFailsClosedWhenWrongKeyMaterial) {
+    fake_proto_message plain_message;
+    plain_message.value_ = 0x66778899u;
+
+    auto plain_builder = ipc::proto::protobuf_builder::from_message(plain_message);
+    ipc::proto::secure_builder<ipc::proto::protobuf_codec, secure_openssl_cipher> secure_builder{plain_builder};
+
+    auto sealed_buf = owning_buffer_from_bytes(secure_builder.bytes());
+    auto decoded = secure_openssl_wrong_key_codec::decode<fake_proto_message>(
+        std::move(sealed_buf));
+
+    EXPECT_TRUE(decoded.empty());
+    EXPECT_FALSE(decoded.verify());
+}
+
+TEST(SecureCodec, OpenSslEvpFailsClosedWhenTagTampered) {
+    fake_proto_message plain_message;
+    plain_message.value_ = 0xABCDEF12u;
+
+    auto plain_builder = ipc::proto::protobuf_builder::from_message(plain_message);
+    ipc::proto::secure_builder<ipc::proto::protobuf_codec, secure_openssl_cipher> secure_builder{plain_builder};
+
+    auto bytes = secure_builder.bytes();
+    ASSERT_FALSE(bytes.empty());
+    bytes.back() = static_cast<std::uint8_t>(bytes.back() ^ 0x7Fu);
+
+    auto sealed_buf = owning_buffer_from_bytes(bytes);
+    auto decoded = secure_openssl_codec::decode<fake_proto_message>(std::move(sealed_buf));
+
+    EXPECT_TRUE(decoded.empty());
+    EXPECT_FALSE(decoded.verify());
+}
+#endif
 
 TEST(SecureCodec, TypedRouteCapnpRoundTrip) {
     const auto name = make_unique_name("secure_capnp_route");

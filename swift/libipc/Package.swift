@@ -62,11 +62,17 @@ let package = Package(
             name: "LibIPCSecureCrypto",
             dependencies: [
                 "LibIPC",
+                "LibIPCSecureCryptoC",
             ],
             path: "Sources/LibIPCSecureCrypto",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
+        ),
+        .target(
+            name: "LibIPCSecureCryptoC",
+            path: "Sources/LibIPCSecureCryptoC",
+            publicHeadersPath: "include"
         ),
         .executableTarget(
             name: "DemoSendRecv",
@@ -104,6 +110,14 @@ let package = Package(
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
             ],
             path: "Tests/LibIPCProtobufTests"
+        ),
+        .testTarget(
+            name: "LibIPCSecureCryptoTests",
+            dependencies: [
+                "LibIPC",
+                "LibIPCSecureCrypto",
+            ],
+            path: "Tests/LibIPCSecureCryptoTests"
         ),
     ]
 )
