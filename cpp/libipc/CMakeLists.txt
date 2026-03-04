@@ -25,7 +25,7 @@ endif()
 option(LIBIPC_USE_FILE_SHM      "Use file-backed mmap instead of shm_open (avoids PSHMNAMLEN)." OFF)
 option(LIBIPC_BUILD_PROTO       "Build the FlatBuffers-based typed protocol layer and demos." OFF)
 option(LIBIPC_CODEC_PROTOBUF    "Enable Protocol Buffers codec scaffolding (Phase B)." OFF)
-option(LIBIPC_CODEC_CAPNP       "Enable Cap'n Proto codec scaffolding (future phase)." OFF)
+option(LIBIPC_CODEC_CAPNP       "Enable Cap'n Proto codec scaffolding (Phase C)." OFF)
 option(LIBIPC_APPLE_APP_STORE_SAFE
     "Use only public Mach APIs instead of private __ulock_wait/__ulock_wake (App Store safe, slightly higher latency)."
     OFF)
