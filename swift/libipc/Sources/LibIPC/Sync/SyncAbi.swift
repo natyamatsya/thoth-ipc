@@ -8,6 +8,7 @@ private let syncAbiMagic: UInt32 = 0x4C49_5341 // "LISA"
 private let syncAbiInitInProgress: UInt32 = .max
 private let syncAbiVersionMajor: UInt32 = 1
 private let syncAbiVersionMinor: UInt32 = 0
+private let syncAbiInitWaitLimit: UInt32 = 16_384
 
 // Swift macOS sync uses the Apple ulock profile.
 private let syncAbiBackendId: UInt32 = 2 // apple_ulock
@@ -119,7 +120,15 @@ struct SyncAbiGuard: ~Copyable {
             + "backend=\(expected.backendId), primitive=\(expected.primitiveId), payload=\(expected.payloadSize) "
             + "but found major.minor=\(actualMajor).\(actualMinor), "
             + "backend=\(actualBackend), primitive=\(actualPrimitive), payload=\(actualPayload)"
+            + backendHint(expectedBackend: expected.backendId, actualBackend: actualBackend)
         )
+    }
+
+    private static func backendHint(expectedBackend: UInt32, actualBackend: UInt32) -> String {
+        if (expectedBackend == 2 && actualBackend == 3) || (expectedBackend == 3 && actualBackend == 2) {
+            return "; macOS profile mismatch: apple_ulock (2) cannot interop with apple_mach (3)"
+        }
+        return ""
     }
 
     private static func initOrValidate(
@@ -127,6 +136,7 @@ struct SyncAbiGuard: ~Copyable {
         expected: SyncAbiExpected,
         primitive: SyncAbiPrimitive
     ) throws(IpcError) {
+        var initWaitSpins: UInt32 = 0
         while true {
             let magic = withAtomicWord(base, 0) { $0.load(ordering: .acquiring) }
             if magic == syncAbiMagic {
@@ -135,9 +145,15 @@ struct SyncAbiGuard: ~Copyable {
             }
 
             if magic == syncAbiInitInProgress {
+                if initWaitSpins >= syncAbiInitWaitLimit {
+                    throw .timeout
+                }
+                initWaitSpins &+= 1
                 sched_yield()
                 continue
             }
+
+            initWaitSpins = 0
 
             if magic == 0 {
                 let (exchanged, _) = withAtomicWord(base, 0) {

@@ -66,6 +66,13 @@ We define explicit macOS profiles:
 - `apple_ulock` (default for non-App-Store builds)
 - `apple_mach` (App-Store-safe profile)
 
+Current implementation status:
+
+- C++ can be built as either `apple_ulock` or `apple_mach`.
+- Rust and Swift currently implement the `apple_ulock` profile only.
+- Mixed deployments where C++ uses `apple_mach` and Rust/Swift use `apple_ulock`
+  are intentionally rejected by the sync ABI guard at open-time.
+
 If `apple_mach` is selected in one language, all participating language runtimes in that deployment must use `apple_mach` for synchronization primitives.
 
 ### 5) Interop tests are required

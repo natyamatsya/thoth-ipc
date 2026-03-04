@@ -26,6 +26,7 @@ enum : std::uint32_t {
     sync_abi_init_in_progress = (std::numeric_limits<std::uint32_t>::max)(),
     sync_abi_version_major    = 1u,
     sync_abi_version_minor    = 0u,
+    sync_abi_init_wait_limit  = 16384u,
 };
 
 enum class primitive_kind : std::uint32_t {
@@ -58,6 +59,21 @@ inline char const *kind_name(primitive_kind const kind) noexcept {
         return "condition";
     }
     return "unknown";
+}
+
+inline char const *backend_hint(
+    std::uint32_t const expected_backend,
+    std::uint32_t const actual_backend
+) noexcept {
+#if defined(LIBIPC_OS_APPLE)
+    if ((expected_backend == 2u && actual_backend == 3u)
+        || (expected_backend == 3u && actual_backend == 2u))
+        return "; macOS profile mismatch: apple_ulock (2) cannot interop with apple_mach (3)";
+#else
+    (void)expected_backend;
+    (void)actual_backend;
+#endif
+    return "";
 }
 
 inline char const *suffix_of(primitive_kind const kind) noexcept {
@@ -160,21 +176,30 @@ inline bool validate(stamp_t const *stamp, expected_t const &expected, primitive
               " but found major.minor=", actual_major, ".", actual_minor,
               ", backend=", actual_backend,
               ", primitive=", actual_primitive,
-              ", payload=", actual_payload);
+              ", payload=", actual_payload,
+              backend_hint(expected.backend_id, actual_backend));
     return false;
 }
 
 inline bool init_or_validate(stamp_t *stamp, expected_t const &expected, primitive_kind const kind) noexcept {
     LIBIPC_LOG();
+    auto init_wait_spins = std::uint32_t{0};
     for (;;) {
         auto const magic = stamp->magic.load(std::memory_order_acquire);
         if (magic == sync_abi_magic)
             return validate(stamp, expected, kind);
 
         if (magic == sync_abi_init_in_progress) {
+            if (init_wait_spins >= sync_abi_init_wait_limit) {
+                log.error("sync ABI init stalled for ", kind_name(kind), ": stuck at INIT_IN_PROGRESS");
+                return false;
+            }
+            ++init_wait_spins;
             std::this_thread::yield();
             continue;
         }
+
+        init_wait_spins = 0;
 
         if (magic == 0u) {
             auto expected_magic = std::uint32_t{0};
