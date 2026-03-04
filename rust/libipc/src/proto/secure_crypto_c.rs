@@ -58,4 +58,6 @@ unsafe extern "C" {
     ) -> SecureStatus;
 
     pub fn libipc_secure_blob_free(blob: *mut SecureBlob);
+
+    pub fn libipc_secure_crypto_available() -> u32;
 }
