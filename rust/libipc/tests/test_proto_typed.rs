@@ -7,6 +7,7 @@
 // Message/Builder with the raw flatbuffers API — no flatc required.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
@@ -240,16 +241,21 @@ fn typed_channel_multiple_receivers() {
     TypedChannel::<RawMsg>::clear_storage(&name);
 
     let n_receivers = 3usize;
+    let (ready_tx, ready_rx) = mpsc::channel();
     let mut receivers = Vec::new();
     for _ in 0..n_receivers {
         let nm = name.clone();
+        let tx = ready_tx.clone();
         receivers.push(thread::spawn(move || {
             let mut ch = TypedChannel::<RawMsg>::connect(&nm, Mode::Receiver).expect("recv");
+            tx.send(()).expect("ready");
             ch.raw().recv(Some(3000)).expect("recv msg")
         }));
+        ready_rx
+            .recv_timeout(Duration::from_millis(1000))
+            .expect("receiver ready");
     }
-
-    thread::sleep(Duration::from_millis(50));
+    drop(ready_tx);
 
     let mut ch = TypedChannel::<RawMsg>::connect(&name, Mode::Sender).expect("sender");
     ch.raw()

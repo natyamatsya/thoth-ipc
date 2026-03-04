@@ -5,6 +5,7 @@
 // Stress tests for the channel with varying sender/receiver counts and high message volumes.
 
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -71,12 +72,15 @@ fn route_1vn_broadcast() {
         let msg_count = 500usize;
         let total_received = Arc::new(AtomicU64::new(0));
 
-        let mut receivers = Vec::new();
+        let mut receiver_endpoints = Vec::new();
         for _ in 0..num_receivers {
-            let n = name.clone();
+            receiver_endpoints.push(Route::connect(&name, Mode::Receiver).expect("receiver"));
+        }
+
+        let mut receivers = Vec::new();
+        for mut r in receiver_endpoints {
             let rc = Arc::clone(&total_received);
             receivers.push(thread::spawn(move || {
-                let mut r = Route::connect(&n, Mode::Receiver).expect("receiver");
                 for _ in 0..msg_count {
                     let buf = r.recv(Some(5000)).expect("recv");
                     if !buf.is_empty() {
@@ -85,8 +89,6 @@ fn route_1vn_broadcast() {
                 }
             }));
         }
-
-        thread::sleep(Duration::from_millis(100));
 
         let mut sender = Route::connect(&name, Mode::Sender).expect("sender");
         sender
@@ -111,6 +113,8 @@ fn route_1vn_broadcast() {
             elapsed.as_secs_f64() * 1000.0,
             msg_count as f64 / elapsed.as_secs_f64()
         );
+
+        Route::clear_storage(&name);
     }
 }
 
@@ -126,12 +130,15 @@ fn channel_nvn_broadcast() {
         let total_sent = Arc::new(AtomicU64::new(0));
         let total_received = Arc::new(AtomicU64::new(0));
 
-        let mut receivers = Vec::new();
+        let mut receiver_endpoints = Vec::new();
         for _ in 0..n {
-            let nm = name.clone();
+            receiver_endpoints.push(Channel::connect(&name, Mode::Receiver).expect("receiver"));
+        }
+
+        let mut receivers = Vec::new();
+        for mut ch in receiver_endpoints {
             let rc = Arc::clone(&total_received);
             receivers.push(thread::spawn(move || {
-                let mut ch = Channel::connect(&nm, Mode::Receiver).expect("receiver");
                 for _ in 0..total_msgs {
                     let buf = ch.recv(Some(5000)).expect("recv");
                     if !buf.is_empty() {
@@ -140,8 +147,6 @@ fn channel_nvn_broadcast() {
                 }
             }));
         }
-
-        thread::sleep(Duration::from_millis(200));
 
         let mut senders = Vec::new();
         for s in 0..n {
@@ -155,6 +160,7 @@ fn channel_nvn_broadcast() {
                     if ch.send(msg.as_bytes(), 5000).expect("send") {
                         sc.fetch_add(1, Ordering::Relaxed);
                     }
+                    thread::sleep(Duration::from_millis(1));
                 }
             }));
         }
@@ -171,6 +177,8 @@ fn channel_nvn_broadcast() {
         assert_eq!(sent, total_msgs as u64);
         assert_eq!(received, (total_msgs * n) as u64);
         eprintln!("channel {n}v{n}: {total_msgs} msgs, sent={sent}, received={received}");
+
+        Channel::clear_storage(&name);
     }
 }
 
@@ -184,11 +192,13 @@ fn channel_nv1_broadcast() {
         let msg_per_sender = 100usize;
         let total_msgs = num_senders * msg_per_sender;
         let total_received = Arc::new(AtomicU64::new(0));
+        let (ready_tx, ready_rx) = mpsc::channel();
 
         let nm = name.clone();
         let rc = Arc::clone(&total_received);
         let receiver = thread::spawn(move || {
             let mut ch = Channel::connect(&nm, Mode::Receiver).expect("receiver");
+            ready_tx.send(()).expect("receiver ready");
             for _ in 0..total_msgs {
                 let buf = ch.recv(Some(5000)).expect("recv");
                 if !buf.is_empty() {
@@ -197,7 +207,9 @@ fn channel_nv1_broadcast() {
             }
         });
 
-        thread::sleep(Duration::from_millis(100));
+        ready_rx
+            .recv_timeout(Duration::from_millis(2000))
+            .expect("receiver ready");
 
         let total_sent = Arc::new(AtomicU64::new(0));
         let mut senders = Vec::new();
@@ -226,6 +238,8 @@ fn channel_nv1_broadcast() {
         assert_eq!(sent, total_msgs as u64);
         assert_eq!(received, total_msgs as u64);
         eprintln!("channel {num_senders}v1: {total_msgs} msgs, sent={sent}, received={received}");
+
+        Channel::clear_storage(&name);
     }
 }
 

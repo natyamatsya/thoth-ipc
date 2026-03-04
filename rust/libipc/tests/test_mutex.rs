@@ -278,12 +278,12 @@ fn named_mutex_inter_thread() {
 fn rapid_lock_unlock() {
     let name = unique_name("rapid");
     IpcMutex::clear_storage(&name);
+    let mtx = Arc::new(IpcMutex::open(&name).expect("open"));
 
     let handles: Vec<_> = (0..2)
         .map(|_| {
-            let name = name.clone();
+            let mtx = Arc::clone(&mtx);
             thread::spawn(move || {
-                let mtx = IpcMutex::open(&name).expect("open");
                 for _ in 0..1000 {
                     mtx.lock().expect("lock");
                     mtx.unlock().expect("unlock");
