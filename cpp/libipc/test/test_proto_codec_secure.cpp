@@ -149,7 +149,7 @@ TEST(SecureCodec, BuilderSealsInnerPayload) {
 
     ipc::proto::secure_builder<fake_inner_codec, xor_cipher> secure_builder{plain_builder};
 
-    ASSERT_EQ(secure_builder.size(), plain_builder.bytes_.size());
+    ASSERT_GT(secure_builder.size(), plain_builder.bytes_.size());
     EXPECT_NE(secure_builder.bytes(), plain_builder.bytes_);
 }
 
@@ -158,10 +158,13 @@ TEST(SecureCodec, DecodeOpensPayloadBeforeInnerDecode) {
     std::vector<std::uint8_t> plain_bytes(sizeof(plain_value));
     std::memcpy(plain_bytes.data(), &plain_value, sizeof(plain_value));
 
-    std::vector<std::uint8_t> sealed_bytes;
-    ASSERT_TRUE(xor_cipher::seal(plain_bytes.data(), plain_bytes.size(), sealed_bytes));
+    fake_builder plain_builder;
+    plain_builder.bytes_ = plain_bytes;
 
-    auto buf = owning_buffer_from_bytes(sealed_bytes);
+    ipc::proto::secure_builder<fake_inner_codec, xor_cipher> secure_builder{plain_builder};
+    ASSERT_GT(secure_builder.size(), plain_builder.bytes_.size());
+
+    auto buf = owning_buffer_from_bytes(secure_builder.bytes());
     auto decoded = secure_test_codec::decode<int>(std::move(buf));
 
     EXPECT_FALSE(decoded.empty());
@@ -169,10 +172,22 @@ TEST(SecureCodec, DecodeOpensPayloadBeforeInnerDecode) {
 }
 
 TEST(SecureCodec, DecodeFailsClosedWhenOpenFails) {
-    std::vector<std::uint8_t> sealed_bytes {0xAA, 0xBB, 0xCC, 0xDD};
-    auto buf = owning_buffer_from_bytes(sealed_bytes);
+    fake_builder plain_builder;
+    plain_builder.bytes_ = {0xAA, 0xBB, 0xCC, 0xDD};
+
+    ipc::proto::secure_builder<fake_inner_codec, failing_open_cipher> secure_builder{plain_builder};
+    auto buf = owning_buffer_from_bytes(secure_builder.bytes());
 
     auto decoded = secure_fail_open_codec::decode<int>(std::move(buf));
+
+    EXPECT_TRUE(decoded.empty());
+}
+
+TEST(SecureCodec, DecodeFailsClosedWhenEnvelopeHeaderMissing) {
+    std::vector<std::uint8_t> plain_bytes {0x11, 0x22, 0x33, 0x44};
+    auto buf = owning_buffer_from_bytes(plain_bytes);
+
+    auto decoded = secure_test_codec::decode<int>(std::move(buf));
 
     EXPECT_TRUE(decoded.empty());
 }
@@ -185,7 +200,7 @@ TEST(SecureCodec, ComposesWithProtobufCodec) {
     ASSERT_EQ(plain_builder.size(), sizeof(std::uint32_t));
 
     ipc::proto::secure_builder<ipc::proto::protobuf_codec, xor_cipher> secure_builder{plain_builder};
-    ASSERT_EQ(secure_builder.size(), plain_builder.size());
+    ASSERT_GT(secure_builder.size(), plain_builder.size());
     ASSERT_NE(std::memcmp(secure_builder.data(), plain_builder.data(), plain_builder.size()), 0);
 
     auto sealed_buf = owning_buffer_from_bytes(secure_builder.bytes());

@@ -28,6 +28,29 @@ concept secure_cipher = requires(const std::uint8_t *data, std::size_t size,
 
 namespace detail {
 
+inline constexpr std::uint8_t secure_envelope_magic[] {'S', 'I', 'P', 'C'};
+inline constexpr std::uint8_t secure_envelope_version {1};
+inline constexpr std::size_t secure_envelope_header_size {
+    sizeof(secure_envelope_magic) + sizeof(secure_envelope_version)
+};
+
+inline void append_secure_envelope_header(std::vector<std::uint8_t> &out) {
+    out.insert(out.end(),
+               secure_envelope_magic,
+               secure_envelope_magic + sizeof(secure_envelope_magic));
+    out.push_back(secure_envelope_version);
+}
+
+inline bool has_secure_envelope_header(const std::uint8_t *data,
+                                       std::size_t size) {
+    if (data == nullptr) return false;
+    if (size < secure_envelope_header_size) return false;
+    if (std::memcmp(data,
+                    secure_envelope_magic,
+                    sizeof(secure_envelope_magic)) != 0) return false;
+    return data[sizeof(secure_envelope_magic)] == secure_envelope_version;
+}
+
 inline ipc::buff_t owning_buffer_from_bytes(std::vector<std::uint8_t> bytes) {
     if (bytes.empty()) return {};
 
@@ -59,7 +82,13 @@ public:
 
         if (size == 0) return;
         if (data == nullptr) return;
-        if (!Cipher::seal(data, size, bytes_)) bytes_.clear();
+
+        std::vector<std::uint8_t> sealed;
+        if (!Cipher::seal(data, size, sealed)) return;
+
+        bytes_.reserve(detail::secure_envelope_header_size + sealed.size());
+        detail::append_secure_envelope_header(bytes_);
+        bytes_.insert(bytes_.end(), sealed.begin(), sealed.end());
     }
 
     explicit secure_builder(std::vector<std::uint8_t> bytes)
@@ -86,10 +115,13 @@ struct secure_codec {
         if (buf.empty()) return {};
 
         auto *data = static_cast<const std::uint8_t *>(buf.data());
-        if (data == nullptr) return {};
+        if (!detail::has_secure_envelope_header(data, buf.size())) return {};
+
+        const auto *sealed = data + detail::secure_envelope_header_size;
+        const auto sealed_size = buf.size() - detail::secure_envelope_header_size;
 
         std::vector<std::uint8_t> plain;
-        if (!Cipher::open(data, buf.size(), plain)) return {};
+        if (!Cipher::open(sealed, sealed_size, plain)) return {};
         return InnerCodec::template decode<T>(
             detail::owning_buffer_from_bytes(std::move(plain)));
     }
