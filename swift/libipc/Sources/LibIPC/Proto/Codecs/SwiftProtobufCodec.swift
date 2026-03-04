@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
 
-#if canImport(SwiftProtobuf)
-
 import Foundation
+import LibIPC
 import SwiftProtobuf
 
 /// Default `ProtobufWireMessage` behavior for SwiftProtobuf-generated messages.
@@ -66,5 +65,3 @@ public enum SwiftProtobufCodec<T: SwiftProtobuf.Message>: TypedCodec {
 
 public typealias TypedChannelSwiftProtobuf<T: SwiftProtobuf.Message> = TypedChannelCodec<T, SwiftProtobufCodec<T>>
 public typealias TypedRouteSwiftProtobuf<T: SwiftProtobuf.Message> = TypedRouteCodec<T, SwiftProtobufCodec<T>>
-
-#endif

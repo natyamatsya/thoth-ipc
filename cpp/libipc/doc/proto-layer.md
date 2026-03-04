@@ -69,6 +69,35 @@ if (msg) {
 `ipc::proto::typed_route<T>` — same API as `typed_channel`, but wraps
 `ipc::route` (single-writer, broadcast to N readers).
 
+### `libipc/proto/codecs/secure_codec.h`
+
+`ipc::proto::secure_codec<InnerCodec, CipherPolicy>` — an opt-in codec
+decorator that applies `CipherPolicy::seal/open` around an existing typed codec
+(`InnerCodec`).
+
+This keeps transport semantics unchanged and composes directly with the generic
+wrappers:
+
+```cpp
+#include "libipc/proto/codecs/flatbuffers_codec.h"
+#include "libipc/proto/codecs/secure_codec.h"
+#include "libipc/proto/typed_route_codec.h"
+
+struct my_cipher {
+    static bool seal(const std::uint8_t *data, std::size_t size, std::vector<std::uint8_t> &out);
+    static bool open(const std::uint8_t *data, std::size_t size, std::vector<std::uint8_t> &out);
+};
+
+using secure_flatbuffers_codec =
+    ipc::proto::secure_codec<ipc::proto::flatbuffers_codec, my_cipher>;
+
+using secure_route =
+    ipc::proto::typed_route_codec<MyMsg, secure_flatbuffers_codec>;
+```
+
+Important: sender/receiver must agree on the same secure profile. A plain
+endpoint talking to a secure endpoint is a configuration mismatch.
+
 ## Defining a Protocol
 
 1. Write a `.fbs` schema:

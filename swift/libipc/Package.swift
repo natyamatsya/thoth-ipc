@@ -11,6 +11,7 @@ let package = Package(
     ],
     products: [
         .library(name: "LibIPC", targets: ["LibIPC"]),
+        .library(name: "LibIPCProtobuf", targets: ["LibIPCProtobuf"]),
         .executable(name: "demo-send-recv", targets: ["DemoSendRecv"]),
         .executable(name: "demo-chat",      targets: ["DemoChat"]),
         .executable(name: "demo-msg-que",   targets: ["DemoMsgQue"]),
@@ -19,6 +20,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
         .package(url: "https://github.com/google/flatbuffers.git", from: "25.2.10"),
+        .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.27.0"),
     ],
     targets: [
         .target(
@@ -34,6 +36,23 @@ let package = Package(
                 .product(name: "FlatBuffers", package: "flatbuffers"),
             ],
             path: "Sources/LibIPC",
+            exclude: [
+                "Proto/Codecs/SwiftProtobufCodec.swift",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .target(
+            name: "LibIPCProtobuf",
+            dependencies: [
+                "LibIPC",
+                .product(name: "SwiftProtobuf", package: "swift-protobuf"),
+            ],
+            path: "Sources/LibIPC/Proto/Codecs",
+            sources: [
+                "SwiftProtobufCodec.swift",
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
@@ -65,6 +84,15 @@ let package = Package(
                 .product(name: "FlatBuffers", package: "flatbuffers"),
             ],
             path: "Tests/LibIPCTests"
+        ),
+        .testTarget(
+            name: "LibIPCProtobufTests",
+            dependencies: [
+                "LibIPC",
+                "LibIPCProtobuf",
+                .product(name: "SwiftProtobuf", package: "swift-protobuf"),
+            ],
+            path: "Tests/LibIPCProtobufTests"
         ),
     ]
 )
