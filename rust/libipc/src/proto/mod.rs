@@ -13,8 +13,12 @@ pub mod service_group;
 pub mod service_registry;
 pub mod shm_ring;
 pub mod typed_channel;
+#[cfg(feature = "codec-capnp")]
+pub mod typed_channel_capnp;
 pub mod typed_channel_codec;
 pub mod typed_route;
+#[cfg(feature = "codec-capnp")]
+pub mod typed_route_capnp;
 pub mod typed_route_codec;
 
 #[cfg(feature = "secure-crypto-c")]
@@ -30,9 +34,17 @@ pub use service_group::{InstanceRole, ManagedInstance, ServiceGroup, ServiceGrou
 pub use service_registry::{ServiceEntry, ServiceRegistry, MAX_NAME_LEN, MAX_SERVICES};
 pub use shm_ring::ShmRing;
 pub use typed_channel::TypedChannel;
+#[cfg(feature = "codec-capnp")]
+pub use typed_channel_capnp::TypedChannelCapnp;
 pub use typed_channel_codec::TypedChannelCodec;
 pub use typed_route::TypedRoute;
+#[cfg(feature = "codec-capnp")]
+pub use typed_route_capnp::TypedRouteCapnp;
 pub use typed_route_codec::TypedRouteCodec;
+
+pub use codecs::secure_codec::{
+    SecureBuilder, SecureCipher, SecureCodec, TypedChannelSecure, TypedRouteSecure,
+};
 
 #[cfg(feature = "codec-protobuf")]
 pub use codecs::protobuf::{ProtobufBuilder, ProtobufCodec, ProtobufMessage, ProtobufWireMessage};
@@ -42,3 +54,9 @@ pub use codecs::protobuf_prost::ProstProtobufMessage;
 
 #[cfg(feature = "codec-capnp")]
 pub use codecs::capnp::{CapnpBuilder, CapnpCodec, CapnpMessage, CapnpWireMessage};
+
+#[cfg(feature = "secure-crypto-c")]
+pub use codecs::secure_openssl_evp_cipher::{
+    OpenSslEvpKeyProvider, SecureOpenSslEvpBackend, SecureOpenSslEvpCipherAes256Gcm,
+    SecureOpenSslEvpCipherChacha20Poly1305,
+};

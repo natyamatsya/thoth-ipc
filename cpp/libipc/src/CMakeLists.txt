@@ -83,6 +83,9 @@ install(EXPORT cpp-ipc-targets
 
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/cpp-ipc-config.cmake.in"
 [[include(CMakeFindDependencyMacro)
+if("@LIBIPC_SECURE_OPENSSL@" STREQUAL "ON")
+  find_dependency(OpenSSL REQUIRED COMPONENTS Crypto)
+endif()
 include("${CMAKE_CURRENT_LIST_DIR}/cpp-ipc-targets.cmake")
 ]])
 configure_file("${CMAKE_CURRENT_BINARY_DIR}/cpp-ipc-config.cmake.in" "${CMAKE_CURRENT_BINARY_DIR}/cpp-ipc-config.cmake" @ONLY)

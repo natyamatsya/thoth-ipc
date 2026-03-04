@@ -9,7 +9,7 @@ use libipc::buffer::IpcBuffer;
 use libipc::channel::Mode;
 use libipc::proto::codec::Codec;
 use libipc::proto::codecs::capnp::{CapnpBuilder, CapnpCodec, CapnpMessage, CapnpWireMessage};
-use libipc::proto::{TypedChannelCodec, TypedRouteCodec};
+use libipc::proto::{TypedChannelCapnp, TypedRouteCapnp};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct FakeCapnp {
@@ -23,8 +23,8 @@ fn unique_name(prefix: &str) -> String {
     format!("{prefix}_{}_{}", std::process::id(), id)
 }
 
-type CapnpChannel = TypedChannelCodec<FakeCapnp, CapnpCodec>;
-type CapnpRoute = TypedRouteCodec<FakeCapnp, CapnpCodec>;
+type CapnpChannel = TypedChannelCapnp<FakeCapnp>;
+type CapnpRoute = TypedRouteCapnp<FakeCapnp>;
 
 impl CapnpWireMessage for FakeCapnp {
     fn encode(&self) -> Vec<u8> {
