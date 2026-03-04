@@ -3,6 +3,24 @@
 
 // swift-tools-version: 6.0
 import PackageDescription
+import Foundation
+
+let packageEnv = ProcessInfo.processInfo.environment
+let secureOpenSSL = packageEnv["LIBIPC_SECURE_OPENSSL"] == "1"
+let openSSLPrefix = packageEnv["LIBIPC_OPENSSL_PREFIX"] ?? "/opt/homebrew/opt/openssl@3"
+
+let secureCryptoCSettings: [CSetting] = secureOpenSSL
+    ? [
+        .define("LIBIPC_SECURE_OPENSSL"),
+        .unsafeFlags(["-I\(openSSLPrefix)/include"]),
+    ]
+    : []
+
+let secureCryptoLinkerSettings: [LinkerSetting] = secureOpenSSL
+    ? [
+        .unsafeFlags(["-L\(openSSLPrefix)/lib", "-lcrypto"]),
+    ]
+    : []
 
 let package = Package(
     name: "libipc",
@@ -37,9 +55,6 @@ let package = Package(
                 .product(name: "FlatBuffers", package: "flatbuffers"),
             ],
             path: "Sources/LibIPC",
-            exclude: [
-                "Proto/Codecs/SwiftProtobufCodec.swift",
-            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
@@ -50,10 +65,7 @@ let package = Package(
                 "LibIPC",
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
             ],
-            path: "Sources/LibIPC/Proto/Codecs",
-            sources: [
-                "SwiftProtobufCodec.swift",
-            ],
+            path: "Sources/LibIPCProtobuf",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
@@ -72,7 +84,9 @@ let package = Package(
         .target(
             name: "LibIPCSecureCryptoC",
             path: "Sources/LibIPCSecureCryptoC",
-            publicHeadersPath: "include"
+            publicHeadersPath: "include",
+            cSettings: secureCryptoCSettings,
+            linkerSettings: secureCryptoLinkerSettings
         ),
         .executableTarget(
             name: "DemoSendRecv",
