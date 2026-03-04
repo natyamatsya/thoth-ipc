@@ -3,10 +3,12 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <string>
 #include <type_traits>
 #include <vector>
 
@@ -157,6 +159,7 @@ using secure_capnp_channel =
     ipc::proto::typed_channel_secure<fake_capnp_message, ipc::proto::capnp_codec, xor_cipher>;
 using secure_capnp_route =
     ipc::proto::typed_route_secure<fake_capnp_message, ipc::proto::capnp_codec, xor_cipher>;
+using secure_capnp_builder = ipc::proto::secure_builder<ipc::proto::capnp_codec, xor_cipher>;
 using secure_fail_open_codec = ipc::proto::secure_codec<fake_inner_codec, failing_open_cipher>;
 
 ipc::buff_t owning_buffer_from_bytes(const std::vector<std::uint8_t> &bytes) {
@@ -165,6 +168,12 @@ ipc::buff_t owning_buffer_from_bytes(const std::vector<std::uint8_t> &bytes) {
     return {data, bytes.size(), [](void *p, std::size_t) {
         delete[] static_cast<std::uint8_t *>(p);
     }};
+}
+
+std::string make_unique_name(const char *prefix) {
+    static std::atomic<std::uint32_t> counter {0};
+    const auto id = counter.fetch_add(1, std::memory_order_relaxed);
+    return std::string(prefix) + "_" + std::to_string(id);
 }
 
 static_assert(ipc::proto::secure_cipher<xor_cipher>);
@@ -242,6 +251,66 @@ TEST(SecureCodec, ComposesWithProtobufCodec) {
     ASSERT_TRUE(decoded.verify());
     ASSERT_NE(decoded.root(), nullptr);
     EXPECT_EQ(decoded->value(), plain_message.value());
+}
+
+TEST(SecureCodec, TypedRouteCapnpRoundTrip) {
+    const auto name = make_unique_name("secure_capnp_route");
+    secure_capnp_route::clear_storage(name.c_str());
+
+    secure_capnp_route sender{name.c_str(), ipc::sender};
+    secure_capnp_route receiver{name.c_str(), ipc::receiver};
+
+    ASSERT_TRUE(sender.valid());
+    ASSERT_TRUE(receiver.valid());
+    ASSERT_TRUE(sender.raw().wait_for_recv(1, 1000));
+
+    fake_capnp_message plain_message;
+    plain_message.value_ = 0xA1B2C3D4u;
+
+    const auto inner_builder = ipc::proto::capnp_builder::from_message(plain_message);
+    const secure_capnp_builder secure_builder{inner_builder};
+
+    ASSERT_GT(secure_builder.size(), inner_builder.size());
+    ASSERT_TRUE(sender.send(secure_builder));
+
+    auto decoded = receiver.recv(1000);
+    ASSERT_TRUE(decoded.verify());
+    ASSERT_NE(decoded.root(), nullptr);
+    EXPECT_EQ(decoded->value(), plain_message.value());
+
+    sender.disconnect();
+    receiver.disconnect();
+    secure_capnp_route::clear_storage(name.c_str());
+}
+
+TEST(SecureCodec, TypedChannelCapnpRoundTrip) {
+    const auto name = make_unique_name("secure_capnp_channel");
+    secure_capnp_channel::clear_storage(name.c_str());
+
+    secure_capnp_channel sender{name.c_str(), ipc::sender};
+    secure_capnp_channel receiver{name.c_str(), ipc::receiver};
+
+    ASSERT_TRUE(sender.valid());
+    ASSERT_TRUE(receiver.valid());
+    ASSERT_TRUE(sender.raw().wait_for_recv(1, 1000));
+
+    fake_capnp_message plain_message;
+    plain_message.value_ = 0x0C0FFEE0u;
+
+    const auto inner_builder = ipc::proto::capnp_builder::from_message(plain_message);
+    const secure_capnp_builder secure_builder{inner_builder};
+
+    ASSERT_GT(secure_builder.size(), inner_builder.size());
+    ASSERT_TRUE(sender.send(secure_builder));
+
+    auto decoded = receiver.recv(1000);
+    ASSERT_TRUE(decoded.verify());
+    ASSERT_NE(decoded.root(), nullptr);
+    EXPECT_EQ(decoded->value(), plain_message.value());
+
+    sender.disconnect();
+    receiver.disconnect();
+    secure_capnp_channel::clear_storage(name.c_str());
 }
 
 TEST(SecureCodec, ComposesWithCapnpCodec) {

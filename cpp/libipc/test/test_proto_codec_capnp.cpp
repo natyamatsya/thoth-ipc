@@ -3,9 +3,11 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <string>
 #include <type_traits>
 #include <vector>
 
@@ -58,6 +60,12 @@ using capnp_route = ipc::proto::typed_route_capnp<fake_capnp_message>;
 static_assert(std::is_default_constructible_v<capnp_channel>);
 static_assert(std::is_default_constructible_v<capnp_route>);
 
+std::string make_unique_name(const char *prefix) {
+    static std::atomic<std::uint32_t> counter {0};
+    const auto id = counter.fetch_add(1, std::memory_order_relaxed);
+    return std::string(prefix) + "_" + std::to_string(id);
+}
+
 } // namespace
 
 TEST(CapnpCodec, BuilderFromMessageSerializesBytes) {
@@ -95,4 +103,58 @@ TEST(CapnpCodec, DecodeInvalidPayloadFailsVerification) {
 
     EXPECT_FALSE(decoded.verify());
     EXPECT_EQ(decoded.root(), nullptr);
+}
+
+TEST(CapnpCodec, TypedRouteRoundTrip) {
+    const auto name = make_unique_name("capnp_route");
+    ipc::proto::typed_route_capnp<fake_capnp_message>::clear_storage(name.c_str());
+
+    ipc::proto::typed_route_capnp<fake_capnp_message> sender{name.c_str(), ipc::sender};
+    ipc::proto::typed_route_capnp<fake_capnp_message> receiver{name.c_str(), ipc::receiver};
+
+    ASSERT_TRUE(sender.valid());
+    ASSERT_TRUE(receiver.valid());
+    ASSERT_TRUE(sender.raw().wait_for_recv(1, 1000));
+
+    fake_capnp_message msg;
+    msg.value_ = 0xCAFEBABEu;
+    const auto builder = ipc::proto::capnp_builder::from_message(msg);
+
+    ASSERT_TRUE(sender.send(builder));
+
+    auto decoded = receiver.recv(1000);
+    ASSERT_TRUE(decoded.verify());
+    ASSERT_NE(decoded.root(), nullptr);
+    EXPECT_EQ(decoded->value(), msg.value());
+
+    sender.disconnect();
+    receiver.disconnect();
+    ipc::proto::typed_route_capnp<fake_capnp_message>::clear_storage(name.c_str());
+}
+
+TEST(CapnpCodec, TypedChannelRoundTrip) {
+    const auto name = make_unique_name("capnp_channel");
+    ipc::proto::typed_channel_capnp<fake_capnp_message>::clear_storage(name.c_str());
+
+    ipc::proto::typed_channel_capnp<fake_capnp_message> sender{name.c_str(), ipc::sender};
+    ipc::proto::typed_channel_capnp<fake_capnp_message> receiver{name.c_str(), ipc::receiver};
+
+    ASSERT_TRUE(sender.valid());
+    ASSERT_TRUE(receiver.valid());
+    ASSERT_TRUE(sender.raw().wait_for_recv(1, 1000));
+
+    fake_capnp_message msg;
+    msg.value_ = 0x0BADF00Du;
+    const auto builder = ipc::proto::capnp_builder::from_message(msg);
+
+    ASSERT_TRUE(sender.send(builder));
+
+    auto decoded = receiver.recv(1000);
+    ASSERT_TRUE(decoded.verify());
+    ASSERT_NE(decoded.root(), nullptr);
+    EXPECT_EQ(decoded->value(), msg.value());
+
+    sender.disconnect();
+    receiver.disconnect();
+    ipc::proto::typed_channel_capnp<fake_capnp_message>::clear_storage(name.c_str());
 }
