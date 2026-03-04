@@ -5,3 +5,6 @@ pub mod flatbuffers;
 
 #[cfg(feature = "codec-protobuf")]
 pub mod protobuf;
+
+#[cfg(feature = "codec-protobuf-prost")]
+pub mod protobuf_prost;
