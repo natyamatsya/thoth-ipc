@@ -36,3 +36,6 @@ pub use codecs::protobuf::{ProtobufBuilder, ProtobufCodec, ProtobufMessage, Prot
 
 #[cfg(feature = "codec-protobuf-prost")]
 pub use codecs::protobuf_prost::ProstProtobufMessage;
+
+#[cfg(feature = "codec-capnp")]
+pub use codecs::capnp::{CapnpBuilder, CapnpCodec, CapnpMessage, CapnpWireMessage};
