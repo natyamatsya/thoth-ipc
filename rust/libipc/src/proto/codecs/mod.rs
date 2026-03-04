@@ -8,3 +8,6 @@ pub mod protobuf;
 
 #[cfg(feature = "codec-protobuf-prost")]
 pub mod protobuf_prost;
+
+#[cfg(feature = "codec-capnp")]
+pub mod capnp;
