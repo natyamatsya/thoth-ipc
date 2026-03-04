@@ -60,6 +60,11 @@ if(APPLE AND LIBIPC_APPLE_APP_STORE_SAFE)
   target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_APPLE_APP_STORE_SAFE)
 endif()
 
+if(LIBIPC_SECURE_OPENSSL)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_SECURE_OPENSSL)
+  target_link_libraries(${PROJECT_NAME} PUBLIC OpenSSL::Crypto)
+endif()
+
 if(NOT MSVC)
   target_link_libraries(${PROJECT_NAME} PUBLIC
     $<$<NOT:$<STREQUAL:${CMAKE_SYSTEM_NAME},QNX>>:pthread>

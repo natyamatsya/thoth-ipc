@@ -17,6 +17,9 @@ pub mod typed_channel_codec;
 pub mod typed_route;
 pub mod typed_route_codec;
 
+#[cfg(feature = "secure-crypto-c")]
+pub mod secure_crypto_c;
+
 pub use message::{Builder, Message};
 pub use process_manager::{
     force_kill, request_shutdown, shutdown, spawn, spawn_simple, wait_for_exit, ProcessHandle,

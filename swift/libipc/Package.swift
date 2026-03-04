@@ -12,6 +12,7 @@ let package = Package(
     products: [
         .library(name: "LibIPC", targets: ["LibIPC"]),
         .library(name: "LibIPCProtobuf", targets: ["LibIPCProtobuf"]),
+        .library(name: "LibIPCSecureCrypto", targets: ["LibIPCSecureCrypto"]),
         .executable(name: "demo-send-recv", targets: ["DemoSendRecv"]),
         .executable(name: "demo-chat",      targets: ["DemoChat"]),
         .executable(name: "demo-msg-que",   targets: ["DemoMsgQue"]),
@@ -53,6 +54,16 @@ let package = Package(
             sources: [
                 "SwiftProtobufCodec.swift",
             ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .target(
+            name: "LibIPCSecureCrypto",
+            dependencies: [
+                "LibIPC",
+            ],
+            path: "Sources/LibIPCSecureCrypto",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

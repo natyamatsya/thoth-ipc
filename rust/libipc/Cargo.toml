@@ -12,6 +12,8 @@ slab_pool = ["dep:slab"]
 codec-protobuf = []
 codec-protobuf-prost = ["codec-protobuf", "dep:prost"]
 codec-capnp = []
+secure-crypto-c = []
+secure-crypto-openssl = ["secure-crypto-c"]
 
 [dependencies]
 flatbuffers = "24.3.25"

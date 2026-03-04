@@ -85,6 +85,20 @@ if (msg) {
 decorator that applies `CipherPolicy::seal/open` around an existing typed codec
 (`InnerCodec`).
 
+Secure payloads are framed with **envelope v1** before transport bytes are sent:
+
+- magic (`"SIPC"`)
+- version (`1`)
+- algorithm id (`u16`, little-endian)
+- key id (`u32`, little-endian)
+- nonce size (`u16`, little-endian)
+- tag size (`u16`, little-endian)
+- ciphertext size (`u32`, little-endian)
+- payload bytes: `nonce || ciphertext || tag`
+
+Decode is fail-closed for malformed/truncated envelopes, unknown version, and
+algorithm/key mismatches for AEAD policies.
+
 This keeps transport semantics unchanged and composes directly with the generic
 wrappers:
 
@@ -104,6 +118,13 @@ using secure_capnp_codec =
 using secure_route =
     ipc::proto::typed_route_codec<MyMsg, secure_capnp_codec>;
 ```
+
+For production crypto backends, a stable C ABI is exposed in
+`libipc/proto/codecs/secure_crypto_c.h`. The OpenSSL EVP implementation is
+optional and enabled only when `LIBIPC_SECURE_OPENSSL=ON`.
+
+`secure_openssl_evp_cipher.h` provides an AEAD cipher-policy adapter that plugs
+the C ABI into `secure_codec`.
 
 Important: sender/receiver must agree on the same secure profile. A plain
 endpoint talking to a secure endpoint is a configuration mismatch.
@@ -144,6 +165,15 @@ add_custom_command(
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/my_protocol.fbs flatc
 )
 ```
+
+Enable optional secure crypto backend (OpenSSL EVP) only when needed:
+
+```bash
+cmake -S . -B build -DLIBIPC_SECURE_OPENSSL=ON
+```
+
+This keeps default builds dependency-free and preserves zero-overhead behavior
+for non-secure users.
 
 ## Design Rationale
 

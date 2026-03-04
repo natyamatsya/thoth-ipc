@@ -148,8 +148,83 @@ struct xor_cipher {
     }
 };
 
+struct aead_xor_cipher {
+    static constexpr std::uint16_t algorithm_id() {
+        return 0x4210u;
+    }
+
+    static constexpr std::uint32_t key_id() {
+        return 0x12345678u;
+    }
+
+    static bool seal(const std::uint8_t *data,
+                     const std::size_t size,
+                     std::vector<std::uint8_t> &nonce,
+                     std::vector<std::uint8_t> &ciphertext,
+                     std::vector<std::uint8_t> &tag) {
+        if (data == nullptr && size != 0) return false;
+
+        nonce = {0x10u, 0x11u, 0x12u, 0x13u, 0x14u, 0x15u,
+                 0x16u, 0x17u, 0x18u, 0x19u, 0x1Au, 0x1Bu};
+
+        ciphertext.resize(size);
+        std::uint8_t checksum = 0;
+        for (std::size_t i = 0; i < size; ++i) {
+            ciphertext[i] = static_cast<std::uint8_t>(data[i] ^ 0x5Au);
+            checksum = static_cast<std::uint8_t>(checksum ^ ciphertext[i]);
+        }
+
+        tag = {checksum,
+               static_cast<std::uint8_t>(size & 0xFFu),
+               static_cast<std::uint8_t>((size >> 8) & 0xFFu),
+               static_cast<std::uint8_t>(nonce.size())};
+        return true;
+    }
+
+    static bool open(const std::uint8_t *nonce_data,
+                     const std::size_t nonce_size,
+                     const std::uint8_t *cipher_data,
+                     const std::size_t cipher_size,
+                     const std::uint8_t *tag_data,
+                     const std::size_t tag_size,
+                     std::vector<std::uint8_t> &plain) {
+        if (nonce_data == nullptr && nonce_size != 0) return false;
+        if (cipher_data == nullptr && cipher_size != 0) return false;
+        if (tag_data == nullptr) return false;
+        if (nonce_size != 12) return false;
+        if (tag_size != 4) return false;
+
+        std::uint8_t checksum = 0;
+        for (std::size_t i = 0; i < cipher_size; ++i)
+            checksum = static_cast<std::uint8_t>(checksum ^ cipher_data[i]);
+
+        if (tag_data[0] != checksum) return false;
+        if (tag_data[1] != static_cast<std::uint8_t>(cipher_size & 0xFFu)) return false;
+        if (tag_data[2] != static_cast<std::uint8_t>((cipher_size >> 8) & 0xFFu)) return false;
+        if (tag_data[3] != static_cast<std::uint8_t>(nonce_size)) return false;
+
+        plain.resize(cipher_size);
+        for (std::size_t i = 0; i < cipher_size; ++i)
+            plain[i] = static_cast<std::uint8_t>(cipher_data[i] ^ 0x5Au);
+        return true;
+    }
+};
+
+struct aead_xor_cipher_algorithm_mismatch : aead_xor_cipher {
+    static constexpr std::uint16_t algorithm_id() {
+        return static_cast<std::uint16_t>(aead_xor_cipher::algorithm_id() + 1u);
+    }
+};
+
+struct aead_xor_cipher_key_mismatch : aead_xor_cipher {
+    static constexpr std::uint32_t key_id() {
+        return aead_xor_cipher::key_id() + 1u;
+    }
+};
+
 using secure_test_codec = ipc::proto::secure_codec<fake_inner_codec, xor_cipher>;
 using secure_protobuf_codec = ipc::proto::secure_codec<ipc::proto::protobuf_codec, xor_cipher>;
+using secure_aead_test_codec = ipc::proto::secure_codec<fake_inner_codec, aead_xor_cipher>;
 using secure_protobuf_channel =
     ipc::proto::typed_channel_secure<fake_proto_message, ipc::proto::protobuf_codec, xor_cipher>;
 using secure_protobuf_route =
@@ -177,6 +252,7 @@ std::string make_unique_name(const char *prefix) {
 }
 
 static_assert(ipc::proto::secure_cipher<xor_cipher>);
+static_assert(ipc::proto::secure_cipher_aead<aead_xor_cipher>);
 static_assert(ipc::proto::proto_codec<secure_test_codec, int>);
 static_assert(std::is_default_constructible_v<secure_protobuf_channel>);
 static_assert(std::is_default_constructible_v<secure_protobuf_route>);
@@ -221,6 +297,78 @@ TEST(SecureCodec, DecodeFailsClosedWhenOpenFails) {
     auto buf = owning_buffer_from_bytes(secure_builder.bytes());
 
     auto decoded = secure_fail_open_codec::decode<int>(std::move(buf));
+
+    EXPECT_TRUE(decoded.empty());
+}
+
+TEST(SecureCodec, AeadCipherRoundTrip) {
+    std::uint32_t plain_value = 0xCAFEBABEu;
+    std::vector<std::uint8_t> plain_bytes(sizeof(plain_value));
+    std::memcpy(plain_bytes.data(), &plain_value, sizeof(plain_value));
+
+    fake_builder plain_builder;
+    plain_builder.bytes_ = plain_bytes;
+
+    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
+    ASSERT_GT(secure_builder.size(), plain_builder.bytes_.size());
+
+    auto buf = owning_buffer_from_bytes(secure_builder.bytes());
+    auto decoded = secure_aead_test_codec::decode<int>(std::move(buf));
+
+    EXPECT_FALSE(decoded.empty());
+    EXPECT_EQ(decoded.value(), plain_value);
+}
+
+TEST(SecureCodec, DecodeFailsClosedWhenAeadAlgorithmIdMismatches) {
+    fake_builder plain_builder;
+    plain_builder.bytes_ = {1, 2, 3, 4};
+
+    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher_algorithm_mismatch> secure_builder{plain_builder};
+    auto buf = owning_buffer_from_bytes(secure_builder.bytes());
+
+    auto decoded = secure_aead_test_codec::decode<int>(std::move(buf));
+
+    EXPECT_TRUE(decoded.empty());
+}
+
+TEST(SecureCodec, DecodeFailsClosedWhenAeadKeyIdMismatches) {
+    fake_builder plain_builder;
+    plain_builder.bytes_ = {1, 2, 3, 4};
+
+    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher_key_mismatch> secure_builder{plain_builder};
+    auto buf = owning_buffer_from_bytes(secure_builder.bytes());
+
+    auto decoded = secure_aead_test_codec::decode<int>(std::move(buf));
+
+    EXPECT_TRUE(decoded.empty());
+}
+
+TEST(SecureCodec, DecodeFailsClosedWhenAeadTagTampered) {
+    fake_builder plain_builder;
+    plain_builder.bytes_ = {0x21, 0x22, 0x23, 0x24};
+
+    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
+    auto bytes = secure_builder.bytes();
+    ASSERT_FALSE(bytes.empty());
+    bytes.back() = static_cast<std::uint8_t>(bytes.back() ^ 0x7Fu);
+
+    auto buf = owning_buffer_from_bytes(bytes);
+    auto decoded = secure_aead_test_codec::decode<int>(std::move(buf));
+
+    EXPECT_TRUE(decoded.empty());
+}
+
+TEST(SecureCodec, DecodeFailsClosedWhenAeadEnvelopeTruncated) {
+    fake_builder plain_builder;
+    plain_builder.bytes_ = {0x31, 0x32, 0x33, 0x34};
+
+    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
+    auto bytes = secure_builder.bytes();
+    ASSERT_GT(bytes.size(), 1u);
+    bytes.pop_back();
+
+    auto buf = owning_buffer_from_bytes(bytes);
+    auto decoded = secure_aead_test_codec::decode<int>(std::move(buf));
 
     EXPECT_TRUE(decoded.empty());
 }
