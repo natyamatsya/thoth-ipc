@@ -28,7 +28,7 @@ private func toBytes(_ blob: libipc_secure_blob) -> [UInt8] {
 }
 
 private func statusIsOK(_ status: libipc_secure_status) -> Bool {
-    UInt32(status) == UInt32(LIBIPC_SECURE_STATUS_OK)
+    status == LIBIPC_SECURE_STATUS_OK
 }
 
 private func sealOpenSSL(algorithm: libipc_secure_algorithm_id,
@@ -118,7 +118,7 @@ private func openOpenSSL(algorithm: libipc_secure_algorithm_id,
 
 public struct SecureOpenSSLEVPCipherAES256GCM<KeyProvider: OpenSSLEVPKeyProvider>: SecureCipher {
     public static var algorithmId: UInt16 {
-        UInt16(LIBIPC_SECURE_ALG_AES_256_GCM)
+        UInt16(LIBIPC_SECURE_ALG_AES_256_GCM.rawValue)
     }
 
     public static var keyId: UInt32 {
@@ -129,7 +129,7 @@ public struct SecureOpenSSLEVPCipherAES256GCM<KeyProvider: OpenSSLEVPKeyProvider
                             nonce: inout [UInt8],
                             ciphertext: inout [UInt8],
                             tag: inout [UInt8]) -> Bool {
-        sealOpenSSL(algorithm: UInt32(LIBIPC_SECURE_ALG_AES_256_GCM),
+        sealOpenSSL(algorithm: LIBIPC_SECURE_ALG_AES_256_GCM,
                     keyBytes: KeyProvider.keyBytes,
                     plain: plain,
                     nonce: &nonce,
@@ -141,7 +141,7 @@ public struct SecureOpenSSLEVPCipherAES256GCM<KeyProvider: OpenSSLEVPKeyProvider
                             ciphertext: [UInt8],
                             tag: [UInt8],
                             plain: inout [UInt8]) -> Bool {
-        openOpenSSL(algorithm: UInt32(LIBIPC_SECURE_ALG_AES_256_GCM),
+        openOpenSSL(algorithm: LIBIPC_SECURE_ALG_AES_256_GCM,
                     keyBytes: KeyProvider.keyBytes,
                     nonce: nonce,
                     ciphertext: ciphertext,
@@ -152,7 +152,7 @@ public struct SecureOpenSSLEVPCipherAES256GCM<KeyProvider: OpenSSLEVPKeyProvider
 
 public struct SecureOpenSSLEVPCipherChaCha20Poly1305<KeyProvider: OpenSSLEVPKeyProvider>: SecureCipher {
     public static var algorithmId: UInt16 {
-        UInt16(LIBIPC_SECURE_ALG_CHACHA20_POLY1305)
+        UInt16(LIBIPC_SECURE_ALG_CHACHA20_POLY1305.rawValue)
     }
 
     public static var keyId: UInt32 {
@@ -163,7 +163,7 @@ public struct SecureOpenSSLEVPCipherChaCha20Poly1305<KeyProvider: OpenSSLEVPKeyP
                             nonce: inout [UInt8],
                             ciphertext: inout [UInt8],
                             tag: inout [UInt8]) -> Bool {
-        sealOpenSSL(algorithm: UInt32(LIBIPC_SECURE_ALG_CHACHA20_POLY1305),
+        sealOpenSSL(algorithm: LIBIPC_SECURE_ALG_CHACHA20_POLY1305,
                     keyBytes: KeyProvider.keyBytes,
                     plain: plain,
                     nonce: &nonce,
@@ -175,7 +175,7 @@ public struct SecureOpenSSLEVPCipherChaCha20Poly1305<KeyProvider: OpenSSLEVPKeyP
                             ciphertext: [UInt8],
                             tag: [UInt8],
                             plain: inout [UInt8]) -> Bool {
-        openOpenSSL(algorithm: UInt32(LIBIPC_SECURE_ALG_CHACHA20_POLY1305),
+        openOpenSSL(algorithm: LIBIPC_SECURE_ALG_CHACHA20_POLY1305,
                     keyBytes: KeyProvider.keyBytes,
                     nonce: nonce,
                     ciphertext: ciphertext,

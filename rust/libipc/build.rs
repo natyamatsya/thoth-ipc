@@ -13,6 +13,45 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn secure_crypto_enabled() -> bool {
+    std::env::var_os("CARGO_FEATURE_SECURE_CRYPTO_C").is_some()
+}
+
+fn secure_crypto_openssl_enabled() -> bool {
+    std::env::var_os("CARGO_FEATURE_SECURE_CRYPTO_OPENSSL").is_some()
+}
+
+fn compile_secure_crypto_c() {
+    if !secure_crypto_enabled() {
+        return;
+    }
+
+    let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let secure_crypto_root = manifest.join("../../secure-crypto-c");
+    let source = secure_crypto_root.join("src/secure_crypto_c.c");
+    let include_root = secure_crypto_root.join("include");
+    let abi_header = include_root.join("libipc/proto/codecs/secure_crypto_c.h");
+
+    println!("cargo:rerun-if-changed={}", source.display());
+    println!("cargo:rerun-if-changed={}", abi_header.display());
+    println!("cargo:rerun-if-env-changed=LIBIPC_OPENSSL_PREFIX");
+
+    let mut build = cc::Build::new();
+    build.file(&source);
+    build.include(&include_root);
+
+    if secure_crypto_openssl_enabled() {
+        build.define("LIBIPC_SECURE_OPENSSL", None);
+        let prefix = std::env::var("LIBIPC_OPENSSL_PREFIX")
+            .unwrap_or_else(|_| "/opt/homebrew/opt/openssl@3".to_string());
+        build.include(format!("{prefix}/include"));
+        println!("cargo:rustc-link-search=native={prefix}/lib");
+        println!("cargo:rustc-link-lib=crypto");
+    }
+
+    build.compile("ipc_secure_crypto_c");
+}
+
 fn find_flatc() -> Option<PathBuf> {
     // 1. Explicit override.
     if let Ok(p) = std::env::var("FLATC") {
@@ -37,7 +76,8 @@ fn find_flatc() -> Option<PathBuf> {
         manifest.join("../../../../vcpkg/packages/flatbuffers_arm64-osx/tools/flatbuffers/flatc"),
         manifest.join("../../../../vcpkg/packages/flatbuffers_x64-osx/tools/flatbuffers/flatc"),
         manifest.join("../../../../vcpkg/packages/flatbuffers_x64-linux/tools/flatbuffers/flatc"),
-        manifest.join("../../../../vcpkg/packages/flatbuffers_x64-windows/tools/flatbuffers/flatc.exe"),
+        manifest
+            .join("../../../../vcpkg/packages/flatbuffers_x64-windows/tools/flatbuffers/flatc.exe"),
         // vcpkg build tree (release build)
         manifest.join("../../../../vcpkg/buildtrees/flatbuffers/arm64-osx-rel/flatc"),
         manifest.join("../../../../vcpkg/buildtrees/flatbuffers/x64-linux-rel/flatc"),
@@ -52,6 +92,8 @@ fn find_flatc() -> Option<PathBuf> {
 }
 
 fn main() {
+    compile_secure_crypto_c();
+
     let schema = Path::new("src/bin/audio_protocol.fbs");
     println!("cargo:rerun-if-changed={}", schema.display());
     println!("cargo:rerun-if-env-changed=FLATC");
