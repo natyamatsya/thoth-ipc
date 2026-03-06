@@ -19,9 +19,9 @@ let package = Package(
         .executable(name: "bench-ipc",        targets: ["BenchIpc"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
-        .package(url: "https://github.com/google/flatbuffers.git", from: "25.2.10"),
-        .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.27.0"),
+        .package(path: "vendor/swift-atomics"),
+        .package(path: "vendor/flatbuffers"),
+        .package(path: "vendor/swift-protobuf"),
         .package(path: "../../secure-crypto-c"),
     ],
     targets: [
