@@ -32,25 +32,24 @@ private struct FakeProtoMessage: ProtobufWireMessage, Equatable {
     }
 }
 
-private struct LegacyXorCipher: SecureCipherLegacy {
-    static func seal(_ plain: [UInt8], out: inout [UInt8]) -> Bool {
-        out = plain.map { $0 ^ 0xA5 }
-        return true
+private struct AeadXorCipherOpenFailure: SecureCipher {
+    static let algorithmId: UInt16 = AeadXorCipher.algorithmId
+    static let keyId: UInt32 = AeadXorCipher.keyId
+
+    static func seal(_ plain: [UInt8],
+                     nonce: inout [UInt8],
+                     ciphertext: inout [UInt8],
+                     tag: inout [UInt8]) -> Bool {
+        AeadXorCipher.seal(plain, nonce: &nonce, ciphertext: &ciphertext, tag: &tag)
     }
 
-    static func open(_ ciphertext: [UInt8], out: inout [UInt8]) -> Bool {
-        seal(ciphertext, out: &out)
-    }
-}
-
-private struct FailingLegacyXorCipher: SecureCipherLegacy {
-    static func seal(_ plain: [UInt8], out: inout [UInt8]) -> Bool {
-        out = plain.map { $0 ^ 0xA5 }
-        return true
-    }
-
-    static func open(_ ciphertext: [UInt8], out: inout [UInt8]) -> Bool {
-        out = ciphertext
+    static func open(nonce: [UInt8],
+                     ciphertext: [UInt8],
+                     tag: [UInt8],
+                     plain: inout [UInt8]) -> Bool {
+        if !AeadXorCipher.open(nonce: nonce, ciphertext: ciphertext, tag: tag, plain: &plain) {
+            return false
+        }
         return false
     }
 }
@@ -139,9 +138,8 @@ private struct AeadXorCipherKeyMismatch: SecureCipher {
     }
 }
 
-private typealias SecureLegacyCodec = SecureCodec<ProtobufCodec<FakeProtoMessage>, LegacyXorCipher>
-private typealias SecureLegacyFailOpenCodec = SecureCodec<ProtobufCodec<FakeProtoMessage>, FailingLegacyXorCipher>
 private typealias SecureAEADCodec = SecureCodec<ProtobufCodec<FakeProtoMessage>, AeadXorCipher>
+private typealias SecureAEADFailOpenCodec = SecureCodec<ProtobufCodec<FakeProtoMessage>, AeadXorCipherOpenFailure>
 private typealias SecureAEADAlgorithmMismatchCodec = SecureCodec<ProtobufCodec<FakeProtoMessage>, AeadXorCipherAlgorithmMismatch>
 private typealias SecureAEADKeyMismatchCodec = SecureCodec<ProtobufCodec<FakeProtoMessage>, AeadXorCipherKeyMismatch>
 
@@ -177,30 +175,9 @@ private typealias SecureOpenSSLMismatchedKeyIdCodec = SecureCodec<ProtobufCodec<
 @Suite("Secure codec parity")
 struct TestSecureCodec {
 
-    @Test("legacy secure codec round-trip")
-    func legacyRoundTrip() {
-        let inner = ProtobufBuilder(message: FakeProtoMessage(value: 42))
-        let secureBuilder = SecureBuilder<ProtobufCodec<FakeProtoMessage>, LegacyXorCipher>(inner: inner)
-        #expect(secureBuilder.bytes.count > inner.bytes.count)
-
-        let decoded = SecureLegacyCodec.decode(buffer: IpcBuffer(bytes: secureBuilder.bytes))
-        #expect(decoded.isValid)
-        #expect(decoded.root()?.value == 42)
-    }
-
-    @Test("legacy open failure is fail-closed")
-    func legacyOpenFailClosed() {
-        let inner = ProtobufBuilder(message: FakeProtoMessage(value: 7))
-        let secureBuilder = SecureBuilder<ProtobufCodec<FakeProtoMessage>, FailingLegacyXorCipher>(inner: inner)
-
-        let decoded = SecureLegacyFailOpenCodec.decode(buffer: IpcBuffer(bytes: secureBuilder.bytes))
-        #expect(decoded.isEmpty)
-        #expect(!decoded.isValid)
-    }
-
     @Test("missing envelope fails closed")
     func missingEnvelopeFailClosed() {
-        let decoded = SecureLegacyCodec.decode(buffer: IpcBuffer(bytes: [0x01, 0x02, 0x03, 0x04]))
+        let decoded = SecureAEADCodec.decode(buffer: IpcBuffer(bytes: [0x01, 0x02, 0x03, 0x04]))
         #expect(decoded.isEmpty)
         #expect(!decoded.isValid)
     }
@@ -214,6 +191,16 @@ struct TestSecureCodec {
         let decoded = SecureAEADCodec.decode(buffer: IpcBuffer(bytes: secureBuilder.bytes))
         #expect(decoded.isValid)
         #expect(decoded.root()?.value == 99)
+    }
+
+    @Test("aead open failure is fail-closed")
+    func aeadOpenFailClosed() {
+        let inner = ProtobufBuilder(message: FakeProtoMessage(value: 7))
+        let secureBuilder = SecureBuilder<ProtobufCodec<FakeProtoMessage>, AeadXorCipherOpenFailure>(inner: inner)
+
+        let decoded = SecureAEADFailOpenCodec.decode(buffer: IpcBuffer(bytes: secureBuilder.bytes))
+        #expect(decoded.isEmpty)
+        #expect(!decoded.isValid)
     }
 
     @Test("aead algorithm mismatch fails closed")

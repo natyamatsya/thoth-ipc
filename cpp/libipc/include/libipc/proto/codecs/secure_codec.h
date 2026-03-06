@@ -16,14 +16,6 @@
 namespace ipc {
 namespace proto {
 
-// Legacy cipher policy contract retained for migration compatibility.
-template <typename Cipher>
-concept secure_cipher_legacy = requires(const std::uint8_t *data, std::size_t size,
-                                        std::vector<std::uint8_t> &out) {
-    { Cipher::seal(data, size, out) } -> std::same_as<bool>;
-    { Cipher::open(data, size, out) } -> std::same_as<bool>;
-};
-
 // AEAD cipher policy contract for envelope v1 (algorithm/key/nonce/tag aware).
 template <typename Cipher>
 concept secure_cipher_aead = requires(const std::uint8_t *plain_data,
@@ -55,7 +47,7 @@ concept secure_cipher_aead = requires(const std::uint8_t *plain_data,
 // The API is intentionally static so typed_channel_codec/typed_route_codec can
 // stay stateless and fully compile-time. OFF-path users pay zero runtime cost.
 template <typename Cipher>
-concept secure_cipher = secure_cipher_aead<Cipher> || secure_cipher_legacy<Cipher>;
+concept secure_cipher = secure_cipher_aead<Cipher>;
 
 namespace detail {
 
@@ -82,8 +74,6 @@ inline constexpr std::size_t secure_envelope_offset_ciphertext_size {
 inline constexpr std::size_t secure_envelope_fixed_header_size {
     secure_envelope_offset_ciphertext_size + sizeof(std::uint32_t)
 };
-inline constexpr std::uint16_t secure_envelope_legacy_algorithm_id {0};
-inline constexpr std::uint32_t secure_envelope_legacy_key_id {0};
 
 struct secure_envelope_view {
     std::uint16_t algorithm_id {0};
@@ -138,16 +128,12 @@ inline bool read_u32_le(const std::uint8_t *data,
 
 template <typename Cipher>
 constexpr std::uint16_t cipher_algorithm_id() {
-    if constexpr (secure_cipher_aead<Cipher>)
-        return static_cast<std::uint16_t>(Cipher::algorithm_id());
-    return secure_envelope_legacy_algorithm_id;
+    return static_cast<std::uint16_t>(Cipher::algorithm_id());
 }
 
 template <typename Cipher>
 constexpr std::uint32_t cipher_key_id() {
-    if constexpr (secure_cipher_aead<Cipher>)
-        return static_cast<std::uint32_t>(Cipher::key_id());
-    return secure_envelope_legacy_key_id;
+    return static_cast<std::uint32_t>(Cipher::key_id());
 }
 
 inline bool append_secure_envelope(std::vector<std::uint8_t> &out,
@@ -251,11 +237,7 @@ public:
         std::vector<std::uint8_t> nonce;
         std::vector<std::uint8_t> ciphertext;
         std::vector<std::uint8_t> tag;
-        if constexpr (secure_cipher_aead<Cipher>) {
-            if (!Cipher::seal(data, size, nonce, ciphertext, tag)) return;
-        } else {
-            if (!Cipher::seal(data, size, ciphertext)) return;
-        }
+        if (!Cipher::seal(data, size, nonce, ciphertext, tag)) return;
 
         if (!detail::append_secure_envelope(bytes_,
                                             detail::cipher_algorithm_id<Cipher>(),
@@ -293,21 +275,15 @@ struct secure_codec {
         if (!detail::parse_secure_envelope(data, buf.size(), envelope)) return {};
 
         std::vector<std::uint8_t> plain;
-        if constexpr (secure_cipher_aead<Cipher>) {
-            if (envelope.algorithm_id != detail::cipher_algorithm_id<Cipher>()) return {};
-            if (envelope.key_id != detail::cipher_key_id<Cipher>()) return {};
-            if (!Cipher::open(envelope.nonce,
-                              envelope.nonce_size,
-                              envelope.ciphertext,
-                              envelope.ciphertext_size,
-                              envelope.tag,
-                              envelope.tag_size,
-                              plain)) return {};
-        } else {
-            if (envelope.nonce_size != 0) return {};
-            if (envelope.tag_size != 0) return {};
-            if (!Cipher::open(envelope.ciphertext, envelope.ciphertext_size, plain)) return {};
-        }
+        if (envelope.algorithm_id != detail::cipher_algorithm_id<Cipher>()) return {};
+        if (envelope.key_id != detail::cipher_key_id<Cipher>()) return {};
+        if (!Cipher::open(envelope.nonce,
+                          envelope.nonce_size,
+                          envelope.ciphertext,
+                          envelope.ciphertext_size,
+                          envelope.tag,
+                          envelope.tag_size,
+                          plain)) return {};
         return InnerCodec::template decode<T>(
             detail::owning_buffer_from_bytes(std::move(plain)));
     }
