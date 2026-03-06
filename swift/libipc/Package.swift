@@ -5,7 +5,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "libipc",
+    name: "thoth-ipc",
     platforms: [
         .macOS(.v14),
     ],
