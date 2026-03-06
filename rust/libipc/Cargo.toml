@@ -6,6 +6,10 @@ description = "Cross-language IPC library (thoth-ipc) — Pure Rust port of the 
 license = "MIT"
 publish = false
 
+[lib]
+name = "libipc"
+path = "src/lib.rs"
+
 [features]
 bump_alloc = ["dep:bumpalo"]
 slab_pool = ["dep:slab"]

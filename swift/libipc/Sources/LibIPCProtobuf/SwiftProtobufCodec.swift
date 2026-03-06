@@ -13,7 +13,9 @@ import SwiftProtobuf
 /// ```
 public extension ProtobufWireMessage where Self: SwiftProtobuf.Message {
     init?(serializedBytes: [UInt8]) {
-        guard let decoded = try? Self(serializedData: Data(serializedBytes)) else { return nil }
+        guard let decoded = try? Self(serializedBytes: serializedBytes, partial: false) else {
+            return nil
+        }
         self = decoded
     }
 
@@ -30,7 +32,7 @@ public struct SwiftProtobufMessage<T: SwiftProtobuf.Message> {
 
     public init(buffer: IpcBuffer) {
         self.buffer = buffer
-        value = try? T(serializedData: Data(buffer.bytes))
+        value = try? T(serializedBytes: buffer.bytes, partial: false)
     }
 
     public var isEmpty: Bool { buffer.isEmpty }

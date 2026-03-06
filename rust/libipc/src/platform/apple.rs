@@ -28,18 +28,9 @@ const UL_COMPARE_AND_WAIT_SHARED: u32 = 3;
 const ULF_WAKE_ALL: u32 = 0x0000_0100;
 
 extern "C" {
-    fn __ulock_wait(
-        operation: u32,
-        addr: *mut u32,
-        value: u64,
-        timeout_us: u32,
-    ) -> libc::c_int;
+    fn __ulock_wait(operation: u32, addr: *mut u32, value: u64, timeout_us: u32) -> libc::c_int;
 
-    fn __ulock_wake(
-        operation: u32,
-        addr: *mut u32,
-        wake_value: u64,
-    ) -> libc::c_int;
+    fn __ulock_wake(operation: u32, addr: *mut u32, wake_value: u64) -> libc::c_int;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,7 +66,11 @@ struct ShmCache {
 
 fn mutex_cache() -> &'static Mutex<ShmCache> {
     static CACHE: OnceLock<Mutex<ShmCache>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(ShmCache { map: HashMap::new() }))
+    CACHE.get_or_init(|| {
+        Mutex::new(ShmCache {
+            map: HashMap::new(),
+        })
+    })
 }
 
 fn acquire_mutex_shm(logical_name: &str) -> io::Result<Arc<CachedShm>> {
@@ -111,9 +106,8 @@ fn acquire_mutex_shm(logical_name: &str) -> io::Result<Arc<CachedShm>> {
             if err.raw_os_error() != Some(libc::EEXIST) {
                 return Err(err);
             }
-            let f2 = unsafe {
-                libc::shm_open(c_name.as_ptr(), libc::O_RDWR, perms as libc::c_uint)
-            };
+            let f2 =
+                unsafe { libc::shm_open(c_name.as_ptr(), libc::O_RDWR, perms as libc::c_uint) };
             if f2 == -1 {
                 return Err(io::Error::last_os_error());
             }
@@ -163,7 +157,9 @@ fn acquire_mutex_shm(logical_name: &str) -> io::Result<Arc<CachedShm>> {
         size,
         ref_count: AtomicI32::new(1),
     });
-    cache.map.insert(logical_name.to_owned(), Arc::clone(&entry));
+    cache
+        .map
+        .insert(logical_name.to_owned(), Arc::clone(&entry));
     Ok(entry)
 }
 
@@ -245,7 +241,10 @@ unsafe impl Sync for PlatformMutex {}
 impl PlatformMutex {
     pub fn open(name: &str) -> io::Result<Self> {
         let cached = acquire_mutex_shm(name)?;
-        Ok(Self { cached, name: name.to_owned() })
+        Ok(Self {
+            cached,
+            name: name.to_owned(),
+        })
     }
 
     fn mem(&self) -> *mut u8 {
@@ -263,8 +262,10 @@ impl PlatformMutex {
                     let expected_val = if contended { 0u32 } else { 0u32 };
                     let new_val = if contended { 2u32 } else { 1u32 };
                     let result = state_atomic(mem).compare_exchange(
-                        expected_val, new_val,
-                        Ordering::Acquire, Ordering::Relaxed,
+                        expected_val,
+                        new_val,
+                        Ordering::Acquire,
+                        Ordering::Relaxed,
                     );
                     if result.is_ok() {
                         holder_atomic(mem).store(std::process::id(), Ordering::Release);
@@ -283,7 +284,10 @@ impl PlatformMutex {
                 }
                 if s == 1 {
                     match state_atomic(mem).compare_exchange(
-                        1, 2, Ordering::Relaxed, Ordering::Relaxed,
+                        1,
+                        2,
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
                     ) {
                         Err(_) => continue,
                         Ok(_) => {}
@@ -311,8 +315,10 @@ impl PlatformMutex {
                     let expected_val = 0u32;
                     let new_val = if contended { 2u32 } else { 1u32 };
                     let result = state_atomic(mem).compare_exchange(
-                        expected_val, new_val,
-                        Ordering::Acquire, Ordering::Relaxed,
+                        expected_val,
+                        new_val,
+                        Ordering::Acquire,
+                        Ordering::Relaxed,
                     );
                     if result.is_ok() {
                         holder_atomic(mem).store(std::process::id(), Ordering::Release);
@@ -331,7 +337,10 @@ impl PlatformMutex {
                 }
                 if s == 1 {
                     match state_atomic(mem).compare_exchange(
-                        1, 2, Ordering::Relaxed, Ordering::Relaxed,
+                        1,
+                        2,
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
                     ) {
                         Err(_) => continue,
                         Ok(_) => {}
@@ -353,7 +362,11 @@ impl PlatformMutex {
                 let remaining_us = {
                     let rem = deadline - now;
                     let us = rem.as_micros();
-                    if us > u32::MAX as u128 { u32::MAX } else { us as u32 }
+                    if us > u32::MAX as u128 {
+                        u32::MAX
+                    } else {
+                        us as u32
+                    }
                 };
 
                 let ret = __ulock_wait(
@@ -384,18 +397,16 @@ impl PlatformMutex {
     pub fn try_lock(&self) -> io::Result<bool> {
         unsafe {
             let mem = self.mem();
-            let result = state_atomic(mem).compare_exchange(
-                0, 1, Ordering::Acquire, Ordering::Relaxed,
-            );
+            let result =
+                state_atomic(mem).compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed);
             if result.is_ok() {
                 holder_atomic(mem).store(std::process::id(), Ordering::Release);
                 return Ok(true);
             }
             // Try dead-holder recovery once.
             if try_recover_dead_holder(mem) {
-                let result2 = state_atomic(mem).compare_exchange(
-                    0, 1, Ordering::Acquire, Ordering::Relaxed,
-                );
+                let result2 =
+                    state_atomic(mem).compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed);
                 if result2.is_ok() {
                     holder_atomic(mem).store(std::process::id(), Ordering::Release);
                     return Ok(true);
@@ -425,6 +436,7 @@ impl PlatformMutex {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn native_ptr(&self) -> *mut u8 {
         self.cached.mem
     }

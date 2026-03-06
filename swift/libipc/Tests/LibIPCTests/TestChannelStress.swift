@@ -33,7 +33,7 @@ struct TestChannelStress {
 
         _ = try sender.waitForRecv(count: 1, timeout: .seconds(2))
         for i in 0..<msgCount {
-            var bytes = withUnsafeBytes(of: i.littleEndian) { Array($0) }
+            let bytes = withUnsafeBytes(of: i.littleEndian) { Array($0) }
             _ = try sender.send(data: bytes, timeout: .seconds(5))
         }
 

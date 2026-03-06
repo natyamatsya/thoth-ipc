@@ -41,6 +41,5 @@ func joinThread(_ tid: pthread_t) async {
 
 /// Non-async wrapper so the compiler allows pthread_join.
 private func joinThreadSync(_ tid: pthread_t) {
-    var t = tid
-    pthread_join(t, nil)
+    pthread_join(tid, nil)
 }
