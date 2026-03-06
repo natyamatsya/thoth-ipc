@@ -197,17 +197,24 @@ struct TestConditionDepth {
         _ = try await IpcCondition.open(name: cvName)
         _ = try await IpcMutex.open(name: mtxName)
 
-        nonisolated(unsafe) var predicate = false
-        nonisolated(unsafe) var done      = false
+        final class SharedBool: @unchecked Sendable {
+            var value: Bool
+
+            init(_ value: Bool) {
+                self.value = value
+            }
+        }
+        let predicate = SharedBool(false)
+        let done = SharedBool(false)
 
         let waiter = spawnPthread {
             let cv  = try! IpcCondition.openSync(name: cvName)
             let mtx = try! IpcMutex.openSync(name: mtxName)
             try! mtx.lock()
-            while !predicate {
+            while !predicate.value {
                 _ = try! cv.wait(mutex: mtx, timeout: .milliseconds(100))
             }
-            done = true
+            done.value = true
             try! mtx.unlock()
         }
 
@@ -215,10 +222,10 @@ struct TestConditionDepth {
 
         let cv  = try await IpcCondition.open(name: cvName)
         let mtx = try await IpcMutex.open(name: mtxName)
-        try mtx.lock(); predicate = true; try cv.notify(); try mtx.unlock()
+        try mtx.lock(); predicate.value = true; try cv.notify(); try mtx.unlock()
 
         await joinThread(waiter)
-        #expect(done)
+        #expect(done.value)
     }
 
     // Port of ConditionTest.BroadcastSequential — 4 threads all wake on broadcast

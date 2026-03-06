@@ -40,6 +40,7 @@ impl ShmCache {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn mutex_cache() -> &'static Mutex<ShmCache> {
     static CACHE: OnceLock<Mutex<ShmCache>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(ShmCache::new()))
@@ -403,11 +404,13 @@ impl Drop for PlatformShm {
 // PlatformMutex — POSIX inter-process mutex (pthread_mutex_t in shared memory)
 // ---------------------------------------------------------------------------
 
+#[cfg(not(target_os = "macos"))]
 pub struct PlatformMutex {
     cached: Arc<CachedShm>,
     name: String,
 }
 
+#[cfg(not(target_os = "macos"))]
 impl PlatformMutex {
     /// Open (or create) a named inter-process mutex.
     ///
@@ -578,6 +581,7 @@ impl PlatformMutex {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 impl Drop for PlatformMutex {
     fn drop(&mut self) {
         // Don't call pthread_mutex_destroy here. On macOS, the virtual
