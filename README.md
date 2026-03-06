@@ -28,14 +28,23 @@ swift/libipc/  — Swift package (work in progress)
 
 Based on the original [cpp-ipc](https://github.com/mutouyun/cpp-ipc) library. See [`cpp/libipc/README.md`](cpp/libipc/README.md) for full documentation.
 
-- Compilers with C++17 support (msvc-2017/gcc-7/clang-4)
-- No dependencies except STL
+- C++17 (msvc-2017/gcc-7/clang-4); built with C++23 in this repo
+- No dependencies except STL for the core transport
 - Lock-free or lightweight spin-lock only
 - `ipc::route` (1 writer, N readers) and `ipc::channel` (N writers, N readers)
+- Typed protocol layer: FlatBuffers, Cap'n Proto, Protocol Buffers (opt-in)
+- Opt-in secure codec with AEAD envelope (OpenSSL EVP backend, zero overhead when disabled)
+- Apple ulock sync backend on macOS for lowest latency
 
 ### Rust — [`rust/libipc/`](rust/libipc/)
 
-Pure Rust crate, binary-compatible with the C++ library. All primitives ported: shm, mutex, semaphore, condition, buffer, channel, waiter, circ, plus a typed protocol layer (FlatBuffers), service registry, process manager, and real-time audio demos.
+Pure Rust crate, binary-compatible with the C++ and Swift libraries.
+
+- All primitives ported: shm, mutex, semaphore, condition, buffer, channel, waiter, circ
+- Typed protocol layer: FlatBuffers (default), Cap'n Proto, Protocol Buffers (feature flags)
+- Secure codec with AEAD envelope, OpenSSL EVP backend (feature-gated)
+- Apple ulock sync ABI alignment with C++ and Swift
+- Service registry, process manager, real-time audio demos
 
 ```sh
 cd rust/libipc && cargo test
@@ -43,42 +52,36 @@ cd rust/libipc && cargo test
 
 ### Swift — [`swift/libipc/`](swift/libipc/)
 
-Swift Package Manager package — work in progress.
+Swift Package Manager package targeting macOS 14+.
+
+- Core transport (`Route`, `Channel`) binary-compatible with C++ and Rust
+- Apple ulock sync primitives (`IpcMutex`, `IpcCondition`, `IpcSemaphore`) aligned with C++ and Rust ABI
+- Typed protocol layer: FlatBuffers, Protocol Buffers
+- Secure codec with AEAD envelope, optional OpenSSL EVP backend
+- Bench and demo executables included
 
 ```sh
 cd swift/libipc && swift build
 ```
 
-## License
+## Status
 
-MIT. Original library © 2018 mutouyun. macOS port, Rust/Swift implementations, protocol layer, and orchestration utilities © 2025–2026 natyamatsya contributors.
+**Stable** — wire format and shared memory layout are fixed; binary-compatible across all three languages:
 
-## A high-performance inter-process communication library using shared memory on Linux/Windows/macOS/FreeBSD
+- Core transport: `ipc::route`, `ipc::channel`, shared memory primitives
+- Sync ABI: mutex, condition, semaphore (apple ulock backend, backend_id=2)
+- Secure codec envelope v1 framing (AEAD-only, fail-closed)
 
-- Compilers with C++17 support are recommended (msvc-2017/gcc-7/clang-4)
-- No other dependencies except STL.
-- Only lock-free or lightweight spin-lock is used.
-- Circular array is used as the underline data structure.
-- `ipc::route` supports single write and multiple read. `ipc::channel` supports multiple read and write. (**Note: currently, a channel supports up to 32 receivers, but there is no such a limit for the sender.**)
-- Broadcasting is used by default, but user can choose any read/ write combinations.
-- No long time blind wait. (Semaphore will be used after a certain number of retries.)
-- [Vcpkg](https://github.com/microsoft/vcpkg/blob/master/README.md) way of installation is supported. E.g. `vcpkg install cpp-ipc`
+**Prototype** — unreleased, under active development, APIs and data layouts may change:
 
-> **⚠️ Prototype status** — The following components are unreleased prototypes
-> under active development and are **not yet used in production**. APIs,
-> protocols, and data layouts may change without notice.
->
-> - `libipc/proto/` — typed protocol layer, service registry, process manager, shm_ring, RT priority
-> - `demo/audio_service/` — FlatBuffers audio service demo with orchestration
-> - `demo/audio_realtime/` — real-time audio demo with lock-free ring buffer and warm standby failover
-> - `demo/audio_realtime/rust_service/` — Rust 2024 edition service via C FFI / bindgen
->
-> The core transport library (`ipc::route`, `ipc::channel`, shared memory
-> primitives) is stable.
+- `cpp/libipc/include/libipc/proto/` — typed protocol layer, service registry, process manager, shm_ring, RT priority
+- `cpp/libipc/demo/audio_service/` — FlatBuffers audio service demo with orchestration
+- `cpp/libipc/demo/audio_realtime/` — real-time audio demo with lock-free ring buffer and warm standby failover
+- `rust/libipc/src/bin/demo_rt_audio_*` — Rust 2024 edition RT audio service via C FFI / bindgen
 
 ## Usage
 
-See: [Wiki](https://github.com/mutouyun/cpp-ipc/wiki)
+See: [`cpp/libipc/`](cpp/libipc/) for C++ usage. Rust and Swift usage is documented inline in each subdirectory's source and test files.
 
 ## Performance
 
@@ -176,44 +179,6 @@ Files created entirely by natyamatsya contributors carry only the natyamatsya
 copyright line. Modified upstream files carry both.
 
 ## Reference
-
-- [Lock-Free Data Structures | Dr Dobb's](http://www.drdobbs.com/lock-free-data-structures/184401865)
-- [Yet another implementation of a lock-free circular array queue | CodeProject](https://www.codeproject.com/Articles/153898/Yet-another-implementation-of-a-lock-free-circular)
-- [Lock-Free 编程 | 匠心十年 - 博客园](http://www.cnblogs.com/gaochundong/p/lock_free_programming.html)
-- [无锁队列的实现 | 酷 壳 - CoolShell](https://coolshell.cn/articles/8239.html)
-- [Implementing Condition Variables with Semaphores](https://www.microsoft.com/en-us/research/wp-content/uploads/2004/12/ImplementingCVs.pdf)
-
-------
-
-## 使用共享内存的跨平台（Linux/Windows/macOS/FreeBSD，x86/x64/ARM）高性能IPC通讯库
-
-- 推荐支持C++17的编译器（msvc-2017/gcc-7/clang-4）
-- 除STL外，无其他依赖
-- 无锁（lock-free）或轻量级spin-lock
-- 底层数据结构为循环数组（circular array）
-- `ipc::route`支持单写多读，`ipc::channel`支持多写多读【**注意：目前同一条通道最多支持32个receiver，sender无限制**】
-- 默认采用广播模式收发数据，支持用户任意选择读写方案
-- 不会长时间忙等（重试一定次数后会使用信号量进行等待），支持超时
-- 支持[Vcpkg](https://github.com/microsoft/vcpkg/blob/master/README_zh_CN.md)方式安装，如`vcpkg install cpp-ipc`
-
-## 使用方法
-
-详见：[Wiki](https://github.com/mutouyun/cpp-ipc/wiki)
-
-## 性能
-
-| 环境     | 值                               |
-| -------- | -------------------------------- |
-| 设备     | 联想 ThinkPad T450               |
-| CPU      | 英特尔® Core™ i5-4300U @ 2.5 GHz |
-| 内存     | 16 GB                            |
-| 操作系统 | Windows 7 Ultimate x64           |
-| 编译器   | MSVC 2017 15.9.4                 |
-
-单元测试和Benchmark测试: [test](test)  
-性能数据: [performance.xlsx](performance.xlsx)
-
-## 参考
 
 - [Lock-Free Data Structures | Dr Dobb's](http://www.drdobbs.com/lock-free-data-structures/184401865)
 - [Yet another implementation of a lock-free circular array queue | CodeProject](https://www.codeproject.com/Articles/153898/Yet-another-implementation-of-a-lock-free-circular)
