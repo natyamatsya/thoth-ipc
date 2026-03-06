@@ -8,9 +8,10 @@ Binary-compatible primitives implemented in multiple languages — all sharing t
 
 > **Fork notice:** thoth-ipc is a fork of [cpp-ipc](https://github.com/mutouyun/cpp-ipc) by mutouyun,
 > branched at upstream v1.4.1. thoth-ipc versioning starts independently at 0.1.0.
-> The original C++ transport core is preserved unmodified; this fork adds a pure Rust port,
-> a Swift package, a pluggable typed protocol layer (FlatBuffers/Cap'n Proto/Protobuf),
-> an opt-in secure codec, cross-language sync ABI alignment, and macOS-specific optimisations.
+> Upstream cpp-ipc targeted Linux and Windows; macOS was not supported. This fork adds full
+> macOS support to the C++ library, a pure Rust port, a Swift package, a pluggable typed
+> protocol layer (FlatBuffers/Cap'n Proto/Protobuf), an opt-in secure codec, and
+> cross-language sync ABI alignment.
 
 ## Repository layout
 
@@ -34,7 +35,19 @@ Based on the original [cpp-ipc](https://github.com/mutouyun/cpp-ipc) library. Se
 - `ipc::route` (1 writer, N readers) and `ipc::channel` (N writers, N readers)
 - Typed protocol layer: FlatBuffers, Cap'n Proto, Protocol Buffers (opt-in)
 - Opt-in secure codec with AEAD envelope (OpenSSL EVP backend, zero overhead when disabled)
-- Apple ulock sync backend on macOS for lowest latency
+
+**macOS support** (not present in upstream cpp-ipc, added in this fork):
+
+- `LIBIPC_OS_APPLE` platform branch added throughout sync, shm, and platform layers
+- `shm_open` name hashing: macOS enforces `PSHMNAMLEN=31`; names are FNV-1a hashed when they exceed the limit (auto-enabled on Apple, zero-cost elsewhere)
+- `ftruncate`/`fstat` quirks on already-sized shm objects handled correctly
+- `pthread_mutex_timedlock` emulated (not available on macOS) with adaptive spin + sleep back-off
+- `pthread_mutexattr_setrobust` emulated via PID-based dead-holder detection (`kill(pid, 0)`)
+- `-lrt` excluded on Darwin (not present on macOS)
+- `__ulock_wait`/`__ulock_wake` backend (default): word-lock mutex, seq-counter condvar, counting semaphore — equivalent to Linux futex, lowest latency
+- Mach semaphore backend (`-DLIBIPC_APPLE_APP_STORE_SAFE=ON`): public-API-only alternative, App Store safe
+- File-backed mmap fallback (`-DLIBIPC_USE_FILE_SHM=ON`): avoids `shm_open` entirely, sidesteps all `PSHMNAMLEN`/`ftruncate` quirks
+- Universal binary CI: `arm64;x86_64` fat binary verified with `lipo`
 
 ### Rust — [`rust/libipc/`](rust/libipc/)
 
