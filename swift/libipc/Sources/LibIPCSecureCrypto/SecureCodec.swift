@@ -23,31 +23,6 @@ public extension SecureCipher {
     static var keyId: UInt32 { 0 }
 }
 
-public protocol SecureCipherLegacy: SecureCipher {
-    static func seal(_ plain: [UInt8], out: inout [UInt8]) -> Bool
-    static func open(_ ciphertext: [UInt8], out: inout [UInt8]) -> Bool
-}
-
-public extension SecureCipherLegacy {
-    static func seal(_ plain: [UInt8],
-                     nonce: inout [UInt8],
-                     ciphertext: inout [UInt8],
-                     tag: inout [UInt8]) -> Bool {
-        nonce.removeAll(keepingCapacity: true)
-        tag.removeAll(keepingCapacity: true)
-        return seal(plain, out: &ciphertext)
-    }
-
-    static func open(nonce: [UInt8],
-                     ciphertext: [UInt8],
-                     tag: [UInt8],
-                     plain: inout [UInt8]) -> Bool {
-        if !nonce.isEmpty { return false }
-        if !tag.isEmpty { return false }
-        return open(ciphertext, out: &plain)
-    }
-}
-
 private enum SecureEnvelopeV1 {
     static let magic: [UInt8] = [0x53, 0x49, 0x50, 0x43] // "SIPC"
     static let version: UInt8 = 1

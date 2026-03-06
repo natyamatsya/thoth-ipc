@@ -28,24 +28,6 @@ struct fake_builder {
     std::vector<std::uint8_t> bytes_;
 };
 
-struct failing_open_cipher {
-    static bool seal(const std::uint8_t *data, std::size_t size,
-                     std::vector<std::uint8_t> &out) {
-        out.resize(size);
-        for (std::size_t i = 0; i < size; ++i)
-            out[i] = static_cast<std::uint8_t>(data[i] ^ 0xA5u);
-        return true;
-    }
-
-    static bool open(const std::uint8_t *data, std::size_t size,
-                     std::vector<std::uint8_t> &out) {
-        out.resize(size);
-        for (std::size_t i = 0; i < size; ++i)
-            out[i] = static_cast<std::uint8_t>(data[i] ^ 0xA5u);
-        return false;
-    }
-};
-
 struct fake_proto_message {
     std::uint32_t value_ {0};
 
@@ -135,21 +117,6 @@ struct fake_inner_codec {
     }
 };
 
-struct xor_cipher {
-    static bool seal(const std::uint8_t *data, std::size_t size,
-                     std::vector<std::uint8_t> &out) {
-        out.resize(size);
-        for (std::size_t i = 0; i < size; ++i)
-            out[i] = static_cast<std::uint8_t>(data[i] ^ 0xA5u);
-        return true;
-    }
-
-    static bool open(const std::uint8_t *data, std::size_t size,
-                     std::vector<std::uint8_t> &out) {
-        return seal(data, size, out);
-    }
-};
-
 struct aead_xor_cipher {
     static constexpr std::uint16_t algorithm_id() {
         return 0x4210u;
@@ -212,6 +179,41 @@ struct aead_xor_cipher {
     }
 };
 
+struct aead_xor_cipher_open_failure {
+    static constexpr std::uint16_t algorithm_id() {
+        return aead_xor_cipher::algorithm_id();
+    }
+
+    static constexpr std::uint32_t key_id() {
+        return aead_xor_cipher::key_id();
+    }
+
+    static bool seal(const std::uint8_t *data,
+                     const std::size_t size,
+                     std::vector<std::uint8_t> &nonce,
+                     std::vector<std::uint8_t> &ciphertext,
+                     std::vector<std::uint8_t> &tag) {
+        return aead_xor_cipher::seal(data, size, nonce, ciphertext, tag);
+    }
+
+    static bool open(const std::uint8_t *nonce_data,
+                     const std::size_t nonce_size,
+                     const std::uint8_t *cipher_data,
+                     const std::size_t cipher_size,
+                     const std::uint8_t *tag_data,
+                     const std::size_t tag_size,
+                     std::vector<std::uint8_t> &plain) {
+        if (!aead_xor_cipher::open(nonce_data,
+                                   nonce_size,
+                                   cipher_data,
+                                   cipher_size,
+                                   tag_data,
+                                   tag_size,
+                                   plain)) return false;
+        return false;
+    }
+};
+
 struct aead_xor_cipher_algorithm_mismatch : aead_xor_cipher {
     static constexpr std::uint16_t algorithm_id() {
         return static_cast<std::uint16_t>(aead_xor_cipher::algorithm_id() + 1u);
@@ -224,20 +226,20 @@ struct aead_xor_cipher_key_mismatch : aead_xor_cipher {
     }
 };
 
-using secure_test_codec = ipc::proto::secure_codec<fake_inner_codec, xor_cipher>;
-using secure_protobuf_codec = ipc::proto::secure_codec<ipc::proto::protobuf_codec, xor_cipher>;
-using secure_aead_test_codec = ipc::proto::secure_codec<fake_inner_codec, aead_xor_cipher>;
+using secure_test_codec = ipc::proto::secure_codec<fake_inner_codec, aead_xor_cipher>;
+using secure_protobuf_codec = ipc::proto::secure_codec<ipc::proto::protobuf_codec, aead_xor_cipher>;
+using secure_aead_test_codec = secure_test_codec;
 using secure_protobuf_channel =
-    ipc::proto::typed_channel_secure<fake_proto_message, ipc::proto::protobuf_codec, xor_cipher>;
+    ipc::proto::typed_channel_secure<fake_proto_message, ipc::proto::protobuf_codec, aead_xor_cipher>;
 using secure_protobuf_route =
-    ipc::proto::typed_route_secure<fake_proto_message, ipc::proto::protobuf_codec, xor_cipher>;
-using secure_capnp_codec = ipc::proto::secure_codec<ipc::proto::capnp_codec, xor_cipher>;
+    ipc::proto::typed_route_secure<fake_proto_message, ipc::proto::protobuf_codec, aead_xor_cipher>;
+using secure_capnp_codec = ipc::proto::secure_codec<ipc::proto::capnp_codec, aead_xor_cipher>;
 using secure_capnp_channel =
-    ipc::proto::typed_channel_secure<fake_capnp_message, ipc::proto::capnp_codec, xor_cipher>;
+    ipc::proto::typed_channel_secure<fake_capnp_message, ipc::proto::capnp_codec, aead_xor_cipher>;
 using secure_capnp_route =
-    ipc::proto::typed_route_secure<fake_capnp_message, ipc::proto::capnp_codec, xor_cipher>;
-using secure_capnp_builder = ipc::proto::secure_builder<ipc::proto::capnp_codec, xor_cipher>;
-using secure_fail_open_codec = ipc::proto::secure_codec<fake_inner_codec, failing_open_cipher>;
+    ipc::proto::typed_route_secure<fake_capnp_message, ipc::proto::capnp_codec, aead_xor_cipher>;
+using secure_capnp_builder = ipc::proto::secure_builder<ipc::proto::capnp_codec, aead_xor_cipher>;
+using secure_fail_open_codec = ipc::proto::secure_codec<fake_inner_codec, aead_xor_cipher_open_failure>;
 
 #ifdef LIBIPC_SECURE_OPENSSL
 struct openssl_test_key_provider {
@@ -321,7 +323,7 @@ std::string make_unique_name(const char *prefix) {
     return std::string(prefix) + "_" + std::to_string(id);
 }
 
-static_assert(ipc::proto::secure_cipher<xor_cipher>);
+static_assert(ipc::proto::secure_cipher<aead_xor_cipher>);
 static_assert(ipc::proto::secure_cipher_aead<aead_xor_cipher>);
 static_assert(ipc::proto::proto_codec<secure_test_codec, int>);
 static_assert(std::is_default_constructible_v<secure_protobuf_channel>);
@@ -338,7 +340,7 @@ TEST(SecureCodec, BuilderSealsInnerPayload) {
     fake_builder plain_builder;
     plain_builder.bytes_ = {1, 2, 3, 4};
 
-    ipc::proto::secure_builder<fake_inner_codec, xor_cipher> secure_builder{plain_builder};
+    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
 
     ASSERT_GT(secure_builder.size(), plain_builder.bytes_.size());
     EXPECT_NE(secure_builder.bytes(), plain_builder.bytes_);
@@ -352,7 +354,7 @@ TEST(SecureCodec, DecodeOpensPayloadBeforeInnerDecode) {
     fake_builder plain_builder;
     plain_builder.bytes_ = plain_bytes;
 
-    ipc::proto::secure_builder<fake_inner_codec, xor_cipher> secure_builder{plain_builder};
+    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
     ASSERT_GT(secure_builder.size(), plain_builder.bytes_.size());
 
     auto buf = owning_buffer_from_bytes(secure_builder.bytes());
@@ -366,7 +368,7 @@ TEST(SecureCodec, DecodeFailsClosedWhenOpenFails) {
     fake_builder plain_builder;
     plain_builder.bytes_ = {0xAA, 0xBB, 0xCC, 0xDD};
 
-    ipc::proto::secure_builder<fake_inner_codec, failing_open_cipher> secure_builder{plain_builder};
+    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher_open_failure> secure_builder{plain_builder};
     auto buf = owning_buffer_from_bytes(secure_builder.bytes());
 
     auto decoded = secure_fail_open_codec::decode<int>(std::move(buf));
@@ -462,7 +464,7 @@ TEST(SecureCodec, ComposesWithProtobufCodec) {
     auto plain_builder = ipc::proto::protobuf_builder::from_message(plain_message);
     ASSERT_EQ(plain_builder.size(), sizeof(std::uint32_t));
 
-    ipc::proto::secure_builder<ipc::proto::protobuf_codec, xor_cipher> secure_builder{plain_builder};
+    ipc::proto::secure_builder<ipc::proto::protobuf_codec, aead_xor_cipher> secure_builder{plain_builder};
     ASSERT_GT(secure_builder.size(), plain_builder.size());
     ASSERT_NE(std::memcmp(secure_builder.data(), plain_builder.data(), plain_builder.size()), 0);
 
@@ -609,7 +611,7 @@ TEST(SecureCodec, ComposesWithCapnpCodec) {
     auto plain_builder = ipc::proto::capnp_builder::from_message(plain_message);
     ASSERT_EQ(plain_builder.size(), sizeof(std::uint32_t));
 
-    ipc::proto::secure_builder<ipc::proto::capnp_codec, xor_cipher> secure_builder{plain_builder};
+    ipc::proto::secure_builder<ipc::proto::capnp_codec, aead_xor_cipher> secure_builder{plain_builder};
     ASSERT_GT(secure_builder.size(), plain_builder.size());
     ASSERT_NE(std::memcmp(secure_builder.data(), plain_builder.data(), plain_builder.size()), 0);
 
