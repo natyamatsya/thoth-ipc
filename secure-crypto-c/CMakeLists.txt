@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
 
 cmake_minimum_required(VERSION 3.30)
-project(libipc-secure-crypto-c LANGUAGES C)
+project(thoth-ipc-secure-crypto-c LANGUAGES C)
 
 option(SECURE_CRYPTO_C_OPENSSL
     "Enable OpenSSL EVP backend for the secure crypto C ABI."

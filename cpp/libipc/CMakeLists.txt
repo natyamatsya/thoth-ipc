@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
 
 cmake_minimum_required(VERSION 3.30)
-project(cpp-ipc VERSION 1.4.1)
+project(thoth-ipc VERSION 0.1.0)
 
 option(LIBIPC_BUILD_TESTS       "Build all of libipc's own tests."                      OFF)
 option(LIBIPC_BUILD_DEMOS       "Build all of libipc's own demos."                      OFF)
@@ -42,7 +42,7 @@ else()
         "Enable OpenSSL EVP backend for secure crypto C ABI."
         FORCE)
 endif()
-set(SECURE_CRYPTO_C_EXPORT_SET cpp-ipc-targets)
+set(SECURE_CRYPTO_C_EXPORT_SET thoth-ipc-targets)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../../secure-crypto-c
                  ${CMAKE_CURRENT_BINARY_DIR}/secure-crypto-c)
 

@@ -1,8 +1,8 @@
 [package]
-name = "libipc"
+name = "thoth-ipc"
 version = "0.1.0"
 edition = "2021"
-description = "Pure Rust implementation of cpp-ipc shared memory and named mutex primitives"
+description = "Cross-language IPC library (thoth-ipc) — Pure Rust port of the cpp-ipc transport core with typed protocol, secure codec, and multi-language ABI parity"
 license = "MIT"
 publish = false
 

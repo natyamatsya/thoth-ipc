@@ -1,6 +1,6 @@
 project(ipc)
 
-set (PACKAGE_VERSION 1.4.1)
+set (PACKAGE_VERSION 0.1.0)
 
 aux_source_directory(${LIBIPC_PROJECT_DIR}/src/libipc SRC_FILES)
 aux_source_directory(${LIBIPC_PROJECT_DIR}/src/libipc/sync SRC_FILES)
@@ -70,31 +70,31 @@ endif()
 
 install(
   TARGETS ${PROJECT_NAME}
-  EXPORT cpp-ipc-targets
+  EXPORT thoth-ipc-targets
   RUNTIME DESTINATION bin
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib)
 
-install(EXPORT cpp-ipc-targets
-	FILE cpp-ipc-targets.cmake
-	NAMESPACE cpp-ipc::
-	DESTINATION share/cpp-ipc
+install(EXPORT thoth-ipc-targets
+	FILE thoth-ipc-targets.cmake
+	NAMESPACE thoth-ipc::
+	DESTINATION share/thoth-ipc
 )
 
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/cpp-ipc-config.cmake.in"
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/thoth-ipc-config.cmake.in"
 [[include(CMakeFindDependencyMacro)
 if("@LIBIPC_SECURE_OPENSSL@" STREQUAL "ON")
   find_dependency(OpenSSL REQUIRED COMPONENTS Crypto)
 endif()
-include("${CMAKE_CURRENT_LIST_DIR}/cpp-ipc-targets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/thoth-ipc-targets.cmake")
 ]])
-configure_file("${CMAKE_CURRENT_BINARY_DIR}/cpp-ipc-config.cmake.in" "${CMAKE_CURRENT_BINARY_DIR}/cpp-ipc-config.cmake" @ONLY)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/cpp-ipc-config.cmake DESTINATION share/cpp-ipc)
+configure_file("${CMAKE_CURRENT_BINARY_DIR}/thoth-ipc-config.cmake.in" "${CMAKE_CURRENT_BINARY_DIR}/thoth-ipc-config.cmake" @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/thoth-ipc-config.cmake DESTINATION share/thoth-ipc)
 
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file(
-	cppIpcConfigVersion.cmake
+	thothIpcConfigVersion.cmake
 	VERSION ${PACKAGE_VERSION}
 	COMPATIBILITY AnyNewerVersion
 )
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/cppIpcConfigVersion.cmake DESTINATION share/cpp-ipc)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/thothIpcConfigVersion.cmake DESTINATION share/thoth-ipc)
