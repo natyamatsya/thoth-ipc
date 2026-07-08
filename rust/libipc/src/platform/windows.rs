@@ -72,7 +72,7 @@ impl PlatformShm {
 
         if mode == ShmMode::Open {
             handle = unsafe { OpenFileMappingW(FILE_MAP_ALL_ACCESS, FALSE, wide_name.as_ptr()) };
-            if handle == 0 {
+            if handle.is_null() {
                 return Err(io::Error::last_os_error());
             }
             total_size = 0; // will be discovered after mapping
@@ -90,7 +90,7 @@ impl PlatformShm {
             };
             let err = unsafe { GetLastError() };
             if mode == ShmMode::Create && err == ERROR_ALREADY_EXISTS {
-                if handle != 0 {
+                if !handle.is_null() {
                     unsafe { CloseHandle(handle) };
                 }
                 return Err(io::Error::new(
@@ -99,14 +99,14 @@ impl PlatformShm {
                 ));
             }
             opened_existing = err == ERROR_ALREADY_EXISTS;
-            if handle == 0 {
+            if handle.is_null() {
                 return Err(io::Error::last_os_error());
             }
         };
 
         // Map the view
         let mem = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, 0) };
-        if mem.is_null() {
+        if mem.Value.is_null() {
             let e = io::Error::last_os_error();
             unsafe { CloseHandle(handle) };
             return Err(e);
@@ -117,7 +117,7 @@ impl PlatformShm {
             let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
             let ret = unsafe {
                 VirtualQuery(
-                    mem as *const _,
+                    mem.Value as *const _,
                     &mut info,
                     std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
                 )
@@ -138,11 +138,11 @@ impl PlatformShm {
         };
 
         // Increment reference counter
-        unsafe { acc_of(mem as *mut u8, final_total).fetch_add(1, Ordering::Release) };
+        unsafe { acc_of(mem.Value as *mut u8, final_total).fetch_add(1, Ordering::Release) };
 
         Ok(Self {
             handle,
-            mem: mem as *mut u8,
+            mem: mem.Value as *mut u8,
             size: final_total,
             user_size: final_user,
             logical_name: name.to_owned(),
@@ -206,13 +206,17 @@ impl PlatformShm {
 impl Drop for PlatformShm {
     fn drop(&mut self) {
         use windows_sys::Win32::Foundation::CloseHandle;
-        use windows_sys::Win32::System::Memory::UnmapViewOfFile;
+        use windows_sys::Win32::System::Memory::{UnmapViewOfFile, MEMORY_MAPPED_VIEW_ADDRESS};
 
         if !self.mem.is_null() && self.size > 0 {
             unsafe { acc_of(self.mem, self.size).fetch_sub(1, Ordering::AcqRel) };
-            unsafe { UnmapViewOfFile(self.mem as *const _) };
+            unsafe {
+                UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
+                    Value: self.mem as *mut core::ffi::c_void,
+                })
+            };
         }
-        if self.handle != 0 {
+        if !self.handle.is_null() {
             unsafe { CloseHandle(self.handle) };
         }
     }
@@ -236,7 +240,7 @@ impl PlatformMutex {
 
         let wide_name = to_wide(name);
         let h = unsafe { CreateMutexW(ptr::null(), FALSE, wide_name.as_ptr()) };
-        if h == 0 {
+        if h.is_null() {
             return Err(io::Error::last_os_error());
         }
         Ok(Self { handle: h })
@@ -262,6 +266,22 @@ impl PlatformMutex {
                 }
                 _ => return Err(io::Error::last_os_error()),
             }
+        }
+    }
+
+    /// Lock with a timeout in milliseconds. `Ok(true)` if acquired, `Ok(false)`
+    /// on timeout. Mirrors the POSIX `PlatformMutex::lock_timeout`.
+    pub fn lock_timeout(&self, timeout_ms: u64) -> io::Result<bool> {
+        use windows_sys::Win32::Foundation::*;
+        use windows_sys::Win32::System::Threading::*;
+
+        let ms = timeout_ms.min(u32::MAX as u64) as u32;
+        let ret = unsafe { WaitForSingleObject(self.handle, ms) };
+        match ret {
+            // WAIT_ABANDONED: the previous owner died; ownership is granted to us.
+            WAIT_OBJECT_0 | WAIT_ABANDONED => Ok(true),
+            WAIT_TIMEOUT => Ok(false),
+            _ => Err(io::Error::last_os_error()),
         }
     }
 
@@ -302,7 +322,7 @@ impl PlatformMutex {
 impl Drop for PlatformMutex {
     fn drop(&mut self) {
         use windows_sys::Win32::Foundation::CloseHandle;
-        if self.handle != 0 {
+        if !self.handle.is_null() {
             unsafe { CloseHandle(self.handle) };
         }
     }

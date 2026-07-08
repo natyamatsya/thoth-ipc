@@ -212,7 +212,7 @@ impl WindowsSemaphore {
         let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
         let h =
             unsafe { CreateSemaphoreW(std::ptr::null(), count as i32, i32::MAX, wide.as_ptr()) };
-        if h == 0 {
+        if h.is_null() {
             return Err(io::Error::last_os_error());
         }
         Ok(Self { handle: h })
@@ -248,7 +248,7 @@ impl WindowsSemaphore {
 impl Drop for WindowsSemaphore {
     fn drop(&mut self) {
         use windows_sys::Win32::Foundation::CloseHandle;
-        if self.handle != 0 {
+        if !self.handle.is_null() {
             unsafe { CloseHandle(self.handle) };
         }
     }
