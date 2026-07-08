@@ -42,11 +42,19 @@ set_target_properties(${PROJECT_NAME}
     SOVERSION 3)
 
 target_include_directories(${PROJECT_NAME}
-  PUBLIC  
+  PUBLIC
     "$<BUILD_INTERFACE:${LIBIPC_PROJECT_DIR}/include>"
     "$<INSTALL_INTERFACE:include>"
   PRIVATE ${LIBIPC_PROJECT_DIR}/src
           $<$<BOOL:UNIX>:${LIBIPC_PROJECT_DIR}/src/libipc/platform/linux>)
+
+# The Linux platform code uses clockid_t and CLOCK_BOOTTIME/MONOTONIC/REALTIME.
+# glibc only exposes clockid_t/CLOCK_* under the right feature-test macro when
+# compiling as strict ISO C (-std=c17), and CLOCK_BOOTTIME specifically requires
+# _GNU_SOURCE. (macOS exposes them unconditionally, so this is Linux-only.)
+if(UNIX AND NOT APPLE)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE _GNU_SOURCE)
+endif()
 
 if(LIBIPC_SHM_NAME_MAX GREATER 0)
   target_compile_definitions(${PROJECT_NAME} PRIVATE LIBIPC_SHM_NAME_MAX=${LIBIPC_SHM_NAME_MAX})
