@@ -111,11 +111,11 @@ fn is_pid_alive(pid: i32) -> bool {
     use windows_sys::Win32::System::Threading::GetExitCodeProcess;
     unsafe {
         let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid as u32);
-        if h == 0 {
+        if h.is_null() {
             return false;
         }
         let mut code: u32 = 0;
-        let ok = GetExitCodeProcess(h, &mut code) != 0 && code == STILL_ACTIVE;
+        let ok = GetExitCodeProcess(h, &mut code) != 0 && code == STILL_ACTIVE as u32;
         CloseHandle(h);
         ok
     }

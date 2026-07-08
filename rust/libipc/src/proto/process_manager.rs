@@ -53,7 +53,7 @@ impl ProcessHandle {
             use windows_sys::Win32::System::Threading::GetExitCodeProcess;
             unsafe {
                 let mut code: u32 = 0;
-                GetExitCodeProcess(self.hprocess, &mut code) != 0 && code == STILL_ACTIVE
+                GetExitCodeProcess(self.hprocess as _, &mut code) != 0 && code == STILL_ACTIVE as u32
             }
         }
         #[cfg(not(any(unix, windows)))]
@@ -68,7 +68,7 @@ impl Drop for ProcessHandle {
     fn drop(&mut self) {
         if self.hprocess != 0 {
             unsafe {
-                windows_sys::Win32::Foundation::CloseHandle(self.hprocess);
+                windows_sys::Win32::Foundation::CloseHandle(self.hprocess as _);
             }
             self.hprocess = 0;
         }
@@ -213,7 +213,7 @@ pub fn request_shutdown(h: &ProcessHandle) -> bool {
     }
     #[cfg(windows)]
     {
-        unsafe { windows_sys::Win32::System::Threading::TerminateProcess(h.hprocess, 1) != 0 }
+        unsafe { windows_sys::Win32::System::Threading::TerminateProcess(h.hprocess as _, 1) != 0 }
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -232,7 +232,7 @@ pub fn force_kill(h: &ProcessHandle) -> bool {
     }
     #[cfg(windows)]
     {
-        unsafe { windows_sys::Win32::System::Threading::TerminateProcess(h.hprocess, 9) != 0 }
+        unsafe { windows_sys::Win32::System::Threading::TerminateProcess(h.hprocess as _, 9) != 0 }
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -281,15 +281,16 @@ pub fn wait_for_exit(h: &ProcessHandle, timeout: Duration) -> WaitResult {
 
     #[cfg(windows)]
     {
+        use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
         use windows_sys::Win32::System::Threading::{
-            GetExitCodeProcess, WaitForSingleObject, WAIT_OBJECT_0,
+            GetExitCodeProcess, WaitForSingleObject,
         };
         let ms = timeout.as_millis().min(u32::MAX as u128) as u32;
-        let ret = unsafe { WaitForSingleObject(h.hprocess, ms) };
+        let ret = unsafe { WaitForSingleObject(h.hprocess as _, ms) };
         if ret == WAIT_OBJECT_0 {
             let mut code: u32 = 0;
             unsafe {
-                GetExitCodeProcess(h.hprocess, &mut code);
+                GetExitCodeProcess(h.hprocess as _, &mut code);
             }
             r.exited = true;
             r.exit_code = code as i32;
