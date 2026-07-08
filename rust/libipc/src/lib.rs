@@ -48,3 +48,19 @@ pub use channel::{Channel, Mode, Route};
 pub mod proto;
 
 pub mod mem;
+
+/// Current `errno` on Unix, portable across macOS (`__error`) and glibc/musl
+/// (`__errno_location`). The two spellings resolve to different libc symbols, so
+/// the macOS name cannot be used unconditionally on Linux.
+#[cfg(unix)]
+#[inline]
+pub(crate) fn unix_errno() -> i32 {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe { *libc::__error() }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        unsafe { *libc::__errno_location() }
+    }
+}

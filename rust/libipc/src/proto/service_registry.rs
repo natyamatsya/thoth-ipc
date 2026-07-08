@@ -99,7 +99,7 @@ impl RegistryData {
 
 #[cfg(unix)]
 fn is_pid_alive(pid: i32) -> bool {
-    unsafe { libc::kill(pid, 0) == 0 || *libc::__error() != libc::ESRCH }
+    unsafe { libc::kill(pid, 0) == 0 || crate::unix_errno() != libc::ESRCH }
 }
 
 #[cfg(windows)]

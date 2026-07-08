@@ -44,7 +44,7 @@ impl ProcessHandle {
         #[cfg(unix)]
         {
             unsafe {
-                libc::kill(self.pid as libc::pid_t, 0) == 0 || *libc::__error() != libc::ESRCH
+                libc::kill(self.pid as libc::pid_t, 0) == 0 || crate::unix_errno() != libc::ESRCH
             }
         }
         #[cfg(windows)]
