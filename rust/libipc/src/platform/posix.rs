@@ -323,9 +323,29 @@ impl PlatformShm {
         })
     }
 
+    /// Whether this platform can grow an existing shared memory object.
+    ///
+    /// Linux: `ftruncate` on a POSIX shm object enlarges it. macOS: XNU's
+    /// `pshm_truncate` (bsd/kern/posix_shm.c) accepts exactly one sizing
+    /// `ftruncate` per object — any later call fails with EINVAL
+    /// (undocumented in Apple's man pages, verified empirically), so growth
+    /// is impossible. Callers should branch on this instead of calling
+    /// `grow` and handling the failure.
+    pub const fn can_grow() -> bool {
+        cfg!(not(target_os = "macos"))
+    }
+
     pub fn grow(&mut self, new_user_size: usize) -> io::Result<()> {
         if new_user_size <= self.user_size {
             return Ok(());
+        }
+        if !Self::can_grow() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "shared memory growth is unsupported on this platform: POSIX shm \
+                 objects cannot be resized (XNU allows exactly one sizing ftruncate); \
+                 size segments up front or chunk payloads",
+            ));
         }
 
         let logical_name = self.logical_name.clone();

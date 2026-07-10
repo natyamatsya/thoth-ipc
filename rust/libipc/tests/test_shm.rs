@@ -152,42 +152,26 @@ fn handle_grow() {
 
     let grow_result = h1.grow(2048);
 
-    #[cfg(target_os = "windows")]
-    {
-        assert!(
-            grow_result.is_err(),
-            "Windows cannot resize an existing mapping via CreateOrOpen"
-        );
+    if !ShmHandle::can_grow() {
+        // macOS: XNU permits exactly one sizing ftruncate per shm object;
+        // Windows: sections are fixed at creation. grow() reports the
+        // capability gap as an explicit Unsupported error.
+        let err = grow_result.expect_err("grow must be unsupported on this platform");
+        assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
         return;
     }
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        grow_result.expect("grow");
-        assert!(h1.user_size() >= 2048);
+    grow_result.expect("grow");
+    assert!(h1.user_size() >= 2048);
 
-        let read_back_1 = unsafe { std::slice::from_raw_parts(h1.as_ptr(), payload.len()) };
-        assert_eq!(read_back_1, payload);
+    let read_back_1 = unsafe { std::slice::from_raw_parts(h1.as_ptr(), payload.len()) };
+    assert_eq!(read_back_1, payload);
 
-        // macOS can map the same shm object multiple times in one process at
-        // different VAs with non-coherent plain-data views. Keep the open/size
-        // check on macOS; assert payload visibility via a second handle on
-        // other platforms.
-        #[cfg(target_os = "macos")]
-        {
-            let h2 = ShmHandle::acquire(&name, 2048, ShmOpenMode::CreateOrOpen).expect("acquire 2");
-            assert!(h2.user_size() >= 2048);
-        }
+    let h2 = ShmHandle::acquire(&name, 2048, ShmOpenMode::CreateOrOpen).expect("acquire 2");
+    assert!(h2.user_size() >= 2048);
 
-        #[cfg(not(target_os = "macos"))]
-        {
-            let h2 = ShmHandle::acquire(&name, 2048, ShmOpenMode::CreateOrOpen).expect("acquire 2");
-            assert!(h2.user_size() >= 2048);
-
-            let read_back_2 = unsafe { std::slice::from_raw_parts(h2.as_ptr(), payload.len()) };
-            assert_eq!(read_back_2, payload);
-        }
-    }
+    let read_back_2 = unsafe { std::slice::from_raw_parts(h2.as_ptr(), payload.len()) };
+    assert_eq!(read_back_2, payload);
 }
 
 // Grow is a no-op when requested size does not increase.

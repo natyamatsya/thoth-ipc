@@ -368,6 +368,14 @@ TEST_F(ShmTest, HandleGrow) {
   ASSERT_TRUE(h.valid());
   EXPECT_GE(h.size(), 256u);
 
+  if (!shm::handle::can_grow()) {
+    // macOS/Windows: growth is a Linux-only capability; grow() must fail
+    // explicitly instead of corrupting or leaking a platform errno.
+    EXPECT_FALSE(h.grow(2048));
+    EXPECT_TRUE(h.valid());
+    return;
+  }
+
   EXPECT_TRUE(h.grow(2048));
   EXPECT_TRUE(h.valid());
   EXPECT_GE(h.size(), 2048u);

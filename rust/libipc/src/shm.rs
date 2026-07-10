@@ -81,9 +81,19 @@ impl ShmHandle {
         self.inner.ref_count()
     }
 
+    /// Whether this platform supports growing an existing segment (Linux
+    /// only — macOS and Windows shared memory is fixed at creation).
+    /// Callers must branch on this instead of calling `grow` and handling
+    /// the failure; portable code should chunk its payloads regardless.
+    pub const fn can_grow() -> bool {
+        PlatformShm::can_grow()
+    }
+
     /// Grow the user-visible size of this shared memory segment.
     ///
-    /// If `new_user_size` is not larger than the current size, this is a no-op.
+    /// If `new_user_size` is not larger than the current size, this is a
+    /// no-op. Returns `ErrorKind::Unsupported` where `can_grow()` is false
+    /// (macOS, Windows).
     pub fn grow(&mut self, new_user_size: usize) -> io::Result<()> {
         self.inner.grow(new_user_size)
     }
