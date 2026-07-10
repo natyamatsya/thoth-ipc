@@ -15,9 +15,14 @@ jobs:
         submodules: recursive
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
+    - name: Install GCC 14 (std::print support)
+      run: sudo apt-get update && sudo apt-get install -y g++-14
     - name: cmake
       run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_BUILD_PROTO=ON .
       working-directory: cpp/libipc
+      env:
+        CC: gcc-14
+        CXX: g++-14
     - name: make
       run: make -j
       working-directory: cpp/libipc
@@ -26,6 +31,9 @@ jobs:
       working-directory: cpp/libipc
     - name: verify Rust service
       run: test -x ./bin/rt_audio_service_rs
+      working-directory: cpp/libipc
+    - name: verify C++23 demo services
+      run: test -x ./bin/audio_service && test -x ./bin/rt_audio_service
       working-directory: cpp/libipc
 
   build-macos:
