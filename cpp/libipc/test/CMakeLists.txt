@@ -9,10 +9,16 @@ if(NOT MSVC)
 endif()
 
 include_directories(
-    ${LIBIPC_PROJECT_DIR}/include 
+    ${LIBIPC_PROJECT_DIR}/include
     ${LIBIPC_PROJECT_DIR}/src
     ${LIBIPC_PROJECT_DIR}/test
     ${LIBIPC_PROJECT_DIR}/3rdparty)
+
+# sync_abi.h includes the vendored a0 headers, which the ipc library only
+# exposes as a PRIVATE include dir; tests including src headers need it too.
+if(UNIX)
+    include_directories(${LIBIPC_PROJECT_DIR}/src/libipc/platform/linux)
+endif()
 
 # Collect only new test files (exclude archive directory)
 file(GLOB SRC_FILES
