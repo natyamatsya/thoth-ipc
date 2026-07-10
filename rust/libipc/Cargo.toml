@@ -23,10 +23,10 @@ secure-crypto-openssl = ["secure-crypto-c"]
 flatbuffers = "=25.12.19"
 bumpalo = { version = "3", optional = true, features = ["collections"] }
 slab = { version = "0.4", optional = true }
-prost = { version = "0.13", optional = true, features = ["derive"] }
+prost = { version = "0.14", optional = true, features = ["derive"] }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 
 [build-dependencies]
 cc = "1"
@@ -71,7 +71,7 @@ name = "alloc"
 harness = false
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = [
+windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Memory",
     "Win32_System_Threading",
