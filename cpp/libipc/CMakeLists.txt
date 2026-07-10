@@ -133,6 +133,22 @@ if (LIBIPC_BUILD_PROTO)
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/flatbuffers
     )
     FetchContent_MakeAvailable(flatbuffers)
+
+    # The audio demo services are written in C++23 with std::print, which
+    # needs GCC >= 14 / recent Clang/MSVC. Probe once here; the demo
+    # CMakeLists skip just their service binaries when it is unavailable.
+    include(CheckCXXSourceCompiles)
+    if(MSVC)
+        set(CMAKE_REQUIRED_FLAGS "/std:c++latest")
+    else()
+        set(CMAKE_REQUIRED_FLAGS "-std=c++23")
+    endif()
+    check_cxx_source_compiles("
+        #include <print>
+        int main() { std::println(\"probe\"); }
+    " LIBIPC_HAS_STD_PRINT)
+    unset(CMAKE_REQUIRED_FLAGS)
+
     add_subdirectory(demo/audio_service)
     add_subdirectory(demo/audio_realtime)
 endif()

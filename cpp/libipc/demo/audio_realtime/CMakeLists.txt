@@ -11,21 +11,9 @@ target_link_libraries(rt_audio_host PRIVATE ipc)
 
 # The service process is compiled as C++23 to demonstrate that process
 # separation allows each component to use a different language standard.
-# The host remains at the project default (C++17). It needs a standard
-# library with <print> (GCC >= 14, recent Clang/MSVC), so probe for it
-# and skip just this demo binary on older toolchains.
-include(CheckCXXSourceCompiles)
-if(MSVC)
-    set(CMAKE_REQUIRED_FLAGS "/std:c++latest")
-else()
-    set(CMAKE_REQUIRED_FLAGS "-std=c++23")
-endif()
-check_cxx_source_compiles("
-    #include <print>
-    int main() { std::println(\"probe\"); }
-" LIBIPC_HAS_STD_PRINT)
-unset(CMAKE_REQUIRED_FLAGS)
-
+# The host remains at the project default (C++17). The service needs a
+# standard library with <print> (probed by the parent CMakeLists), so
+# skip just this demo binary on older toolchains.
 if(LIBIPC_HAS_STD_PRINT)
     add_executable(rt_audio_service service.cpp)
     target_include_directories(rt_audio_service PRIVATE
