@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
     - name: cmake
@@ -30,6 +32,8 @@ jobs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
     - name: cmake
@@ -52,6 +56,8 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
     - name: cmake
@@ -71,6 +77,8 @@ jobs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
     - name: cmake
       run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_USE_FILE_SHM=ON .
       working-directory: cpp/libipc
@@ -85,6 +93,8 @@ jobs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: recursive
     - name: cmake
       run: cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" .
       working-directory: cpp/libipc
