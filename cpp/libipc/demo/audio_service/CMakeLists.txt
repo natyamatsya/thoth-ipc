@@ -25,18 +25,23 @@ target_include_directories(audio_host PRIVATE
 )
 target_link_libraries(audio_host ipc flatbuffers)
 
-# Service executable
-add_executable(audio_service service.cpp)
-add_dependencies(audio_service audio_protocol_gen)
-target_include_directories(audio_service PRIVATE
-    ${LIBIPC_PROJECT_DIR}/include
-    ${LIBIPC_PROJECT_DIR}/3rdparty
-    ${CMAKE_CURRENT_BINARY_DIR}
-)
-target_link_libraries(audio_service ipc flatbuffers)
+# Service executable. Uses std::print, so it needs the C++23 <print>
+# support probed by the parent CMakeLists (LIBIPC_HAS_STD_PRINT).
+if(LIBIPC_HAS_STD_PRINT)
+    add_executable(audio_service service.cpp)
+    add_dependencies(audio_service audio_protocol_gen)
+    target_include_directories(audio_service PRIVATE
+        ${LIBIPC_PROJECT_DIR}/include
+        ${LIBIPC_PROJECT_DIR}/3rdparty
+        ${CMAKE_CURRENT_BINARY_DIR}
+    )
+    target_link_libraries(audio_service ipc flatbuffers)
 
-# Keep the service process explicitly at C++23 for clarity.
-# The project default is also C++23.
-set_target_properties(audio_service PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON)
+    # Keep the service process explicitly at C++23 for clarity.
+    # The project default is also C++23.
+    set_target_properties(audio_service PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON)
+else()
+    message(STATUS "audio_service: compiler lacks std::print — skipping C++23 service demo")
+endif()
