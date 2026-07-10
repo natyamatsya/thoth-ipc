@@ -67,8 +67,15 @@ public:
     bool acquire(char const * name, std::size_t size, unsigned mode = create | open);
     std::int32_t release();
 
+    // Whether this platform can grow an existing shared memory object
+    // (Linux only: ftruncate enlarges POSIX shm; macOS allows exactly one
+    // sizing ftruncate per object, Windows sections are fixed at creation).
+    // Callers must branch on this instead of calling grow() and handling
+    // the failure.
+    static bool can_grow() noexcept;
+
     // Grow the shared memory object to at least `size` user-visible bytes.
-    // Returns false on error.
+    // Returns false on error and where can_grow() is false.
     bool grow(std::size_t size);
 
     // Clean the handle file.

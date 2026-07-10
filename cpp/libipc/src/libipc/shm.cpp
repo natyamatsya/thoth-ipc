@@ -94,10 +94,28 @@ std::int32_t handle::release() {
     return shm::release(detach());
 }
 
+bool handle::can_grow() noexcept {
+#if defined(__linux__)
+    return true;
+#else
+    // macOS: XNU's pshm_truncate (bsd/kern/posix_shm.c) accepts exactly one
+    // sizing ftruncate per shm object; a second call returns EINVAL.
+    // Windows: sections are fixed at CreateFileMapping. Growth only works
+    // on Linux.
+    return false;
+#endif
+}
+
 bool handle::grow(std::size_t size) {
     LIBIPC_LOG();
     if (size == 0) {
         log.error("fail grow: size is 0");
+        return false;
+    }
+    if (!can_grow()) {
+        log.error("fail grow: shared memory growth is unsupported on this platform "
+                  "(POSIX shm objects cannot be resized on macOS; Windows sections are "
+                  "fixed at creation); size segments up front or chunk payloads");
         return false;
     }
 

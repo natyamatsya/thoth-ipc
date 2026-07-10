@@ -149,26 +149,22 @@ impl PlatformShm {
         })
     }
 
+    /// Whether this platform can grow an existing shared memory object.
+    /// Windows sections are fixed at `CreateFileMapping` — no resize API
+    /// exists, so this is always false.
+    pub const fn can_grow() -> bool {
+        false
+    }
+
     pub fn grow(&mut self, new_user_size: usize) -> io::Result<()> {
         if new_user_size <= self.user_size {
             return Ok(());
         }
-
-        let logical_name = self.logical_name.clone();
-        let replacement = Self::acquire(&logical_name, new_user_size, ShmMode::CreateOrOpen)?;
-        if replacement.user_size < new_user_size {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "failed to grow shared memory to {new_user_size} bytes (actual {})",
-                    replacement.user_size
-                ),
-            ));
-        }
-
-        let previous = std::mem::replace(self, replacement);
-        drop(previous);
-        Ok(())
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "shared memory growth is unsupported on this platform: Windows sections \
+             are fixed at CreateFileMapping; size segments up front or chunk payloads",
+        ))
     }
 
     pub fn as_ptr(&self) -> *const u8 {
