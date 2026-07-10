@@ -1,0 +1,26 @@
+{
+  "flatbuffers": {
+    "version": "25.12.19",
+    "commit": "7e163021e59cca4f8e1e35a7c828b5c6b7915953",
+    "submodules": [
+      "cpp/libipc/3rdparty/flatbuffers",
+      "swift/libipc/vendor/flatbuffers"
+    ],
+    "cargo": { "manifest": "rust/libipc/Cargo.toml", "crate": "flatbuffers" }
+  },
+  "googletest": {
+    "version": "1.17.0",
+    "commit": "52eb8108c5bdec04579160ae17225d66034bd723",
+    "submodules": ["cpp/libipc/3rdparty/googletest"]
+  },
+  "swift-atomics": {
+    "version": "1.3.0",
+    "commit": "b601256eab081c0f92f059e12818ac1d4f178ff7",
+    "submodules": ["swift/libipc/vendor/swift-atomics"]
+  },
+  "swift-protobuf": {
+    "version": "1.35.1",
+    "commit": "5596511fce902e649c403cd4d6d5da1254f142b7",
+    "submodules": ["swift/libipc/vendor/swift-protobuf"]
+  }
+}

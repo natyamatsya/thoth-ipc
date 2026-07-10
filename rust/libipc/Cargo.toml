@@ -20,7 +20,7 @@ secure-crypto-c = []
 secure-crypto-openssl = ["secure-crypto-c"]
 
 [dependencies]
-flatbuffers = "24.3.25"
+flatbuffers = "=25.12.19"
 bumpalo = { version = "3", optional = true, features = ["collections"] }
 slab = { version = "0.4", optional = true }
 prost = { version = "0.13", optional = true, features = ["derive"] }
