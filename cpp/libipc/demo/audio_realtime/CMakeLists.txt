@@ -9,20 +9,38 @@ target_include_directories(rt_audio_host PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(rt_audio_host PRIVATE ipc)
 
-add_executable(rt_audio_service service.cpp)
-target_include_directories(rt_audio_service PRIVATE
-    ${LIBIPC_PROJECT_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(rt_audio_service PRIVATE ipc)
-
 # The service process is compiled as C++23 to demonstrate that process
 # separation allows each component to use a different language standard.
-# The host remains at the project default (C++17).
-set_target_properties(rt_audio_service PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON)
+# The host remains at the project default (C++17). It needs a standard
+# library with <print> (GCC >= 14, recent Clang/MSVC), so probe for it
+# and skip just this demo binary on older toolchains.
+include(CheckCXXSourceCompiles)
+if(MSVC)
+    set(CMAKE_REQUIRED_FLAGS "/std:c++latest")
+else()
+    set(CMAKE_REQUIRED_FLAGS "-std=c++23")
+endif()
+check_cxx_source_compiles("
+    #include <print>
+    int main() { std::println(\"probe\"); }
+" LIBIPC_HAS_STD_PRINT)
+unset(CMAKE_REQUIRED_FLAGS)
 
-set_target_properties(rt_audio_host rt_audio_service PROPERTIES
+if(LIBIPC_HAS_STD_PRINT)
+    add_executable(rt_audio_service service.cpp)
+    target_include_directories(rt_audio_service PRIVATE
+        ${LIBIPC_PROJECT_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(rt_audio_service PRIVATE ipc)
+    set_target_properties(rt_audio_service PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+else()
+    message(STATUS "audio_realtime: compiler lacks std::print — skipping C++23 service demo")
+endif()
+
+set_target_properties(rt_audio_host PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # --- C FFI wrapper (static lib for Rust and other languages) ---
@@ -74,11 +92,14 @@ if(CARGO_EXECUTABLE)
     )
     add_custom_target(rt_audio_service_rs ALL DEPENDS ${RUST_EXE})
 
-    # Copy the Rust binary next to the C++ binaries
+    # Copy the Rust binary next to the C++ binaries. Use the host demo's
+    # actual output dir so this works for both single- and multi-config
+    # generators, and create it in case this target builds first.
     add_custom_command(TARGET rt_audio_service_rs POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:rt_audio_host>
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${RUST_EXE}
-            ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/
+            $<TARGET_FILE_DIR:rt_audio_host>
         COMMENT "Copying rt_audio_service_rs to bin/"
     )
 else()
