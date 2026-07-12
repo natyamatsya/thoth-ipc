@@ -308,6 +308,122 @@ All targets build and run correctly in the same CMake invocation.
 
 ---
 
+## 8. Cross-language C++↔Rust parity (wire ABI, notify, async, reaper)
+
+Bringing Windows C++↔Rust to the parity Linux and macOS already have (per
+`context/windows-parity-rfc.md`). Swift is a macOS-only SwiftPM package and is out
+of scope on Windows. Verified by the xlang matrices: sync 16/16, reap 8/8, async
+36/36. See also ADR-0005 (the async readiness-handle contract).
+
+### 8.1 Cross-process condition variable — shared waiter counter
+
+**Symptom:** Rust↔Rust round-trips hung on Windows (even same-language): the
+sender's `probe` saw the receiver connect and `send` reported success, but the
+receiver's `recv` timed out having pulled nothing.
+
+**Root cause:** the Rust Windows condition variable (`condition.rs`
+`WindowsCondition`) kept its waiter counter in **process-local** memory ("for the
+initial port we keep it in-process"). A condition var is emulated as
+semaphore + mutex + counter (the SignalObjectAndWait pattern); `broadcast()` posts
+the semaphore `counter` times. With a local counter the sender's count was always
+0, so `broadcast()` posted nothing and receivers slept until timeout. The C++
+side worked because `win/condition.h` keeps the counter in shared memory.
+
+**Fix:** move the counter to shared memory named `{name}_COND_SHM_` (an `i32` at
+offset 0, mutated under `lock_`), byte/behaviour-exact with `win/condition.h`, so
+it is cross-process **and** cross-language.
+
+### 8.2 Ring `AlignSize` is 8 on MSVC x64 (not 16)
+
+The ring shm name embeds `AlignSize = min(DataSize, alignof(std::max_align_t))`.
+MSVC x64 `alignof(std::max_align_t)` is **8** (vs 16 on Linux/macOS x86-64, where
+`long double` is 16-aligned), so the Windows ring name is
+`…__QU_CONN__<name>__64__8`. Rust's `RING_ALIGN` used `libc::max_align_t`, which is
+unix-only and would compute 16; it now uses an explicit `8` on `windows` so both
+sides emit the same name and the peers meet.
+
+### 8.3 Named-object namespace is a compile-time parameter
+
+All shared kernel objects (shm, mutex, semaphore, notify events) are qualified
+with a namespace prefix, default **`Local\`** (session-local `BaseNamedObjects`),
+switchable to `Global\` (services / cross-session) at build time:
+
+- C++: CMake `LIBIPC_WIN_OBJ_NAMESPACE` → `LIBIPC_WIN_OBJ_NS` macro →
+  `ipc::detail::win_object_name()` in `win/to_tchar.h`, applied at the three Win32
+  name sites (`shm_win.cpp`, `win/mutex.h`, `win/semaphore.h`).
+- Rust: the `win-global` feature → `platform::windows::win_object_name()`.
+
+`Local\<n>` and a bare `<n>` resolve to the same per-session kernel object, so the
+default is wire-compatible with today's unqualified names; the two languages must
+agree at build time.
+
+### 8.4 Single `<Windows.h>` preamble (`imp/windows_preamble.h`)
+
+**Symptom:** the reactor failed to compile — `RegisterWaitForSingleObject` /
+`UnregisterWaitEx` were "not a member of the global namespace" — even though a
+standalone TU including `<Windows.h>` had them.
+
+**Root cause:** `WIN32_LEAN_AND_MEAN` drops the legacy thread-pool wait API. Since
+`<Windows.h>` is include-guarded, a header that pulled in the lean form first
+(`liveness.h` had defined it) silently stripped those symbols from every other
+header sharing the TU.
+
+**Fix:** `include/libipc/imp/windows_preamble.h` is the single place the library
+includes `<Windows.h>` — never lean — and every win header routes through it.
+`proto/*` keep their own lean include (winsock ordering) and are left untouched.
+
+### 8.5 Layer-1 notify — named auto-reset Events
+
+Windows readiness is a waitable `HANDLE`, not an fd, so the notify backend uses
+**one named auto-reset Event per reader connection slot** (mirroring the POSIX
+FIFO-per-slot design, which is already broadcast-correct):
+
+- On enqueue the sender `SetEvent`s every connected slot's Event except its own.
+  `SetEvent` on an already-signaled auto-reset event is idempotent (stays
+  signaled — the level-triggered behaviour the fd backends have).
+- Each reader waits on its own slot's Event; the wait auto-resets it, so
+  `drain()` is a no-op.
+- Event name (a cross-process **and** cross-language ABI): `<ns>ipcntf_<16-hex
+  FNV-1a of "{prefix}__IPC_SHM__NOTIFY__{name}">_<slot>`. Byte-exact between C++
+  (`notify.h` `LIBIPC_NOTIFY_BACKEND_WINEVENT`) and Rust (`notify.rs`
+  `#[cfg(windows)]`). C++ uses TCHAR-generic `::CreateEvent` + `get_sa()`.
+
+### 8.6 Layer-2 reactor + async — thread-pool wait
+
+The reactor multiplexes readiness handles. Windows can't epoll/kqueue a HANDLE, so
+the Windows arm of `reactor.cpp` is a thin registry over the Win32 thread pool:
+`add` = `RegisterWaitForSingleObject` (`WT_EXECUTEONLYONCE`, re-armed in the
+callback on `disposition::keep`); synchronous `remove` =
+`UnregisterWaitEx(wait, INVALID_HANDLE_VALUE)`, which blocks until any in-flight
+callback returns. A `removed` flag + erase-under-lock, with `UnregisterWaitEx`
+called **outside** the lock, avoids the re-arm/free race and a lock-ordering
+deadlock. The reactor/async contract is `wait_handle_t`-typed (see ADR-0005), so
+C++ stdexec `async_recv` and both coroutine paths work unchanged.
+
+Rust's `AsyncRoute` has no `tokio::AsyncFd` on Windows, so it registers the Event
+with the thread pool; each callback wakes a `tokio::sync::Notify` the task awaits,
+then `recv()` re-polls `try_recv` (arming `notified().enable()` before the
+re-check to avoid a lost wakeup). `UnregisterWaitEx` on drop precedes freeing the
+callback's `Arc<Notify>`.
+
+### 8.7 Dead-connection reaper — process start token
+
+The reaper's owner table is platform-neutral; only three functions are OS-specific
+(`liveness.h` / `liveness.rs`):
+
+- `self_pid()` → `GetCurrentProcessId()` (Rust previously returned 0 on non-unix —
+  a bug: a Windows receiver never populated the owner table).
+- `start_token(pid)` → `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` +
+  `GetProcessTimes`, packing the creation `FILETIME` (100-ns ticks since 1601) as
+  `(dwHighDateTime << 32) | dwLowDateTime`. This is the Windows row of the xlang §9
+  cross-language token formula — **C++ and Rust must pack identically**, which the
+  reap matrix's cross-language "live" cases prove.
+- `is_process_alive(pid, tok)` → `OpenProcess` + `GetExitCodeProcess ==
+  STILL_ACTIVE`, then a start-token compare for PID reuse. Conservative: any
+  "can't determine" (OpenProcess fails for a reason other than
+  `ERROR_INVALID_PARAMETER`, or the token is unreadable) errs toward **alive** —
+  a live peer is never false-reaped, mirroring the POSIX EPERM policy.
+
 ## Summary of Windows vs. POSIX Behavioral Differences
 
 | Behavior                         | Linux / macOS                  | Windows                                    |
@@ -321,3 +437,11 @@ All targets build and run correctly in the same CMake invocation.
 | Current PID                      | `getpid()`                     | **`_getpid()`**                             |
 | Real-time thread priority        | `SCHED_FIFO` / Mach policies   | **MMCSS "Pro Audio"** (fallback: `TIME_CRITICAL`) |
 | Designated initializers (C++17)  | accepted (extension)           | **rejected** (requires C++20)               |
+| Layer-1 readiness primitive      | fd (FIFO / libnotify)          | **named auto-reset Event `HANDLE`**         |
+| Readiness drain                  | `::read` (level-triggered)     | **no-op** (auto-reset self-resets)          |
+| Layer-2 async multiplexer        | epoll/kqueue reactor thread; tokio `AsyncFd` | **`RegisterWaitForSingleObject`** (thread pool); tokio `Notify` |
+| Synchronous reactor `remove`     | ack on reactor thread          | **`UnregisterWaitEx(INVALID_HANDLE_VALUE)`** |
+| Condition-var waiter counter     | in the shared `pthread`/ulock state | **shared shm counter** (`{name}_COND_SHM_`) |
+| Ring `alignof(max_align_t)` (x64)| 16                             | **8** (folded into the shm name)            |
+| Shared-object namespace          | filesystem path                | **`Local\` (default) / `Global\`** (compile-time) |
+| Reaper start token               | BSD start time / `/proc` starttime | **`GetProcessTimes` creation FILETIME**     |

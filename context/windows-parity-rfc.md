@@ -1,8 +1,33 @@
 # RFC: Windows parity for thoth-ipc (ABI, notify, async, reaper)
 
-- **Status:** proposal — **must be implemented and validated on a Windows
-  machine.** This design was authored on macOS; no Windows build or test was
-  possible here, so every "verify" below is a real step, not a formality.
+- **Status:** **Implemented (C++↔Rust) and validated on Windows — 2026-07-12.**
+  All six phases landed; the sync (16/16), reap (8/8) and async (36/36) xlang
+  matrices are green on `windows-latest`/MSVC. Original proposal (authored on
+  macOS, untested there) retained below as the design record; see the corrections
+  immediately following and the durable reference in
+  [`../cpp/libipc/doc/windows-technical-notes.md`](../cpp/libipc/doc/windows-technical-notes.md)
+  and [`../doc/adr/0005-cross-platform-async-readiness-handle.md`](../doc/adr/0005-cross-platform-async-readiness-handle.md).
+
+## Corrections found during implementation
+
+Three assumptions in the proposal below were wrong on real hardware:
+
+1. **Sync was NOT fully working on Windows.** The proposal treated Windows sync
+   primitives as done. In fact the Rust Windows **condition variable kept its
+   waiter counter in process-local memory**, so every cross-process `broadcast()`
+   was a no-op and receivers never woke — even Rust↔Rust. Fixed by moving the
+   counter to shared memory (`{name}_COND_SHM_`), byte/behaviour-exact with C++
+   `win/condition.h`. This, not the ABI, was the real Phase-1 blocker.
+2. **AlignSize is 8 on windows-msvc x64, not 16.** MSVC `alignof(max_align_t)` == 8
+   (vs 16 on Linux/macOS x86-64), so the ring name is `…__QU_CONN__<name>__64__8`.
+   §1.2's "verify it equals 16 / use `align_of::<u128>()`" would have *broken*
+   parity; Rust uses an explicit 8 on Windows.
+3. **The reactor and async/coro headers were `int fd`-typed, not
+   `wait_handle_t`-typed** (§3 assumed otherwise). Windows HANDLEs can't
+   round-trip through `int`, so `reactor.{h,cpp}`, `async_recv.h`, `coro_recv.h`
+   were widened to `ipc::wait_handle_t` (a bigger change than §3 implied). A
+   `windows_preamble.h` was also added so a lean `<Windows.h>` in one header can
+   never strip the thread-pool wait API from the reactor's TU.
 - **Scope:** bring Windows **C++↔Rust** to the parity macOS and Linux already
   have: the byte-exact wire ABI, Layer-1 notify, Layer-2 async (C++ stdexec
   senders **and** both coroutine paths; Rust `AsyncRoute`), and the
