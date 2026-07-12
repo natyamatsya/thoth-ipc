@@ -37,39 +37,71 @@ const RING_ALIGN: usize = {
     if DATA_LENGTH < a { DATA_LENGTH } else { a }
 };
 
-/// Bit 31 of `RingSlot::size`: this is the last fragment of a message.
-const SIZE_LAST: u32 = 0x8000_0000;
-/// Bit 30 of `RingSlot::size`: payload is a `storage_id` (large-message path).
-const SIZE_STORAGE: u32 = 0x4000_0000;
-/// Mask for the actual byte count stored in the low 30 bits of `size`.
-const SIZE_MASK: u32 = 0x3FFF_FFFF;
-
-/// Number of ring slots (matches C++ `elem_max = 256`).
+/// Number of ring slots (matches C++ `elem_max = 256`). Slot index is the write
+/// cursor truncated to u8, which wraps at 256 — so this is documentation.
+#[allow(dead_code)]
 const RING_SIZE: usize = 256;
 
 // ---------------------------------------------------------------------------
 // Ring slot layout in shared memory
 // ---------------------------------------------------------------------------
 
-/// A single slot in the circular ring buffer.
-/// Each slot holds a fixed-size payload and metadata for tracking reads.
+/// A ring slot — byte-exact with the C++ broadcast `elem_t<DataSize=80,Align=8>`:
+/// `{ data_[80]; rc_ }` (88 bytes). `data_` holds a `msg_t<64,8>` (see msg_* below).
 ///
-/// `rc` mirrors the C++ `prod_cons_impl<single,multi,broadcast>::elem_t::rc_`:
-///   - low  32 bits (EP_MASK): connection bitmask — which receivers still need to read
+/// `rc_` mirrors `prod_cons_impl<single,multi,broadcast>::elem_t::rc_`:
+///   - low  32 bits (EP_MASK): connection bitmask — which receivers still must read
 ///   - high 32 bits (~EP_MASK): epoch — generation counter written by the sender
-///
-/// A slot is free when `(rc & EP_MASK) == 0` OR the epoch in `rc` differs from the
-/// sender's current epoch (stale bits from a previous generation).
-#[repr(C)]
-struct RingSlot {
-    /// Message payload (up to DATA_LENGTH bytes).
-    data: [u8; DATA_LENGTH],
-    /// Actual size of data in this slot.
-    size: AtomicU32,
-    /// Sender identity stamp for self-message filtering (matches C++ msg_t::cc_id_).
-    cc_id: AtomicU32,
-    /// Read-counter + epoch packed into 64 bits (matches C++ rc_ field).
-    rc: AtomicU64,
+/// A slot is free when `(rc_ & EP_MASK) == 0` OR its epoch differs from the writer's.
+#[repr(C, align(8))]
+struct ElemT {
+    data_: [u8; MSG_SIZE], // holds a msg_t<64,8>
+    rc_: AtomicU64,
+}
+
+/// Size of `msg_t<64,8>`: 16-byte header + 64-byte payload.
+const MSG_SIZE: usize = 80;
+// Field offsets within `ElemT.data_` (a msg_t<64,8>), byte-exact with C++ ipc.cpp.
+const MSG_CC_ID: usize = 0; // u32  sender identity (self-message filter)
+const MSG_ID: usize = 4; // u32  message id (fragment grouping)
+const MSG_REMAIN: usize = 8; // i32  bytes remaining AFTER this fragment
+const MSG_STORAGE: usize = 12; // u8   payload is a storage_id (large-message path)
+const MSG_PAYLOAD: usize = 16; // [u8; 64] fragment payload
+
+const _: () = {
+    assert!(std::mem::size_of::<ElemT>() == 88);
+    assert!(std::mem::align_of::<ElemT>() == 8);
+    assert!(std::mem::offset_of!(ElemT, rc_) == 80);
+};
+
+impl ElemT {
+    /// Write the msg_t header + payload into this slot's `data_`.
+    unsafe fn write_msg(&self, cc_id: u32, id: u32, remain: i32, storage: bool, payload: &[u8]) {
+        let p = self.data_.as_ptr() as *mut u8;
+        std::ptr::copy_nonoverlapping(cc_id.to_ne_bytes().as_ptr(), p.add(MSG_CC_ID), 4);
+        std::ptr::copy_nonoverlapping(id.to_ne_bytes().as_ptr(), p.add(MSG_ID), 4);
+        std::ptr::copy_nonoverlapping(remain.to_ne_bytes().as_ptr(), p.add(MSG_REMAIN), 4);
+        p.add(MSG_STORAGE).write(if storage { 1 } else { 0 });
+        std::ptr::copy_nonoverlapping(payload.as_ptr(), p.add(MSG_PAYLOAD), payload.len());
+    }
+    /// Read the msg_t header: (cc_id, id, remain, storage).
+    unsafe fn read_header(&self) -> (u32, u32, i32, bool) {
+        let p = self.data_.as_ptr();
+        let mut b = [0u8; 4];
+        std::ptr::copy_nonoverlapping(p.add(MSG_CC_ID), b.as_mut_ptr(), 4);
+        let cc_id = u32::from_ne_bytes(b);
+        std::ptr::copy_nonoverlapping(p.add(MSG_ID), b.as_mut_ptr(), 4);
+        let id = u32::from_ne_bytes(b);
+        std::ptr::copy_nonoverlapping(p.add(MSG_REMAIN), b.as_mut_ptr(), 4);
+        let remain = i32::from_ne_bytes(b);
+        let storage = p.add(MSG_STORAGE).read() != 0;
+        (cc_id, id, remain, storage)
+    }
+    /// Copy `n` payload bytes out of this slot.
+    unsafe fn read_payload(&self, n: usize) -> Vec<u8> {
+        let p = self.data_.as_ptr().add(MSG_PAYLOAD);
+        std::slice::from_raw_parts(p, n).to_vec()
+    }
 }
 
 /// Bitmask for the connection bits in the 64-bit `rc` field (low 32 bits).
@@ -152,11 +184,15 @@ unsafe fn ring_header(base: *mut u8) -> &'static RingHeader {
     &*(base as *const RingHeader)
 }
 
-/// Get a pointer to slot `idx` from the shm base.
-unsafe fn ring_slot(base: *mut u8, idx: u8) -> &'static RingSlot {
-    let slots_base = base.add(std::mem::size_of::<RingHeader>());
-    &*((slots_base as *const RingSlot).add(idx as usize))
+/// Get slot `idx`. Slots start at offset 192 (== C++ block_) with an 88-byte
+/// stride (`sizeof(ElemT)`), byte-exact with the C++ elem_array.
+unsafe fn ring_slot(base: *mut u8, idx: u8) -> &'static ElemT {
+    let slots_base = base.add(OFF_BLOCK);
+    &*((slots_base as *const ElemT).add(idx as usize))
 }
+
+/// Offset of the first ring slot (C++ `block_`): after conn_head_base + head_.
+const OFF_BLOCK: usize = 192;
 
 // ---------------------------------------------------------------------------
 // Connection mode
@@ -183,11 +219,14 @@ struct ChanInner {
     conn_id: u32,          // bitmask for this receiver (0 for senders)
     cc_id: u32,            // unique endpoint identity for self-message filtering
     read_cursor: u32,      // receiver's read position
+    send_seq: u32,         // per-sender msg_t.id_ counter (fragment grouping)
+    recv_cache: HashMap<u32, (usize, Vec<u8>)>, // id_ -> (fill offset, buffer) reassembly
     wt_waiter: Waiter,     // write-side waiter (senders block here when ring is full)
     rd_waiter: Waiter,     // read-side waiter (receivers block here when ring is empty)
     cc_waiter: Waiter,     // connection waiter (wait_for_recv)
     _cc_id_shm: ShmHandle, // shared atomic counter for cc_id allocation (kept alive for counter lifetime)
     #[cfg(unix)]
+    #[allow(dead_code)]
     chunk_shm: HashMap<usize, ChunkShmHandle>, // large-message chunk storage (CH_CONN__), keyed by chunk_size
     #[cfg(not(unix))]
     chunk_shm: HashMap<usize, ShmHandle>, // large-message chunk storage (CH_CONN__), keyed by chunk_size
@@ -205,7 +244,11 @@ impl ChanInner {
         let wt_name = format!("{full_prefix}WT_CONN__{name}");
         let rd_name = format!("{full_prefix}RD_CONN__{name}");
         let cc_name = format!("{full_prefix}CC_CONN__{name}");
-        let cc_id_name = format!("{full_prefix}CA_CONN__{name}");
+        // cc_id endpoint-identity counter is PREFIX-GLOBAL (no channel name) —
+        // byte-exact with C++ cc_acc(prefix) = "__IPC_SHM__CA_CONN__". A
+        // per-channel counter would collide a C++ sender's cc_id with a Rust
+        // receiver's and the receiver would drop every message as "self".
+        let cc_id_name = format!("{full_prefix}CA_CONN__");
 
         let ring_shm = ShmHandle::acquire(&ring_name, ring_shm_size(), ShmOpenMode::CreateOrOpen)?;
         let cc_id_shm = ShmHandle::acquire(
@@ -274,6 +317,8 @@ impl ChanInner {
             conn_id,
             cc_id,
             read_cursor,
+            send_seq: 0,
+            recv_cache: HashMap::new(),
             wt_waiter,
             rd_waiter,
             cc_waiter,
@@ -285,6 +330,7 @@ impl ChanInner {
 
     /// Open (or return cached) the chunk-storage shm for `chunk_size`-byte chunks.
     /// Returns a raw pointer to the shm base (valid for the lifetime of the handle in the map).
+    #[allow(dead_code)]
     fn chunk_shm_base(&mut self, chunk_size: usize) -> Option<*mut u8> {
         if !self.chunk_shm.contains_key(&chunk_size) {
             let shm = cs::open_chunk_shm(&self._prefix, chunk_size).ok()?;
@@ -297,7 +343,8 @@ impl ChanInner {
         unsafe { ring_header(self.ring_shm.get()) }
     }
 
-    fn slot(&self, idx: u8) -> &RingSlot {
+    #[allow(dead_code)]
+    fn slot(&self, idx: u8) -> &ElemT {
         unsafe { ring_slot(self.ring_shm.get(), idx) }
     }
 
@@ -368,14 +415,13 @@ impl ChanInner {
         Ok(true)
     }
 
-    /// Send data. Returns `true` if sent successfully.
+    /// Send `data` (sender only). Fragments into msg_t records, byte-exact with
+    /// C++ ipc.cpp send(): each fragment carries `remain_ = size - offset -
+    /// data_length` (≤0 on the final fragment, signalling "last").
     ///
-    /// Mirrors C++ push + force_push:
-    /// 1. CAS `rc` from (stale or zero) to `epoch | cc` — claims the slot.
-    /// 2. Write cc_id + data + size into the claimed slot.
-    /// 3. `write_cursor.fetch_add(1, Release)` — "data ready" signal for receivers.
-    /// 4. Broadcast rd_waiter per fragment.
-    /// On timeout: increment epoch, disconnect stale receivers, retry (force_push).
+    /// NOTE: no chunk-storage fast path yet, so all sizes fragment. C++ uses
+    /// storage for >64B, so cross-language interop is currently ≤64B (single
+    /// fragment); Rust↔Rust works for all sizes via fragmentation.
     fn send(&mut self, data: &[u8], timeout_ms: u64) -> io::Result<bool> {
         if data.is_empty() {
             return Ok(false);
@@ -383,166 +429,57 @@ impl ChanInner {
         if self.mode != Mode::Sender {
             return Err(io::Error::new(io::ErrorKind::Other, "not a sender"));
         }
-
-        // Large-message fast path: store in chunk shm, push a single slot with storage_id.
-        // Mirrors C++: `if (size > large_msg_limit) { acquire_storage(...) }`
-        if data.len() > DATA_LENGTH {
-            match self.send_large(data, timeout_ms)? {
-                Some(result) => return Ok(result),
-                None => {} // storage unavailable — fall through to fragmentation
-            }
+        if self.hdr().connections.load(Ordering::Relaxed) == 0 {
+            return Ok(false); // no receivers
         }
+        let size = data.len();
+        let msg_id = self.send_seq;
+        self.send_seq = self.send_seq.wrapping_add(1);
 
-        let hdr = self.hdr();
-        let ring_ptr = self.ring_shm.get();
-
+        // Full data_length-sized fragments.
+        let full = size / DATA_LENGTH;
         let mut offset = 0usize;
-        while offset < data.len() {
-            let chunk_len = std::cmp::min(DATA_LENGTH, data.len() - offset);
-            let is_last = (offset + chunk_len) >= data.len();
-
-            // Spin-then-wait until we can CAS-claim the next slot.
-            // On timeout, force_push: bump epoch + disconnect stale receivers.
-            let claimed_wt: u32;
-            'claim: loop {
-                let cc = hdr.connections.load(Ordering::Relaxed) as u64;
-                if cc == 0 {
-                    return Ok(false); // no receivers
-                }
-
-                let epoch = hdr.epoch.load(Ordering::Relaxed);
-                let wt = hdr.write_cursor.load(Ordering::Relaxed);
-                let slot = unsafe { ring_slot(ring_ptr, wt as u8) };
-                let cur_rc = slot.rc.load(Ordering::Acquire);
-                let rem_cc = cur_rc & EP_MASK;
-
-                // Slot is busy if remaining readers overlap current connections
-                // AND the epoch in rc matches the current epoch (same generation).
-                if (cc & rem_cc) != 0 && (cur_rc & !EP_MASK) == epoch {
-                    let ok = Self::wait_for(
-                        &self.wt_waiter,
-                        || {
-                            let s = unsafe { ring_slot(ring_ptr, wt as u8) };
-                            let rc = s.rc.load(Ordering::Acquire);
-                            let ep = hdr.epoch.load(Ordering::Relaxed);
-                            (cc & (rc & EP_MASK)) != 0 && (rc & !EP_MASK) == ep
-                        },
-                        Some(timeout_ms),
-                    )?;
-                    if ok {
-                        continue 'claim;
-                    }
-                    // Timeout — force_push: bump epoch, disconnect stale receivers.
-                    // Mirrors C++ force_push: epoch_ += ep_incr, disconnect_receiver(rem_cc).
-                    hdr.epoch.fetch_add(EP_INCR, Ordering::AcqRel);
-                    let cur_rc2 = slot.rc.load(Ordering::Acquire);
-                    let rem_cc2 = cur_rc2 & EP_MASK;
-                    if rem_cc2 != 0 {
-                        // Disconnect all receivers still blocking this slot.
-                        let new_cc = hdr
-                            .connections
-                            .fetch_and(!(rem_cc2 as u32), Ordering::AcqRel)
-                            & !(rem_cc2 as u32);
-                        if new_cc == 0 {
-                            return Ok(false); // no receivers left
-                        }
-                        // Clear stale bits from the slot's rc so we can claim it.
-                        slot.rc.fetch_and(!rem_cc2, Ordering::AcqRel);
-                    }
-                    continue 'claim;
-                }
-
-                // Atomically claim the slot: set rc = epoch | cc.
-                let new_rc = epoch | cc;
-                if slot
-                    .rc
-                    .compare_exchange_weak(cur_rc, new_rc, Ordering::Release, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    claimed_wt = wt;
-                    break 'claim;
-                }
-                std::thread::yield_now();
+        for _ in 0..full {
+            let remain = size as i32 - offset as i32 - DATA_LENGTH as i32;
+            if !self.push_fragment(msg_id, remain, &data[offset..offset + DATA_LENGTH], timeout_ms)? {
+                return Ok(false);
             }
-
-            // --- Slot is claimed: write cc_id, data, size, then advance write_cursor ---
-            let slot = self.slot(claimed_wt as u8);
-            slot.cc_id.store(self.cc_id, Ordering::Relaxed);
-
-            let slot_ptr = &slot.data as *const [u8; DATA_LENGTH] as *mut u8;
-            unsafe {
-                std::ptr::copy_nonoverlapping(data.as_ptr().add(offset), slot_ptr, chunk_len);
-            }
-
-            let size_val = if is_last {
-                SIZE_LAST | (chunk_len as u32)
-            } else {
-                chunk_len as u32
-            };
-            slot.size.store(size_val, Ordering::Relaxed);
-
-            // Advance write cursor with Release — "data ready" signal for receivers.
-            hdr.write_cursor.fetch_add(1, Ordering::Release);
-
-            offset += chunk_len;
-
-            // Wake receivers after each fragment (matches C++ per-fragment broadcast).
-            let _ = self.rd_waiter.broadcast();
+            offset += DATA_LENGTH;
         }
-
+        // Trailing partial fragment (remain_ becomes negative → last).
+        let tail = size - offset; // 0..DATA_LENGTH
+        if tail > 0 {
+            let remain = tail as i32 - DATA_LENGTH as i32;
+            if !self.push_fragment(msg_id, remain, &data[offset..], timeout_ms)? {
+                return Ok(false);
+            }
+        }
         Ok(true)
     }
 
-    /// Large-message send path: store `data` in a chunk-storage shm slot and
-    /// push a single ring slot containing the `storage_id`.
-    ///
-    /// Returns `Ok(true)` on success, `Ok(false)` if storage is unavailable
-    /// (caller should fall back to fragmentation), or an error.
-    ///
-    /// Mirrors C++ `acquire_storage` + single `try_push(remain, &dat.first, 0)`.
-    fn send_large(&mut self, data: &[u8], timeout_ms: u64) -> io::Result<Option<bool>> {
-        let chunk_size = cs::calc_chunk_size(data.len());
-
-        // Open (or reuse) the chunk shm — do this before borrowing hdr.
-        let chunk_base: *mut u8 = match self.chunk_shm_base(chunk_size) {
-            Some(b) => b,
-            None => return Ok(None), // storage unavailable, fall back
-        };
-
+    /// Claim the next ring slot (C++ prod_cons broadcast push / force_push) and
+    /// write one msg_t fragment, then advance wt_ and wake receivers.
+    fn push_fragment(&self, msg_id: u32, remain: i32, payload: &[u8], timeout_ms: u64) -> io::Result<bool> {
         let hdr = self.hdr();
-        let conns = hdr.connections.load(Ordering::Relaxed);
-
-        let (storage_id, payload_ptr) = match cs::acquire_storage(chunk_base, chunk_size, conns) {
-            Some(pair) => pair,
-            None => return Ok(None), // pool exhausted, fall back to fragmentation
-        };
-
-        // Copy payload into the chunk.
-        unsafe {
-            std::ptr::copy_nonoverlapping(data.as_ptr(), payload_ptr, data.len());
-        }
-
-        // Push a single ring slot: data = storage_id (i32, 4 bytes), size has STORAGE|LAST flags.
         let ring_ptr = self.ring_shm.get();
         let claimed_wt: u32;
         'claim: loop {
             let cc = hdr.connections.load(Ordering::Relaxed) as u64;
             if cc == 0 {
-                cs::recycle_storage(chunk_base, chunk_size, storage_id, !0u32);
-                return Ok(Some(false));
+                return Ok(false); // no receivers
             }
             let epoch = hdr.epoch.load(Ordering::Relaxed);
             let wt = hdr.write_cursor.load(Ordering::Relaxed);
             let slot = unsafe { ring_slot(ring_ptr, wt as u8) };
-            let cur_rc = slot.rc.load(Ordering::Acquire);
+            let cur_rc = slot.rc_.load(Ordering::Acquire);
             let rem_cc = cur_rc & EP_MASK;
-
+            // Busy if a live reader still owes a read in the current epoch.
             if (cc & rem_cc) != 0 && (cur_rc & !EP_MASK) == epoch {
                 let ok = Self::wait_for(
                     &self.wt_waiter,
                     || {
                         let s = unsafe { ring_slot(ring_ptr, wt as u8) };
-                        let rc = s.rc.load(Ordering::Acquire);
+                        let rc = s.rc_.load(Ordering::Acquire);
                         let ep = hdr.epoch.load(Ordering::Relaxed);
                         (cc & (rc & EP_MASK)) != 0 && (rc & !EP_MASK) == ep
                     },
@@ -551,25 +488,22 @@ impl ChanInner {
                 if ok {
                     continue 'claim;
                 }
+                // Timeout → force_push: bump epoch, disconnect stale receivers.
                 hdr.epoch.fetch_add(EP_INCR, Ordering::AcqRel);
-                let cur_rc2 = slot.rc.load(Ordering::Acquire);
-                let rem_cc2 = cur_rc2 & EP_MASK;
-                if rem_cc2 != 0 {
-                    let new_cc = hdr
-                        .connections
-                        .fetch_and(!(rem_cc2 as u32), Ordering::AcqRel)
-                        & !(rem_cc2 as u32);
+                let rem2 = slot.rc_.load(Ordering::Acquire) & EP_MASK;
+                if rem2 != 0 {
+                    let new_cc =
+                        hdr.connections.fetch_and(!(rem2 as u32), Ordering::AcqRel) & !(rem2 as u32);
                     if new_cc == 0 {
-                        cs::recycle_storage(chunk_base, chunk_size, storage_id, !0u32);
-                        return Ok(Some(false));
+                        return Ok(false);
                     }
-                    slot.rc.fetch_and(!rem_cc2, Ordering::AcqRel);
+                    slot.rc_.fetch_and(!rem2, Ordering::AcqRel);
                 }
                 continue 'claim;
             }
             let new_rc = epoch | cc;
             if slot
-                .rc
+                .rc_
                 .compare_exchange_weak(cur_rc, new_rc, Ordering::Release, Ordering::Relaxed)
                 .is_ok()
             {
@@ -578,30 +512,11 @@ impl ChanInner {
             }
             std::thread::yield_now();
         }
-
-        let slot = self.slot(claimed_wt as u8);
-        slot.cc_id.store(self.cc_id, Ordering::Relaxed);
-
-        // Write storage_id (bytes 0..4) and payload_size (bytes 4..8) into the slot.
-        // The receiver uses payload_size to reconstruct chunk_size and find the chunk shm.
-        let slot_ptr = &slot.data as *const [u8; DATA_LENGTH] as *mut u8;
-        unsafe {
-            std::ptr::copy_nonoverlapping(storage_id.to_ne_bytes().as_ptr(), slot_ptr, 4);
-            std::ptr::copy_nonoverlapping(
-                (data.len() as u32).to_ne_bytes().as_ptr(),
-                slot_ptr.add(4),
-                4,
-            );
-        }
-
-        // size = LAST | STORAGE | 8  (8 = sizeof(storage_id) + sizeof(payload_size))
-        slot.size
-            .store(SIZE_LAST | SIZE_STORAGE | 8, Ordering::Relaxed);
-
+        let slot = unsafe { ring_slot(ring_ptr, claimed_wt as u8) };
+        unsafe { slot.write_msg(self.cc_id, msg_id, remain, false, payload) };
         hdr.write_cursor.fetch_add(1, Ordering::Release);
         let _ = self.rd_waiter.broadcast();
-
-        Ok(Some(true))
+        Ok(true)
     }
 
     /// Try sending without blocking (timeout = 0).
@@ -609,143 +524,103 @@ impl ChanInner {
         self.send(data, 0)
     }
 
-    /// Receive a message. Returns empty buffer on timeout.
-    ///
-    /// Mirrors C++ pop + self-message filtering:
-    /// 1. Wait until `write_cursor > read_cursor` (Acquire) — data-ready signal.
-    /// 2. Skip slots sent by this endpoint (cc_id match).
-    /// 3. Read data + size from the slot.
-    /// 4. CAS-clear our bit from rc (low 32 only, preserve epoch in high 32).
-    /// 5. Unconditionally broadcast wt_waiter after every pop (matches C++ recv).
+    /// Clear this receiver's bit from a slot's rc_ (C++ pop's rc CAS), preserving
+    /// the epoch in the high bits. Call after reading the payload.
+    fn release_slot(&self, ring_ptr: *mut u8, idx: u8) {
+        let slot = unsafe { ring_slot(ring_ptr, idx) };
+        let mut k = 0u32;
+        loop {
+            let cur_rc = slot.rc_.load(Ordering::Acquire);
+            if (cur_rc & EP_MASK) == 0 {
+                return; // already fully read
+            }
+            let nxt = cur_rc & !(self.conn_id as u64);
+            if slot
+                .rc_
+                .compare_exchange_weak(cur_rc, nxt, Ordering::Release, Ordering::Relaxed)
+                .is_ok()
+            {
+                return;
+            }
+            crate::spin_lock::adaptive_yield_pub(&mut k);
+        }
+    }
+
+    /// Receive one message (receiver only). Reassembles msg_t fragments by id_,
+    /// byte-exact with C++ ipc.cpp recv(). No chunk-storage path yet.
     fn recv(&mut self, timeout_ms: Option<u64>) -> io::Result<IpcBuffer> {
         if self.mode != Mode::Receiver {
             return Err(io::Error::new(io::ErrorKind::Other, "not a receiver"));
         }
-
         let deadline = timeout_ms.map(|ms| Instant::now() + Duration::from_millis(ms));
-        let mut assembled = Vec::new();
-        let conn_mask = self.conn_id as u64;
-
+        let ring_ptr = self.ring_shm.get();
         loop {
-            let hdr = self.hdr();
-            let ring_ptr = self.ring_shm.get();
+            let hdr = unsafe { ring_header(ring_ptr) };
 
-            // Data is ready when write_cursor has advanced past our read_cursor.
-            // Mirrors C++: `if (cur == cursor()) return false;`
+            // Data ready when the write cursor has advanced past our read cursor.
             if hdr.write_cursor.load(Ordering::Acquire) == self.read_cursor {
                 let cur = self.read_cursor;
-
                 let tm = match deadline {
                     Some(dl) => {
-                        let remaining = dl.saturating_duration_since(Instant::now());
-                        if remaining.is_zero() {
-                            return Ok(IpcBuffer::new());
+                        let rem = dl.saturating_duration_since(Instant::now());
+                        if rem.is_zero() {
+                            return Ok(IpcBuffer::default());
                         }
-                        Some(remaining.as_millis() as u64)
+                        Some(rem.as_millis() as u64)
                     }
                     None => None,
                 };
-
                 let ok = Self::wait_for(
                     &self.rd_waiter,
-                    || {
-                        let h = unsafe { ring_header(ring_ptr) };
-                        h.write_cursor.load(Ordering::Acquire) == cur
-                    },
+                    || unsafe { ring_header(ring_ptr) }.write_cursor.load(Ordering::Acquire) == cur,
                     tm,
                 )?;
                 if !ok {
-                    return Ok(IpcBuffer::new()); // timeout
+                    return Ok(IpcBuffer::default()); // timeout
                 }
-                continue; // re-check
+                continue;
             }
 
-            // write_cursor Acquire synchronises with fetch_add Release in send,
-            // making cc_id, data, and size writes visible.
-            // Use ring_ptr directly (not self.slot()) so there is no &self borrow
-            // that would conflict with the &mut self call to chunk_shm() below.
             let idx = self.read_cursor as u8;
-            let size_val;
-            let chunk_len;
-            let is_last;
-            let is_storage;
-            let is_own;
-            let storage_id: cs::StorageId;
-            let payload_size: usize;
-            let inline_data: Option<Vec<u8>>;
-            unsafe {
-                let slot = ring_slot(ring_ptr, idx);
-                size_val = slot.size.load(Ordering::Relaxed);
-                chunk_len = (size_val & SIZE_MASK) as usize;
-                is_last = (size_val & SIZE_LAST) != 0;
-                is_storage = (size_val & SIZE_STORAGE) != 0;
-                is_own = slot.cc_id.load(Ordering::Relaxed) == self.cc_id;
+            let slot = unsafe { ring_slot(ring_ptr, idx) };
+            let (cc_id, id, remain, _storage) = unsafe { slot.read_header() };
+            let is_self = cc_id == self.cc_id;
+            let r_size = DATA_LENGTH as i32 + remain;
 
-                if is_storage {
-                    let slot_ptr = slot.data.as_ptr();
-                    let mut id_bytes = [0u8; 4];
-                    let mut sz_bytes = [0u8; 4];
-                    std::ptr::copy_nonoverlapping(slot_ptr, id_bytes.as_mut_ptr(), 4);
-                    std::ptr::copy_nonoverlapping(slot_ptr.add(4), sz_bytes.as_mut_ptr(), 4);
-                    storage_id = cs::StorageId::from_ne_bytes(id_bytes);
-                    payload_size = u32::from_ne_bytes(sz_bytes) as usize;
-                    inline_data = None;
-                } else {
-                    let chunk = std::slice::from_raw_parts(slot.data.as_ptr(), chunk_len);
-                    storage_id = 0;
-                    payload_size = 0;
-                    inline_data = Some(chunk.to_vec());
-                }
-            }
-            // No &self borrow is live here — safe to call &mut self methods.
+            // Read the payload BEFORE releasing the slot (only if we keep it).
+            let frag: Option<Vec<u8>> = if is_self || r_size <= 0 {
+                None
+            } else {
+                let n = if remain <= 0 { r_size as usize } else { DATA_LENGTH };
+                Some(unsafe { slot.read_payload(n) })
+            };
 
-            if !is_own {
-                if is_storage {
-                    let chunk_size = cs::calc_chunk_size(payload_size);
-                    if let Some(chunk_base) = self.chunk_shm_base(chunk_size) {
-                        if let Some(payload_ptr) =
-                            cs::find_storage(chunk_base, chunk_size, storage_id)
-                        {
-                            let payload = unsafe {
-                                std::slice::from_raw_parts(payload_ptr as *const u8, payload_size)
-                            };
-                            assembled.extend_from_slice(payload);
-                        }
-                        cs::recycle_storage(chunk_base, chunk_size, storage_id, self.conn_id);
-                    }
-                } else if let Some(data) = inline_data {
-                    assembled.extend_from_slice(&data);
-                }
-            }
-
-            // CAS-clear our bit from the low 32 bits of rc, preserving the epoch.
-            // Re-derive the slot pointer from ring_ptr to avoid holding a self borrow.
-            let mut k = 0u32;
-            loop {
-                let slot = unsafe { ring_slot(ring_ptr, idx) };
-                let cur_rc = slot.rc.load(Ordering::Acquire);
-                let nxt_rc = cur_rc & !conn_mask;
-                if slot
-                    .rc
-                    .compare_exchange_weak(cur_rc, nxt_rc, Ordering::Release, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    break;
-                }
-                crate::spin_lock::adaptive_yield_pub(&mut k);
-            }
-
-            // Unconditionally wake writers after every pop (matches C++ recv behaviour).
+            // Release our rc_ bit, advance, and wake senders — for every slot
+            // (including self / malformed) so the ring can be reused.
+            self.release_slot(ring_ptr, idx);
+            self.read_cursor = self.read_cursor.wrapping_add(1);
             let _ = self.wt_waiter.broadcast();
 
-            self.read_cursor = self.read_cursor.wrapping_add(1);
+            if is_self || r_size <= 0 {
+                continue; // skip self-message / malformed
+            }
+            let frag = frag.unwrap();
 
-            if is_last {
-                if is_own {
-                    assembled.clear();
-                    return Ok(IpcBuffer::new());
+            // Reassemble by id_.
+            if let Some((off, mut buf)) = self.recv_cache.remove(&id) {
+                let n = frag.len();
+                buf[off..off + n].copy_from_slice(&frag);
+                if remain <= 0 {
+                    return Ok(IpcBuffer::from_vec(buf)); // last fragment
                 }
-                return Ok(IpcBuffer::from_vec(assembled));
+                self.recv_cache.insert(id, (off + n, buf));
+            } else if remain <= 0 {
+                return Ok(IpcBuffer::from_vec(frag)); // single fragment
+            } else {
+                // First fragment of a multi-fragment message; r_size is the total.
+                let mut buf = vec![0u8; r_size as usize];
+                buf[..frag.len()].copy_from_slice(&frag);
+                self.recv_cache.insert(id, (frag.len(), buf));
             }
         }
     }

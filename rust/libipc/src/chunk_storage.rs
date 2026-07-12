@@ -1,3 +1,4 @@
+#![allow(dead_code)] // chunk storage: deferred to xlang milestone 3
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
 //
