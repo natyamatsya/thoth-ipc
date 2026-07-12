@@ -175,12 +175,23 @@ interface: the reactor's registry type-erases heterogeneous waiters into
 
 ## Non-goals
 
-No change to the wire format or shm layout (stable, cross-language), and no
-change to the Rust/Swift ports (they have their own async stories).
+No change to the wire format or shm layout (stable, cross-language).
+
+## Cross-language
+
+The **Layer-1 notify protocol is now part of the cross-language ABI**: the Rust
+port (`rust/libipc`, features `notify` / `async-tokio`) implements a byte-exact
+`notify_source`/`notify_sink` (same libnotify key / FIFO paths — see
+[`context/xlang-channel-abi.md`](../../../context/xlang-channel-abi.md) §8), so a
+Rust `send()` wakes a C++ `async_recv` and a C++ `send()` wakes a Rust
+`AsyncRoute::recv().await`. This is verified by the async matrix
+(`tools/xlang_matrix.py --async-lang …`, CI: `.github/workflows/xlang.yml`).
+Swift has the wire ABI but not yet the notify layer.
 
 ## See also
 
 - [`context/stdexec-async-recv-rfc.md`](../../../context/stdexec-async-recv-rfc.md) — full RFC.
+- [`context/xlang-channel-abi.md`](../../../context/xlang-channel-abi.md) §8 — the byte-exact notify protocol.
 - Headers: `include/libipc/ipc.h` (`native_wait_handle`),
   `include/libipc/async_recv.h`, `include/libipc/execution/reactor.h`.
 - Tests: `test/test_notify.cpp`, `test/test_async_recv.cpp`.

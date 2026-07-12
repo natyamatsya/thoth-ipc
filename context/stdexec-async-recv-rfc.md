@@ -1,7 +1,10 @@
 # RFC: Optional stdexec async receive (senders/receivers) for libipc (C++)
 
 - **Status:** Implemented (POSIX; Windows backend pending) — see *Implementation status* below.
-- **Scope:** C++ `libipc` only (opt-in). Rust/Swift ports and the wire format are untouched.
+- **Scope:** C++ `libipc` only (opt-in). The wire format is untouched. *(Update: the
+  Layer-1 notify protocol has since been ported to Rust byte-exact so a Rust
+  `send()` wakes a C++ `async_recv` and vice versa — see
+  [`context/xlang-channel-abi.md`](xlang-channel-abi.md) §8. Swift not yet.)*
 - **Motivating consumer:** Sourcetrail — the agent-UI control channel and the indexer's
   subprocess-result IPC, both of which currently dedicate a blocking thread per channel.
 - **User docs:** [`cpp/libipc/doc/async-recv.md`](../cpp/libipc/doc/async-recv.md).
@@ -54,7 +57,8 @@ execution framework (schedulers + structured cancellation). Two layers:
 ## Non-goals
 
 - No change to the wire format or shm layout (stable, cross-language).
-- No change to the Rust/Swift ports (they have their own async stories).
+- (As proposed, C++-only. Since implemented, the Rust port gained a byte-exact
+  notify layer that interoperates with this C++ reactor — see §8 of the xlang ABI.)
 - Blocking `recv` / `try_recv` stay — this is **additive**.
 
 ## Design
