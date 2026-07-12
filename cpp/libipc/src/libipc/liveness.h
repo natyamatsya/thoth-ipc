@@ -29,13 +29,7 @@
 
 #if defined(LIBIPC_OS_WIN)
 #  include <process.h>
-#  ifndef WIN32_LEAN_AND_MEAN
-#    define WIN32_LEAN_AND_MEAN
-#  endif
-#  ifndef NOMINMAX
-#    define NOMINMAX
-#  endif
-#  include <Windows.h> // OpenProcess, GetProcessTimes, GetExitCodeProcess
+#  include "libipc/imp/windows_preamble.h" // OpenProcess/GetProcessTimes/GetExitCodeProcess
 #else
 #  include <csignal>
 #  include <cerrno>

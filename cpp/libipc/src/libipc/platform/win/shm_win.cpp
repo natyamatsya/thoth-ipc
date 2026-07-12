@@ -1,9 +1,5 @@
 
-#if defined(__MINGW32__)
-#include <windows.h>
-#else
-#include <Windows.h>
-#endif
+#include "libipc/imp/windows_preamble.h"
 
 #include <atomic>
 #include <string>
