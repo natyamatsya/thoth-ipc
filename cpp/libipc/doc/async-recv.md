@@ -154,6 +154,51 @@ struct fake_reactor {                              // models reactor_like
 interface: the reactor's registry type-erases heterogeneous waiters into
 `reactor_waiter*`.)
 
+## Coroutines (`co_await`)
+
+For consumers who prefer `.await`-style syntax (mirroring the Rust/Swift
+`AsyncRoute`), there are two paths over the same Layer-1 fd + reactor:
+
+**(a) With stdexec — free.** The `async_recv` sender is directly awaitable in any
+sender-aware coroutine (P2300 `as_awaitable`), e.g. `exec::task`:
+
+```cpp
+#include <exec/task.hpp>
+exec::task<void> pump(ipc::route& r) {
+    auto sched = co_await stdexec::read_env(stdexec::get_scheduler);
+    for (;;) {
+        ipc::recv_result msg = co_await ipc::async_recv(r, sched);  // same reactor
+        if (!msg) break;
+        dispatch(msg->data(), msg->size());
+    }
+}
+```
+
+No extra library code — structured cancellation (stop-tokens) and composition all
+still apply. This is the recommended path if you already use stdexec.
+
+**(b) Without stdexec — `libipc/execution/coro_recv.h`.** A standalone C++20
+awaiter that needs only `LIBIPC_NOTIFY_FD` (the reactor is compiled with Layer 1,
+independent of stdexec) — no P2300 dependency:
+
+```cpp
+#include "libipc/execution/coro_recv.h"
+ipc::coro::task<int> pump(ipc::route& r) {
+    for (;;) {
+        ipc::recv_result msg = co_await ipc::coro::async_recv_co(r);
+        if (!msg) co_return 1;
+        dispatch(msg->data(), msg->size());
+    }
+}
+// drive it: pump(r).sync_wait();   // batteries-included minimal task
+```
+
+The awaiter parks the readiness fd on the reactor and resumes the coroutine
+**on the reactor thread** (hop to your executor after if needed). Single‑consumer;
+destroying the coroutine while a `co_await` is suspended is safe (the awaiter
+unregisters synchronously in its destructor). Verified cross-process by the
+`xlang_matrix.py` async matrix (harness `xcoro`, no stdexec).
+
 ## Semantics & caveats
 
 - **Error channel:** pruned (ADR-0001). All outcomes ride the value channel as
@@ -195,5 +240,7 @@ a C++/Rust/Swift sender — verified by the full 3-language async matrix.
 - [`context/stdexec-async-recv-rfc.md`](../../../context/stdexec-async-recv-rfc.md) — full RFC.
 - [`context/xlang-channel-abi.md`](../../../context/xlang-channel-abi.md) §8 — the byte-exact notify protocol.
 - Headers: `include/libipc/ipc.h` (`native_wait_handle`),
-  `include/libipc/async_recv.h`, `include/libipc/execution/reactor.h`.
+  `include/libipc/async_recv.h` (senders), `include/libipc/execution/coro_recv.h`
+  (coroutines), `include/libipc/execution/reactor.h`,
+  `include/libipc/execution/recv_result.h`.
 - Tests: `test/test_notify.cpp`, `test/test_async_recv.cpp`.

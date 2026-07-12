@@ -1,16 +1,18 @@
 #pragma once
 
-// Layer 2 support (RFC: context/stdexec-async-recv-rfc.md): a single
-// process-global reactor thread that multiplexes every async channel's
-// readiness fd (Layer 1's native_wait_handle) on one kqueue/epoll, replacing
-// one blocking recv thread per channel. Only compiled with LIBIPC_STDEXEC.
+// A single process-global reactor thread that multiplexes every async channel's
+// readiness fd (Layer 1's native_wait_handle) on one kqueue/epoll, replacing one
+// blocking recv thread per channel. It has no stdexec dependency — only fds — so
+// it is compiled with Layer 1 (LIBIPC_NOTIFY_FD) and is shared by both the
+// stdexec senders/receivers front end (async_recv.h) and the coroutine front end
+// (coro_recv.h).
 //
 // This header deliberately leaks no platform or <thread>/<mutex> details
-// (pimpl), so it can sit in the public include tree for async_recv.h.
+// (pimpl), so it can sit in the public include tree.
 
 #include "libipc/imp/detect_plat.h"
 
-#if defined(LIBIPC_STDEXEC)
+#if defined(LIBIPC_NOTIFY_FD)
 
 namespace ipc {
 namespace detail {
@@ -72,4 +74,4 @@ private:
 } // namespace detail
 } // namespace ipc
 
-#endif // LIBIPC_STDEXEC
+#endif // LIBIPC_NOTIFY_FD

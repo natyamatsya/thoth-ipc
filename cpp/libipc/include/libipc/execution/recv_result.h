@@ -1,0 +1,46 @@
+#pragma once
+
+// The value type shared by both async-receive front ends — the stdexec
+// senders/receivers API (async_recv.h) and the coroutine API (coro_recv.h). It
+// carries a received message or a recv_errc, so a pruned/exception-free pipeline
+// stays data-only. No stdexec dependency: available whenever Layer 1
+// (LIBIPC_NOTIFY_FD) is on.
+
+#include "libipc/imp/detect_plat.h"
+
+#if defined(LIBIPC_NOTIFY_FD)
+
+#include <expected>
+
+#include "libipc/ipc.h"
+
+namespace ipc {
+
+/// \brief Error codes carried on the async-receive value channel (the error type
+/// of ipc::recv_result). Because the error channel is pruned, these are data.
+enum class recv_errc {
+    no_readiness_handle = 1, ///< channel has no native_wait_handle (build with
+                             ///< LIBIPC_NOTIFY_FD and connect as a receiver)
+    out_of_memory,           ///< allocation failed while receiving
+    unknown,                 ///< any other exception surfaced by the receive
+};
+
+/// \brief Human-readable description of a recv_errc.
+inline char const *recv_message(recv_errc e) noexcept {
+    switch (e) {
+    case recv_errc::no_readiness_handle:
+        return "ipc async recv: channel has no readiness handle "
+               "(build with LIBIPC_NOTIFY_FD and connect as a receiver)";
+    case recv_errc::out_of_memory: return "ipc async recv: out of memory while receiving";
+    case recv_errc::unknown:       return "ipc async recv: unknown error while receiving";
+    }
+    return "ipc async recv: unrecognized recv_errc";
+}
+
+/// \brief What an async receive delivers: a received message, or a recv_errc
+/// describing why one could not be produced.
+using recv_result = std::expected<ipc::buff_t, recv_errc>;
+
+} // namespace ipc
+
+#endif // LIBIPC_NOTIFY_FD

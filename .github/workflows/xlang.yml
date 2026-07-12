@@ -91,7 +91,7 @@ jobs:
     - name: Build C++ async harness (FIFO notify backend)
       run: |
         cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_STDEXEC=ON .
-        make xasync -j
+        make xasync xcoro -j
       working-directory: cpp/libipc
       env:
         CC: gcc-14
@@ -103,7 +103,8 @@ jobs:
       run: |
         python3 tools/xlang_matrix.py \
           --async-lang cpp:cpp/libipc/bin/xasync \
-          --async-lang rust:rust/libipc/target/release/xlang
+          --async-lang rust:rust/libipc/target/release/xlang \
+          --async-lang coro:cpp/libipc/bin/xcoro
 
   async-matrix-macos:
     runs-on: macos-latest
@@ -116,7 +117,7 @@ jobs:
     - name: Build C++ async harness (libnotify backend)
       run: |
         cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_STDEXEC=ON .
-        make xasync -j
+        make xasync xcoro -j
       working-directory: cpp/libipc
     - name: Build Rust async harness
       run: cargo build --release --bin xlang --features async-tokio
@@ -130,4 +131,5 @@ jobs:
         python3 tools/xlang_matrix.py \
           --async-lang cpp:cpp/libipc/bin/xasync \
           --async-lang rust:rust/libipc/target/release/xlang \
-          --async-lang swift:"$SWIFT_BIN"
+          --async-lang swift:"$SWIFT_BIN" \
+          --async-lang coro:cpp/libipc/bin/xcoro

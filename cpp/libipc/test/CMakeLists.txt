@@ -60,4 +60,15 @@ if(LIBIPC_STDEXEC)
         CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 endif()
+
+# Coroutine async-receive harness (path b): stdexec-free, needs only Layer 1
+# (the reactor is compiled under LIBIPC_NOTIFY_FD) + C++20/23 coroutines.
+if(LIBIPC_NOTIFY_FD)
+    add_executable(xcoro ${LIBIPC_PROJECT_DIR}/test/xlang/xcoro.cpp)
+    target_include_directories(xcoro PRIVATE ${LIBIPC_PROJECT_DIR}/include)
+    target_link_libraries(xcoro ipc)
+    set_target_properties(xcoro PROPERTIES
+        CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+endif()
 #target_link_libraries(${PROJECT_NAME} tcmalloc_minimal)

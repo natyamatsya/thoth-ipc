@@ -1,6 +1,6 @@
 #include "libipc/execution/reactor.h"
 
-#if defined(LIBIPC_STDEXEC)
+#if defined(LIBIPC_NOTIFY_FD)
 
 #include <atomic>
 #include <condition_variable>
@@ -302,4 +302,4 @@ void reactor::remove(int fd, reactor_waiter *w) {
 } // namespace detail
 } // namespace ipc
 
-#endif // LIBIPC_STDEXEC
+#endif // LIBIPC_NOTIFY_FD

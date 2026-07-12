@@ -36,34 +36,9 @@
 
 #include "libipc/ipc.h"
 #include "libipc/execution/reactor.h"
+#include "libipc/execution/recv_result.h" // ipc::recv_errc / recv_result / recv_message
 
 namespace ipc {
-
-/// \brief Error codes carried on ipc::async_recv's value channel (the error type
-/// of ipc::recv_result). Because the sender's error channel is pruned, these are
-/// data — the pipeline stays exception-free.
-enum class recv_errc {
-    no_readiness_handle = 1, ///< channel has no native_wait_handle (build with
-                             ///< LIBIPC_NOTIFY_FD and connect as a receiver)
-    out_of_memory,           ///< allocation failed while receiving
-    unknown,                 ///< any other exception surfaced by the receive
-};
-
-/// \brief Human-readable description of a recv_errc.
-inline char const *recv_message(recv_errc e) noexcept {
-    switch (e) {
-    case recv_errc::no_readiness_handle:
-        return "ipc::async_recv: channel has no readiness handle "
-               "(build with LIBIPC_NOTIFY_FD and connect as a receiver)";
-    case recv_errc::out_of_memory: return "ipc::async_recv: out of memory while receiving";
-    case recv_errc::unknown:       return "ipc::async_recv: unknown error while receiving";
-    }
-    return "ipc::async_recv: unrecognized recv_errc";
-}
-
-/// \brief What ipc::async_recv delivers on its value channel: a received message,
-/// or a recv_errc describing why one could not be produced.
-using recv_result = std::expected<ipc::buff_t, recv_errc>;
 
 namespace detail {
 
