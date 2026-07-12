@@ -120,6 +120,44 @@ DCLP (on Apple, via `os_unfair_lock_lock`/`unlock`).
 See `cpp/libipc/src/libipc/prod_cons.h` for the exact CAS/memory-order details —
 match them verbatim.
 
+## 6a. Identity & message-id counters (self-filtering + reassembly)
+
+Two shared `atomic<u32>` counters, distinct from the ring:
+
+- **`cc_id_` (endpoint identity)** — from `cc_acc(prefix)` = shm
+  `__IPC_SHM__CA_CONN__` (**prefix-global, NO channel name**), `fetch_add(1)+1`
+  (never 0). Written into every `msg_t.cc_id_`; a receiver drops a fragment when
+  `msg.cc_id_ == its own cc_id_` (self-message filter). **A port must draw
+  `cc_id` from this exact prefix-global counter** — a per-channel counter makes a
+  C++ sender and a port receiver collide on `cc_id` and the receiver silently
+  drops every message.
+- **`id_` (message id)** — from `__IPC_SHM__AC_CONN__<name>` (per-channel),
+  `fetch_add(1)`. Groups fragments of one message in the receiver's reassembly
+  cache. Irrelevant for single-fragment (≤64 B) messages.
+
+## 6b. Reassembly (receiver cache, keyed by `id_`)
+
+Per fragment: skip if self; `r_size = data_length + remain_` (must be > 0).
+- **not cached, `r_size ≤ data_length`** → single fragment, return `data_[0..r_size]`.
+- **not cached, `r_size > data_length`** → first fragment: allocate an `r_size`
+  buffer, copy the first `data_length` bytes, cache `{offset=data_length, buf}`.
+- **cached, `remain_ > 0`** → append `data_length` bytes, advance offset.
+- **cached, `remain_ ≤ 0`** → last fragment: append `data_length + remain_` bytes,
+  return the buffer, erase the cache entry.
+
+Fragments of one message arrive in ring order (single producer), so the append is
+sequential.
+
+## 6c. Large messages (>`large_msg_limit` = 64) — chunk storage
+
+C++ does **not** fragment messages >64 B by default: it stores the payload in a
+separate chunk shm and pushes a single `msg_t` with `storage_ = true` and a
+`storage_id` in `data_`. Fragmentation is only the fallback when storage
+acquisition fails. **Cross-language interop for >64 B therefore requires the
+chunk-storage sub-ABI** (`CHUNK_INFO__`/`CHUNK_DATA__` naming + layout +
+`storage_id` allocation/recycle) — its own spec, deferred. Ports that only
+implement fragmentation interop for ≤64 B (single fragment) with C++.
+
 ## 7. Verification
 
 Every port change is validated by a C++-writer ↔ port-reader round-trip
