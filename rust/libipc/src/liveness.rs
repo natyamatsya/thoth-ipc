@@ -53,9 +53,9 @@ fn slot_index(bit: u32) -> usize {
 fn self_pid() -> i32 {
     unsafe { libc::getpid() }
 }
-#[cfg(not(unix))]
+#[cfg(windows)]
 fn self_pid() -> i32 {
-    0
+    unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() as i32 }
 }
 
 // ---------------------------------------------------------------------------
@@ -70,9 +70,9 @@ fn start_token(pid: i32) -> u64 {
 fn start_token(pid: i32) -> u64 {
     linux::start_token(pid)
 }
-#[cfg(not(unix))]
-fn start_token(_pid: i32) -> u64 {
-    0
+#[cfg(windows)]
+fn start_token(pid: i32) -> u64 {
+    windows_impl::creation_token(pid)
 }
 
 /// Is the recorded process (pid + token) still alive? Conservative: any
@@ -96,9 +96,84 @@ fn is_process_alive(pid: i32, tok: u64) -> bool {
     }
     cur == tok // mismatch ⇒ PID was reused ⇒ our owner is gone
 }
-#[cfg(not(unix))]
-fn is_process_alive(_pid: i32, _tok: u64) -> bool {
-    true
+#[cfg(windows)]
+fn is_process_alive(pid: i32, tok: u64) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_INVALID_PARAMETER};
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    const STILL_ACTIVE: u32 = 259;
+    if pid <= 0 {
+        return false;
+    }
+    let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid as u32) };
+    if h.is_null() {
+        // ERROR_INVALID_PARAMETER ⇒ no such PID ⇒ gone. Any other failure
+        // (e.g. access denied) ⇒ the process exists but we can't inspect it ⇒
+        // conservatively ALIVE (never false-reap), mirroring POSIX EPERM.
+        return unsafe { GetLastError() } != ERROR_INVALID_PARAMETER;
+    }
+    let mut code: u32 = 0;
+    let mut alive = true;
+    if unsafe { GetExitCodeProcess(h, &mut code) } != 0 {
+        alive = code == STILL_ACTIVE; // a real exit code 259 stays "alive" — conservative
+    }
+    let cur = if alive {
+        windows_impl::creation_token_of(h)
+    } else {
+        0
+    };
+    unsafe { CloseHandle(h) };
+    if !alive {
+        return false; // definitely gone
+    }
+    if tok == 0 {
+        return true; // no recorded token → token-less fallback
+    }
+    if cur == 0 {
+        return true; // couldn't read current token → don't risk a false reap
+    }
+    cur == tok // mismatch ⇒ PID was reused ⇒ our owner is gone
+}
+
+#[cfg(windows)]
+mod windows_impl {
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE};
+    use windows_sys::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    /// Read the process creation FILETIME (100-ns ticks since 1601) from an open
+    /// handle and pack it high:low — the Windows row of the xlang §9 token
+    /// formula. Byte-identical to C++ `start_token`. 0 ⇒ couldn't determine.
+    pub(super) fn creation_token_of(h: HANDLE) -> u64 {
+        let mut creation = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let mut exit_t = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let mut kernel_t = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let mut user_t = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let ok = unsafe {
+            GetProcessTimes(h, &mut creation, &mut exit_t, &mut kernel_t, &mut user_t)
+        };
+        if ok != 0 {
+            ((creation.dwHighDateTime as u64) << 32) | (creation.dwLowDateTime as u64)
+        } else {
+            0
+        }
+    }
+
+    /// Open `pid`, read its creation token, close. 0 ⇒ couldn't determine.
+    pub(super) fn creation_token(pid: i32) -> u64 {
+        if pid <= 0 {
+            return 0;
+        }
+        let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid as u32) };
+        if h.is_null() {
+            return 0;
+        }
+        let t = creation_token_of(h);
+        unsafe { CloseHandle(h) };
+        t
+    }
 }
 
 // ---------------------------------------------------------------------------

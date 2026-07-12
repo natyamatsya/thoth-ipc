@@ -29,6 +29,13 @@
 
 #if defined(LIBIPC_OS_WIN)
 #  include <process.h>
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <Windows.h> // OpenProcess, GetProcessTimes, GetExitCodeProcess
 #else
 #  include <csignal>
 #  include <cerrno>
@@ -92,8 +99,20 @@ inline std::int32_t self_pid() noexcept {
 //   * Linux: the raw starttime jiffies from /proc/<pid>/stat field 22.
 inline std::uint64_t start_token(std::int32_t pid) noexcept {
 #if defined(LIBIPC_OS_WIN)
-    (void)pid;
-    return 0; // TODO: process creation time via GetProcessTimes
+    if (pid <= 0) return 0;
+    HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                             static_cast<DWORD>(pid));
+    if (h == nullptr) return 0;
+    FILETIME creation{}, exit_t{}, kernel_t{}, user_t{};
+    std::uint64_t tok = 0;
+    if (::GetProcessTimes(h, &creation, &exit_t, &kernel_t, &user_t)) {
+        // Creation FILETIME (100-ns ticks since 1601) packed high:low — the
+        // Windows row of the xlang §9 token formula; Rust must pack identically.
+        tok = (static_cast<std::uint64_t>(creation.dwHighDateTime) << 32)
+            | static_cast<std::uint64_t>(creation.dwLowDateTime);
+    }
+    ::CloseHandle(h);
+    return tok;
 #elif defined(LIBIPC_OS_APPLE)
     if (pid <= 0) return 0;
     struct proc_bsdinfo info;
@@ -141,9 +160,33 @@ inline std::uint64_t self_start_token() noexcept {
 // ALIVE, so a live-but-idle peer is never falsely reaped.
 inline bool is_process_alive(std::int32_t pid, std::uint64_t tok) noexcept {
 #if defined(LIBIPC_OS_WIN)
-    (void)pid;
-    (void)tok;
-    return true; // TODO: OpenProcess + creation-time compare
+    if (pid <= 0) return false;
+    HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                             static_cast<DWORD>(pid));
+    if (h == nullptr) {
+        // ERROR_INVALID_PARAMETER ⇒ no such PID ⇒ gone. Any other failure
+        // (e.g. ERROR_ACCESS_DENIED) ⇒ the process exists but we can't inspect
+        // it ⇒ conservatively ALIVE (never false-reap), mirroring POSIX EPERM.
+        return ::GetLastError() != ERROR_INVALID_PARAMETER;
+    }
+    DWORD code = 0;
+    bool alive = true;
+    if (::GetExitCodeProcess(h, &code)) {
+        alive = (code == STILL_ACTIVE); // a real exit code 259 stays "alive" — conservative
+    }
+    std::uint64_t cur = 0;
+    if (alive) {
+        FILETIME creation{}, exit_t{}, kernel_t{}, user_t{};
+        if (::GetProcessTimes(h, &creation, &exit_t, &kernel_t, &user_t)) {
+            cur = (static_cast<std::uint64_t>(creation.dwHighDateTime) << 32)
+                | static_cast<std::uint64_t>(creation.dwLowDateTime);
+        }
+    }
+    ::CloseHandle(h);
+    if (!alive) return false;      // definitely gone
+    if (tok == 0) return true;     // no recorded token → token-less fallback
+    if (cur == 0) return true;     // couldn't read current token → don't risk a false reap
+    return cur == tok;             // mismatch ⇒ PID was reused ⇒ our owner is gone
 #else
     if (pid <= 0) return false;
     bool exists = (::kill(static_cast<pid_t>(pid), 0) == 0) || (errno != ESRCH);
