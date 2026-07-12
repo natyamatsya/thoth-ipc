@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::buffer::IpcBuffer;
@@ -28,6 +28,14 @@ use crate::waiter::Waiter;
 
 /// Default data length per ring slot (matches C++ `ipc::data_length = 64`).
 const DATA_LENGTH: usize = 64;
+/// Ring element alignment folded into the shm name, matching C++'s queue
+/// `AlignSize = min(DataSize, alignof(std::max_align_t))` (8 on Apple arm64,
+/// 16 on x86-64 / Linux aarch64). Derived from `libc::max_align_t` to stay
+/// byte-identical to C++ per target.
+const RING_ALIGN: usize = {
+    let a = std::mem::align_of::<libc::max_align_t>();
+    if DATA_LENGTH < a { DATA_LENGTH } else { a }
+};
 
 /// Bit 31 of `RingSlot::size`: this is the last fragment of a message.
 const SIZE_LAST: u32 = 0x8000_0000;
@@ -69,24 +77,74 @@ const EP_MASK: u64 = 0x0000_0000_ffff_ffff;
 /// Increment for the epoch stored in the high 32 bits of `rc`.
 const EP_INCR: u64 = 0x0000_0001_0000_0000;
 
-/// Header of the shared ring buffer, followed by RING_SIZE `RingSlot`s.
+/// Header of the shared ring buffer, byte-exact with the C++ `elem_array` head
+/// so C++ and the Rust port share the same shm object (see
+/// `context/xlang-channel-abi.md`). Layout on a 64-bit target:
+///
+/// ```text
+///   0  connections  AtomicU32   == C++ conn_head_base::cc_ (connection bitmask)
+///   4  lc           os_unfair_lock == C++ conn_head_base::lc_ (Apple spin_lock)
+///   8  constructed  AtomicU8    == C++ conn_head_base::constructed_ (DCLP flag)
+///  64  write_cursor AtomicU32   == C++ prod_cons head_.wt_  (alignas cache line)
+/// 128  epoch        AtomicU64   == C++ prod_cons head_.epoch_ (alignas cache line)
+/// 136  sender_count AtomicU32   Rust-internal (lives in C++ padding; C++ ignores)
+/// ```
+///
+/// **Cross-language ABI — do not reorder without changing C++/Swift in lockstep.**
 #[repr(C)]
 struct RingHeader {
-    /// Connection bitmask: each receiver has one bit.
-    connections: AtomicU32,
-    /// Write cursor (only writer(s) advance this).
-    write_cursor: AtomicU32,
-    /// Number of connected senders (for multi-producer).
-    sender_count: AtomicU32,
-    /// Epoch counter — incremented by the sender on each force-push.
-    /// Stored in the high 32 bits of each slot's `rc` to distinguish
-    /// "slot is being read" from "slot was freed in a prior generation".
-    epoch: AtomicU64,
+    connections: AtomicU32,        // @0
+    lc: libc::os_unfair_lock,      // @4
+    constructed: AtomicU8,         // @8
+    _pad_a: [u8; 55],              // @9..64
+    write_cursor: AtomicU32,       // @64
+    _pad_b: [u8; 60],              // @68..128
+    epoch: AtomicU64,              // @128
+    sender_count: AtomicU32,       // @136
+    _pad_c: [u8; 52],              // @140..192
 }
+
+/// Total ring shm size — byte-exact `sizeof(C++ elem_array<broadcast,80,8>)` on
+/// Apple arm64 (see spec §2). Includes C++'s trailing sender-flag region so the
+/// mapping matches. TODO(xlang): compute per-target from the slot geometry.
+const RING_SHM_SIZE: usize = 22784;
 
 /// Total shared memory size for the ring.
 const fn ring_shm_size() -> usize {
-    std::mem::size_of::<RingHeader>() + RING_SIZE * std::mem::size_of::<RingSlot>()
+    RING_SHM_SIZE
+}
+
+// Compile-time guard: the header must match the C++ conn_head_base + head_ offsets.
+const _: () = {
+    assert!(std::mem::size_of::<RingHeader>() == 192);
+    assert!(std::mem::offset_of!(RingHeader, connections) == 0);
+    assert!(std::mem::offset_of!(RingHeader, lc) == 4);
+    assert!(std::mem::offset_of!(RingHeader, constructed) == 8);
+    assert!(std::mem::offset_of!(RingHeader, write_cursor) == 64);
+    assert!(std::mem::offset_of!(RingHeader, epoch) == 128);
+};
+
+/// C++ `conn_head_base::init()` — a double-checked-locking construct via the
+/// header's `os_unfair_lock`. Initialises the ring header exactly once across
+/// processes/languages; without it a C++ peer that sees `constructed_ == 0`
+/// would placement-new (zero) the header, wiping a connection bit this port set.
+///
+/// # Safety
+/// `hdr` must point into a valid, mapped ring shm region.
+unsafe fn init_header(hdr: &RingHeader) {
+    if hdr.constructed.load(Ordering::Acquire) != 0 {
+        return;
+    }
+    let lc = &hdr.lc as *const libc::os_unfair_lock as *mut libc::os_unfair_lock;
+    libc::os_unfair_lock_lock(lc);
+    if hdr.constructed.load(Ordering::Relaxed) == 0 {
+        // Fresh shm is zero-filled (cc_ already 0); publish constructed_. (We do
+        // not re-zero lc_ while holding it, unlike C++'s placement-new — the
+        // resulting bytes are identical: lc_ ends unlocked, constructed_ = 1.)
+        hdr.connections.store(0, Ordering::Relaxed);
+        hdr.constructed.store(1, Ordering::Release);
+    }
+    libc::os_unfair_lock_unlock(lc);
 }
 
 /// Get a pointer to the ring header from the shm base.
@@ -138,14 +196,12 @@ struct ChanInner {
 
 impl ChanInner {
     fn open(prefix: &str, name: &str, mode: Mode) -> io::Result<Self> {
-        let full_prefix = if prefix.is_empty() {
-            String::new()
-        } else {
-            format!("{prefix}_")
-        };
+        // Byte-exact with C++ make_prefix: prefix + "__IPC_SHM__" + TAG + name;
+        // the ring additionally carries the __<DataSize>__<AlignSize> geometry.
+        let full_prefix = format!("{prefix}__IPC_SHM__");
         // chunk_prefix includes the channel name so each channel has isolated chunk storage.
         let chunk_prefix = format!("{full_prefix}{name}_");
-        let ring_name = format!("{full_prefix}QU_CONN__{name}");
+        let ring_name = format!("{full_prefix}QU_CONN__{name}__{DATA_LENGTH}__{RING_ALIGN}");
         let wt_name = format!("{full_prefix}WT_CONN__{name}");
         let rd_name = format!("{full_prefix}RD_CONN__{name}");
         let cc_name = format!("{full_prefix}CC_CONN__{name}");
@@ -158,8 +214,10 @@ impl ChanInner {
             ShmOpenMode::CreateOrOpen,
         )?;
 
-        // No explicit init needed: fresh shm from shm_open is zero-filled.
+        // Byte-exact DCLP header init (C++ conn_head_base::init), so a C++ peer
+        // does not re-zero the header and wipe our connection bit.
         let hdr = unsafe { ring_header(ring_shm.get()) };
+        unsafe { init_header(hdr) };
 
         // Allocate a unique endpoint identity from the shared counter (mirrors C++ cc_acc()).
         let cc_id_atomic = unsafe { &*(cc_id_shm.get() as *const AtomicU32) };
@@ -882,12 +940,8 @@ impl Route {
 
     /// Remove all backing storage with a prefix.
     pub fn clear_storage_with_prefix(prefix: &str, name: &str) {
-        let full_prefix = if prefix.is_empty() {
-            String::new()
-        } else {
-            format!("{prefix}_")
-        };
-        ShmHandle::clear_storage(&format!("{full_prefix}QU_CONN__{name}"));
+        let full_prefix = format!("{prefix}__IPC_SHM__");
+        ShmHandle::clear_storage(&format!("{full_prefix}QU_CONN__{name}__{DATA_LENGTH}__{RING_ALIGN}"));
         ShmHandle::clear_storage(&format!("{full_prefix}CA_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}WT_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}RD_CONN__{name}"));
