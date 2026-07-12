@@ -50,9 +50,10 @@ func runBlocking<T: Sendable>(_ body: @Sendable @escaping () async throws -> T) 
 /// Safe to call from POSIX threads. Use when the caller knows no other process
 /// holds the segment open (i.e. at benchmark teardown).
 func clearStorageImplSync(prefix: String, name: String) {
-    let fp = prefix.isEmpty ? "" : "\(prefix)_"
-    ShmHandle.clearStorage(name: "\(fp)QU_CONN__\(name)")
-    ShmHandle.clearStorage(name: "\(fp)CA_CONN__\(name)")
+    let fp = fullPrefix(prefix)
+    ShmHandle.clearStorage(name: ringName(prefix, name))
+    // NB: CA_CONN__ (cc_id counter) is prefix-global + persistent — like C++
+    // cc_acc, never cleared. Clearing it resets cc_ids under concurrent channels.
     ShmHandle.clearStorage(name: "\(fp)WT_CONN__\(name)_WAITER_COND_")
     ShmHandle.clearStorage(name: "\(fp)WT_CONN__\(name)_WAITER_LOCK_")
     ShmHandle.clearStorage(name: "\(fp)RD_CONN__\(name)_WAITER_COND_")
@@ -66,9 +67,8 @@ func clearStorageImplSync(prefix: String, name: String) {
 }
 
 func clearStorageImpl(prefix: String, name: String) async {
-    let fp = prefix.isEmpty ? "" : "\(prefix)_"
-    ShmHandle.clearStorage(name: "\(fp)QU_CONN__\(name)")
-    ShmHandle.clearStorage(name: "\(fp)CA_CONN__\(name)")
+    let fp = fullPrefix(prefix)
+    ShmHandle.clearStorage(name: ringName(prefix, name))
     await Waiter.clearStorage(name: "\(fp)WT_CONN__\(name)")
     await Waiter.clearStorage(name: "\(fp)RD_CONN__\(name)")
     await Waiter.clearStorage(name: "\(fp)CC_CONN__\(name)")

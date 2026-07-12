@@ -59,17 +59,68 @@ struct RingSlot {
     var rc:   UInt64.AtomicRepresentation = .init(0)
 }
 
+// Ring header — byte-exact with the C++ elem_array head (conn_head_base + the
+// cache-line-aligned prod_cons head_). See context/xlang-channel-abi.md.
+//   0 connections  @0   == C++ conn_head_base::cc_
+//   4 lc           @4   == C++ conn_head_base::lc_ (os_unfair_lock)
+//   8 constructed  @8   == C++ conn_head_base::constructed_ (DCLP flag)
+//  64 writeCursor  @64  == C++ head_.wt_   (alignas cache line)
+// 128 epoch        @128 == C++ head_.epoch_
+// 136 senderCount  @136 Swift-internal (C++ padding)
+// Explicit padding forces the offsets (Swift alignas changes offset via padding,
+// not a sized wrapper). Guarded at runtime by assertHeaderLayout().
 @_alignment(8)
 struct RingHeader {
-    var connections: UInt32.AtomicRepresentation = .init(0)
-    var writeCursor: UInt32.AtomicRepresentation = .init(0)
-    var senderCount: UInt32.AtomicRepresentation = .init(0)
-    var epoch:       UInt64.AtomicRepresentation = .init(0)
+    var connections: UInt32.AtomicRepresentation = .init(0)   // @0
+    var lc: os_unfair_lock = os_unfair_lock()                 // @4
+    var constructed: UInt8 = 0                                // @8
+    var _padA: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    var writeCursor: UInt32.AtomicRepresentation = .init(0)   // @64
+    var _padB: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    var epoch: UInt64.AtomicRepresentation = .init(0)         // @128
+    var senderCount: UInt32.AtomicRepresentation = .init(0)   // @136
+    var _padC: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 }
 
 let ringHeaderSize = MemoryLayout<RingHeader>.size
 let ringSlotSize   = MemoryLayout<RingSlot>.size
-func ringShmSize() -> Int { ringHeaderSize + ringSize * ringSlotSize }
+let ringShmSizeBytes = 22784  // sizeof(C++ elem_array<broadcast,80,8>) on Apple arm64
+func ringShmSize() -> Int { ringShmSizeBytes }
+
+// Ring element alignment folded into the shm name: C++ AlignSize =
+// min(dataLength, alignof(max_align_t)) = 8 on Apple arm64 (16 on x86-64).
+let ringAlign = 8
+
+// Byte-exact object names (C++ make_prefix: prefix + "__IPC_SHM__" + TAG + ...).
+@inline(__always) func fullPrefix(_ prefix: String) -> String { "\(prefix)__IPC_SHM__" }
+func ringName(_ prefix: String, _ name: String) -> String {
+    "\(fullPrefix(prefix))QU_CONN__\(name)__\(dataLength)__\(ringAlign)"
+}
+// cc_id endpoint-identity counter is PREFIX-GLOBAL (no channel name), matching
+// C++ cc_acc — else a C++ sender and a Swift receiver collide on cc_id.
+func ccIdName(_ prefix: String) -> String { "\(fullPrefix(prefix))CA_CONN__" }
+
+/// C++ conn_head_base::init() DCLP via os_unfair_lock — so a C++ peer that sees
+/// constructed_ == 0 does not re-zero the header and wipe our connection bit.
+func initHeader(_ hdr: UnsafeMutablePointer<RingHeader>) {
+    if hdr.pointee.constructed != 0 { return }
+    os_unfair_lock_lock(&hdr.pointee.lc)
+    if hdr.pointee.constructed == 0 {
+        ua32(&hdr.pointee.connections).store(0, ordering: .relaxed)
+        hdr.pointee.constructed = 1
+    }
+    os_unfair_lock_unlock(&hdr.pointee.lc)
+}
+
+/// Guard the header layout against C++ drift (offsets from the spec).
+func assertHeaderLayout() {
+    assert(MemoryLayout<RingHeader>.size == 192)
+    assert(MemoryLayout<RingHeader>.offset(of: \.connections)! == 0)
+    assert(MemoryLayout<RingHeader>.offset(of: \.lc)! == 4)
+    assert(MemoryLayout<RingHeader>.offset(of: \.constructed)! == 8)
+    assert(MemoryLayout<RingHeader>.offset(of: \.writeCursor)! == 64)
+    assert(MemoryLayout<RingHeader>.offset(of: \.epoch)! == 128)
+}
 
 // MARK: - Mode
 
@@ -102,10 +153,10 @@ final class ChanInner: @unchecked Sendable {
     var disconnected: Bool = false
 
     static func open(prefix: String, name: String, mode: Mode) async throws(IpcError) -> ChanInner {
-        let fp = prefix.isEmpty ? "" : "\(prefix)_"
+        let fp = fullPrefix(prefix)
         let chunkPrefix = "\(fp)\(name)_"
-        let ringShm  = try ShmHandle.acquire(name: "\(fp)QU_CONN__\(name)", size: ringShmSize(), mode: .createOrOpen)
-        let ccIdShm  = try ShmHandle.acquire(name: "\(fp)CA_CONN__\(name)", size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
+        let ringShm  = try ShmHandle.acquire(name: ringName(prefix, name), size: ringShmSize(), mode: .createOrOpen)
+        let ccIdShm  = try ShmHandle.acquire(name: ccIdName(prefix), size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
         let wtWaiter = try await Waiter.open(name: "\(fp)WT_CONN__\(name)")
         let rdWaiter = try await Waiter.open(name: "\(fp)RD_CONN__\(name)")
         let ccWaiter = try await Waiter.open(name: "\(fp)CC_CONN__\(name)")
@@ -118,6 +169,8 @@ final class ChanInner: @unchecked Sendable {
         }
 
         let hdr = ringShm.ptr.assumingMemoryBound(to: RingHeader.self)
+        assertHeaderLayout()
+        initHeader(hdr)  // byte-exact DCLP so a C++ peer does not re-zero the header
         var connId: UInt32 = 0
         var readCursor: UInt32 = 0
 
@@ -147,10 +200,10 @@ final class ChanInner: @unchecked Sendable {
     }
 
     static func openSync(prefix: String, name: String, mode: Mode) throws(IpcError) -> ChanInner {
-        let fp = prefix.isEmpty ? "" : "\(prefix)_"
+        let fp = fullPrefix(prefix)
         let chunkPrefix = "\(fp)\(name)_"
-        let ringShm  = try ShmHandle.acquire(name: "\(fp)QU_CONN__\(name)", size: ringShmSize(), mode: .createOrOpen)
-        let ccIdShm  = try ShmHandle.acquire(name: "\(fp)CA_CONN__\(name)", size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
+        let ringShm  = try ShmHandle.acquire(name: ringName(prefix, name), size: ringShmSize(), mode: .createOrOpen)
+        let ccIdShm  = try ShmHandle.acquire(name: ccIdName(prefix), size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
         let wtWaiter = try Waiter.openSync(name: "\(fp)WT_CONN__\(name)")
         let rdWaiter = try Waiter.openSync(name: "\(fp)RD_CONN__\(name)")
         let ccWaiter = try Waiter.openSync(name: "\(fp)CC_CONN__\(name)")
@@ -162,6 +215,8 @@ final class ChanInner: @unchecked Sendable {
         }
 
         let hdr = ringShm.ptr.assumingMemoryBound(to: RingHeader.self)
+        assertHeaderLayout()
+        initHeader(hdr)  // byte-exact DCLP so a C++ peer does not re-zero the header
         var connId: UInt32 = 0
         var readCursor: UInt32 = 0
 
