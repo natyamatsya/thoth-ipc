@@ -48,15 +48,112 @@ mod backend {
     use std::ffi::CString;
     use std::os::raw::c_char;
 
+    use std::os::raw::c_int;
+    use std::os::unix::io::RawFd;
+
     // libsystem_notify (part of libSystem, linked by default on Apple).
     extern "C" {
         fn notify_post(name: *const c_char) -> u32;
+        fn notify_register_file_descriptor(
+            name: *const c_char,
+            notify_fd: *mut c_int,
+            flags: c_int,
+            out_token: *mut c_int,
+        ) -> u32;
+        fn notify_cancel(token: c_int) -> u32;
     }
+
+    const NOTIFY_STATUS_OK: u32 = 0;
 
     /// libnotify service key for a channel (one per channel — posts are multicast).
     /// Byte-exact with C++ `notify_key`.
     fn notify_key(prefix: &str, name: &str) -> String {
         format!("ipc.ntf.{}", notify_hash(prefix, name))
+    }
+
+    /// Reader side: an fd that libnotify writes a token to on every matching post.
+    pub struct NotifySink {
+        fd: RawFd,
+        token: c_int,
+    }
+
+    impl NotifySink {
+        pub fn new() -> Self {
+            Self { fd: -1, token: -1 }
+        }
+
+        /// Register a readiness fd for the channel. `slot_bit` is unused (multicast).
+        pub fn open(&mut self, prefix: &str, name: &str, _slot_bit: u32) -> bool {
+            if self.fd != -1 {
+                return true;
+            }
+            let key = match CString::new(notify_key(prefix, name)) {
+                Ok(k) => k,
+                Err(_) => return false,
+            };
+            let mut fd: c_int = -1;
+            let mut tok: c_int = -1;
+            let st = unsafe {
+                notify_register_file_descriptor(key.as_ptr(), &mut fd, 0, &mut tok)
+            };
+            if st != NOTIFY_STATUS_OK {
+                return false;
+            }
+            // Non-blocking so drain() never stalls; cloexec for fd hygiene.
+            unsafe {
+                let fl = libc::fcntl(fd, libc::F_GETFL, 0);
+                if fl != -1 {
+                    libc::fcntl(fd, libc::F_SETFL, fl | libc::O_NONBLOCK);
+                }
+                libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+            }
+            self.fd = fd;
+            self.token = tok;
+            true
+        }
+
+        pub fn valid(&self) -> bool {
+            self.fd != -1
+        }
+
+        pub fn native_handle(&self) -> RawFd {
+            self.fd
+        }
+
+        /// Consume pending token ints after the fd signalled readable.
+        pub fn drain(&self) {
+            if self.fd == -1 {
+                return;
+            }
+            let mut tok: c_int = 0;
+            loop {
+                let n = unsafe {
+                    libc::read(
+                        self.fd,
+                        &mut tok as *mut c_int as *mut libc::c_void,
+                        std::mem::size_of::<c_int>(),
+                    )
+                };
+                if n <= 0 {
+                    break;
+                }
+            }
+        }
+
+        pub fn close(&mut self) {
+            // notify_cancel closes the fd once its last token is cancelled.
+            if self.token != -1 {
+                unsafe { notify_cancel(self.token) };
+                self.token = -1;
+            }
+            self.fd = -1;
+        }
+    }
+
+    impl Drop for NotifySink {
+        fn drop(&mut self) {
+            self.close();
+        }
     }
 
     /// Writer side: post the channel's key; libnotify multicasts to all readers.
@@ -101,8 +198,20 @@ mod backend {
     use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::io::AsRawFd;
 
+    use std::ffi::CString;
+    use std::os::unix::io::RawFd;
+
     /// Max reader connection slots in broadcast mode (C++ `notify_max_slots`).
     const MAX_SLOTS: usize = 32;
+
+    /// Bit position (0..31) of a single-bit connection id, or -1 if none.
+    fn slot_of(bit: u32) -> i32 {
+        if bit == 0 {
+            -1
+        } else {
+            bit.trailing_zeros() as i32
+        }
+    }
 
     /// Deterministic FIFO path shared by both processes: `<dir>/ipcntf_<hash>.<slot>`.
     /// Directory is `/tmp` by default, overridable via `LIBIPC_NOTIFY_DIR`. Byte-exact
@@ -227,6 +336,104 @@ mod backend {
         }
     }
 
+    /// Reader side: owns the FIFO for this receiver's connection slot.
+    pub struct NotifySink {
+        rfd: RawFd, // read end, handed out via native_handle()
+        wfd: RawFd, // our own write end, kept open so the FIFO never reports EOF
+        path: Option<String>,
+    }
+
+    impl NotifySink {
+        pub fn new() -> Self {
+            Self {
+                rfd: -1,
+                wfd: -1,
+                path: None,
+            }
+        }
+
+        pub fn open(&mut self, prefix: &str, name: &str, slot_bit: u32) -> bool {
+            if self.rfd != -1 {
+                return true;
+            }
+            let slot = slot_of(slot_bit);
+            if slot < 0 || slot >= MAX_SLOTS as i32 {
+                return false;
+            }
+            let path = fifo_path(prefix, name, slot as usize);
+            let cpath = match CString::new(path.clone()) {
+                Ok(p) => p,
+                Err(_) => return false,
+            };
+            let r = unsafe { libc::mkfifo(cpath.as_ptr(), 0o600) };
+            if r != 0 {
+                let e = std::io::Error::last_os_error();
+                if e.raw_os_error() != Some(libc::EEXIST) {
+                    return false;
+                }
+            }
+            let rfd = unsafe {
+                libc::open(cpath.as_ptr(), libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC)
+            };
+            if rfd == -1 {
+                unsafe { libc::unlink(cpath.as_ptr()) };
+                return false;
+            }
+            let wfd = unsafe {
+                libc::open(cpath.as_ptr(), libc::O_WRONLY | libc::O_NONBLOCK | libc::O_CLOEXEC)
+            };
+            self.rfd = rfd;
+            self.wfd = wfd;
+            self.path = Some(path);
+            true
+        }
+
+        pub fn valid(&self) -> bool {
+            self.rfd != -1
+        }
+
+        pub fn native_handle(&self) -> RawFd {
+            self.rfd
+        }
+
+        pub fn drain(&self) {
+            if self.rfd == -1 {
+                return;
+            }
+            let mut buf = [0u8; 256];
+            loop {
+                let n = unsafe {
+                    libc::read(self.rfd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
+                };
+                if n <= 0 {
+                    break;
+                }
+            }
+        }
+
+        pub fn close(&mut self) {
+            if self.wfd != -1 {
+                unsafe { libc::close(self.wfd) };
+                self.wfd = -1;
+            }
+            if self.rfd != -1 {
+                unsafe { libc::close(self.rfd) };
+                self.rfd = -1;
+            }
+            if let Some(p) = self.path.take() {
+                if let Ok(cp) = CString::new(p) {
+                    unsafe { libc::unlink(cp.as_ptr()) };
+                }
+            }
+        }
+    }
+
+    impl Drop for NotifySink {
+        fn drop(&mut self) {
+            self.close();
+        }
+    }
+
     /// Best-effort removal of every slot FIFO for a channel (C++ `notify_clear_storage`).
     pub fn clear_storage(prefix: &str, name: &str) {
         for i in 0..MAX_SLOTS {
@@ -235,4 +442,4 @@ mod backend {
     }
 }
 
-pub use backend::{clear_storage, NotifySource};
+pub use backend::{clear_storage, NotifySink, NotifySource};

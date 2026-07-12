@@ -254,6 +254,10 @@ struct ChanInner {
     // notifier so an async receiver (e.g. a C++ async_recv reactor) wakes.
     #[cfg(feature = "notify")]
     notify_source: crate::notify::NotifySource,
+    // Reader side: a readiness fd woken by any-language sender's notify. Exposed
+    // via native_wait_handle() for async integration.
+    #[cfg(feature = "notify")]
+    notify_sink: crate::notify::NotifySink,
 }
 
 impl ChanInner {
@@ -350,7 +354,35 @@ impl ChanInner {
             disconnected: false,
             #[cfg(feature = "notify")]
             notify_source: crate::notify::NotifySource::new(),
+            #[cfg(feature = "notify")]
+            notify_sink: {
+                // Receivers register a readiness fd (byte-exact with C++
+                // notify_open_sink(connected_id) at connect). conn_id is this
+                // receiver's single-bit slot; libnotify ignores it, FIFO uses it.
+                let mut s = crate::notify::NotifySink::new();
+                if mode == Mode::Receiver {
+                    s.open(prefix, name, conn_id);
+                }
+                s
+            },
         })
+    }
+
+    /// Layer 1: this receiver's readiness fd (or -1), woken on every matching
+    /// enqueue. Multiplex it on epoll/kqueue/AsyncFd instead of a blocking recv.
+    #[cfg(feature = "notify")]
+    fn native_wait_handle(&self) -> std::os::unix::io::RawFd {
+        if self.notify_sink.valid() {
+            self.notify_sink.native_handle()
+        } else {
+            -1
+        }
+    }
+
+    /// Drain pending readiness tokens after the fd signalled (level-triggered).
+    #[cfg(feature = "notify")]
+    fn drain_wait_handle(&self) {
+        self.notify_sink.drain();
     }
 
     /// Open (or return cached) the chunk-storage shm for `chunk_size`-byte chunks.
@@ -844,6 +876,22 @@ impl Route {
         self.inner.try_recv()
     }
 
+    /// Layer 1 (`notify` feature): this receiver's readiness fd, or -1 if none.
+    /// Woken on every matching enqueue (including from a C++/Swift sender), so it
+    /// can be multiplexed on epoll/kqueue/`AsyncFd` instead of a blocking recv.
+    /// Byte-exact with C++ `native_wait_handle()`.
+    #[cfg(feature = "notify")]
+    pub fn native_wait_handle(&self) -> std::os::unix::io::RawFd {
+        self.inner.native_wait_handle()
+    }
+
+    /// Drain pending readiness tokens after the fd signalled readable
+    /// (level-triggered). Call before/after a `try_recv()` in a reactor loop.
+    #[cfg(feature = "notify")]
+    pub fn drain_wait_handle(&self) {
+        self.inner.drain_wait_handle();
+    }
+
     /// Disconnect and remove all backing SHM under the currently-open handle.
     /// Equivalent to `disconnect()` followed by `clear_storage(name)`.
     /// Mirrors C++ `chan_wrapper::clear()`.
@@ -887,6 +935,9 @@ impl Route {
         for &payload_size in &[128usize, 256, 512, 1024, 2048, 4096, 8192, 16384, 65536] {
             cs::clear_chunk_shm(&chunk_prefix, cs::calc_chunk_size(payload_size));
         }
+        // Remove any Layer-1 FIFO notify nodes (no-op for the macOS libnotify backend).
+        #[cfg(feature = "notify")]
+        crate::notify::clear_storage(prefix, name);
     }
 }
 
@@ -995,6 +1046,19 @@ impl Channel {
     /// Try receiving without blocking.
     pub fn try_recv(&mut self) -> io::Result<IpcBuffer> {
         self.inner.try_recv()
+    }
+
+    /// Layer 1 (`notify` feature): this receiver's readiness fd, or -1 if none.
+    /// Byte-exact with C++ `native_wait_handle()`; multiplexable on epoll/kqueue.
+    #[cfg(feature = "notify")]
+    pub fn native_wait_handle(&self) -> std::os::unix::io::RawFd {
+        self.inner.native_wait_handle()
+    }
+
+    /// Drain pending readiness tokens after the fd signalled (level-triggered).
+    #[cfg(feature = "notify")]
+    pub fn drain_wait_handle(&self) {
+        self.inner.drain_wait_handle();
     }
 
     /// Disconnect and remove all backing SHM under the currently-open handle.

@@ -64,6 +64,44 @@ fn do_read(name: &str, count: usize, size: usize) -> i32 {
     0
 }
 
+/// Async-style receive driven purely by the Layer-1 readiness fd
+/// (native_wait_handle), with no blocking recv — a manual reactor loop that
+/// validates the notify sink wakes cross-process. Requires the `notify` feature.
+#[cfg(all(unix, feature = "notify"))]
+fn do_arecv(name: &str, count: usize, size: usize) -> i32 {
+    let mut r = match Route::connect(name, Mode::Receiver) {
+        Ok(r) => r,
+        Err(e) => { eprintln!("[rust-async] connect(receiver) failed: {e}"); return 3; }
+    };
+    let fd = r.native_wait_handle();
+    if fd < 0 { eprintln!("[rust-async] no readiness handle (build without notify?)"); return 8; }
+    let want = pattern(size);
+    let mut got = 0usize;
+    while got < count {
+        // Drain everything currently queued (fast path).
+        loop {
+            match r.try_recv() {
+                Ok(b) if !b.is_empty() => {
+                    if b.len() != size { eprintln!("[rust-async] wrong size {}", b.len()); return 6; }
+                    if b.data() != want.as_slice() { eprintln!("[rust-async] mismatch"); return 7; }
+                    got += 1;
+                    if got == count { break; }
+                }
+                Ok(_) => break,
+                Err(e) => { eprintln!("[rust-async] try_recv error: {e}"); return 5; }
+            }
+        }
+        if got == count { break; }
+        // Park on the readiness fd until a sender's notify wakes it.
+        let mut pfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        let n = unsafe { libc::poll(&mut pfd, 1, 8000) };
+        if n <= 0 { eprintln!("[rust-async] readiness fd timed out ({got}/{count})"); return 5; }
+        r.drain_wait_handle();
+    }
+    eprintln!("[rust-async] async-read {count} x {size}B on '{name}' OK");
+    0
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
@@ -84,6 +122,8 @@ fn main() {
     let code = match verb {
         "write" => do_write(name, count, size),
         "read" => do_read(name, count, size),
+        #[cfg(all(unix, feature = "notify"))]
+        "arecv" => do_arecv(name, count, size),
         other => { eprintln!("unknown verb '{other}'"); 1 }
     };
     exit(code);
