@@ -1,9 +1,30 @@
 # RFC: Optional stdexec async receive (senders/receivers) for libipc (C++)
 
-- **Status:** Proposed / Draft
+- **Status:** Implemented (POSIX; Windows backend pending) — see *Implementation status* below.
 - **Scope:** C++ `libipc` only (opt-in). Rust/Swift ports and the wire format are untouched.
 - **Motivating consumer:** Sourcetrail — the agent-UI control channel and the indexer's
   subprocess-result IPC, both of which currently dedicate a blocking thread per channel.
+- **User docs:** [`cpp/libipc/doc/async-recv.md`](../cpp/libipc/doc/async-recv.md).
+
+## Implementation status
+
+Both layers landed opt-in and zero-cost when off, with a few deliberate refinements
+over this draft:
+
+- **Layer 1 backend.** A plain self-pipe/eventfd is process-local and cannot carry a
+  *remote* writer's signal to the reader, so the notify object is a **named,
+  cross-process** primitive: **libnotify** (`notify_post` / `notify_register_file_descriptor`)
+  on macOS by default — native and multicast, so one name per channel serves all readers —
+  with a **named-FIFO** fallback (Linux, or macOS via `LIBIPC_NOTIFY_FIFO`). The FIFO path
+  is per reader-connection-slot to honour broadcast. Gated by `LIBIPC_NOTIFY_FD`; exposed as
+  `native_wait_handle()`.
+- **Layer 2.** `ipc::async_recv(route&, Scheduler)` (gated `LIBIPC_STDEXEC`, implies
+  `LIBIPC_NOTIFY_FD`) + a process-global `kqueue`/`epoll` reactor thread. The reactor is
+  injectable via a **C++23 concept** (`reactor_like`), not a vtable. `ipc::buffer`'s move
+  ctor was made `noexcept` so `buff_t` can flow through P2300 completions. stdexec is a
+  `find_package`-or-`FetchContent` dependency.
+- **Pending:** the Windows named-event backend (Layer 1 is a hard error there for now) and
+  the Sourcetrail consumer migration (tracked in Sourcetrail's roadmap).
 
 ## Summary
 

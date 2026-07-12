@@ -35,6 +35,7 @@ Based on the original [cpp-ipc](https://github.com/mutouyun/cpp-ipc) library. Se
 - `ipc::route` (1 writer, N readers) and `ipc::channel` (N writers, N readers)
 - Typed protocol layer: FlatBuffers, Cap'n Proto, Protocol Buffers (opt-in)
 - Opt-in secure codec with AEAD envelope (OpenSSL EVP backend, zero overhead when disabled)
+- Opt-in reactor-integrable async receive: a readiness handle (`native_wait_handle()`) and a stdexec `ipc::async_recv()` sender, so channels multiplex on one event loop instead of one blocking thread each — zero cost when off. See [`cpp/libipc/doc/async-recv.md`](cpp/libipc/doc/async-recv.md)
 
 **macOS support** (not present in upstream cpp-ipc, added in this fork):
 
