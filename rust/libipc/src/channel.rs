@@ -102,6 +102,13 @@ impl ElemT {
         let p = self.data_.as_ptr().add(MSG_PAYLOAD);
         std::slice::from_raw_parts(p, n).to_vec()
     }
+    /// Read the storage_id (i32) a large-message fragment carries in its payload.
+    unsafe fn read_storage_id(&self) -> i32 {
+        let p = self.data_.as_ptr().add(MSG_PAYLOAD);
+        let mut b = [0u8; 4];
+        std::ptr::copy_nonoverlapping(p, b.as_mut_ptr(), 4);
+        i32::from_ne_bytes(b)
+    }
 }
 
 /// Bitmask for the connection bits in the 64-bit `rc` field (low 32 bits).
@@ -342,10 +349,12 @@ impl ChanInner {
 
     /// Open (or return cached) the chunk-storage shm for `chunk_size`-byte chunks.
     /// Returns a raw pointer to the shm base (valid for the lifetime of the handle in the map).
-    #[allow(dead_code)]
     fn chunk_shm_base(&mut self, chunk_size: usize) -> Option<*mut u8> {
         if !self.chunk_shm.contains_key(&chunk_size) {
-            let shm = cs::open_chunk_shm(&self._prefix, chunk_size).ok()?;
+            // Prefix-global chunk-shm name (no channel name), byte-exact with
+            // C++ make_prefix(prefix, "CHUNK_INFO__", chunk_size).
+            let full_prefix = format!("{}__IPC_SHM__", self.prefix);
+            let shm = cs::open_chunk_shm(&full_prefix, chunk_size).ok()?;
             self.chunk_shm.insert(chunk_size, shm);
         }
         self.chunk_shm.get(&chunk_size).map(|h| h.get())
@@ -595,16 +604,24 @@ impl ChanInner {
 
             let idx = self.read_cursor as u8;
             let slot = unsafe { ring_slot(ring_ptr, idx) };
-            let (cc_id, id, remain, _storage) = unsafe { slot.read_header() };
+            let (cc_id, id, remain, storage) = unsafe { slot.read_header() };
             let is_self = cc_id == self.cc_id;
             let r_size = DATA_LENGTH as i32 + remain;
+            let keep = !is_self && r_size > 0;
 
-            // Read the payload BEFORE releasing the slot (only if we keep it).
-            let frag: Option<Vec<u8>> = if is_self || r_size <= 0 {
-                None
+            // Read out of the slot BEFORE releasing it. A large-message fragment
+            // carries a storage_id (into chunk shm); an inline fragment carries
+            // its payload bytes directly.
+            let storage_id: Option<i32> = if keep && storage {
+                Some(unsafe { slot.read_storage_id() })
             } else {
+                None
+            };
+            let frag: Option<Vec<u8>> = if keep && !storage {
                 let n = if remain <= 0 { r_size as usize } else { DATA_LENGTH };
                 Some(unsafe { slot.read_payload(n) })
+            } else {
+                None
             };
 
             // Release our rc_ bit, advance, and wake senders — for every slot
@@ -613,8 +630,25 @@ impl ChanInner {
             self.read_cursor = self.read_cursor.wrapping_add(1);
             let _ = self.wt_waiter.broadcast();
 
-            if is_self || r_size <= 0 {
+            if !keep {
                 continue; // skip self-message / malformed
+            }
+
+            // Large message: read the payload from chunk storage and recycle it.
+            // (A storage message is a single msg_t — no reassembly.)
+            if let Some(sid) = storage_id {
+                let msg_size = r_size as usize;
+                let chunk_size = cs::calc_chunk_size(msg_size);
+                let buf = self.chunk_shm_base(chunk_size).and_then(|base| {
+                    let out = cs::find_storage(base, chunk_size, sid)
+                        .map(|ptr| unsafe { std::slice::from_raw_parts(ptr, msg_size).to_vec() });
+                    cs::recycle_storage(base, chunk_size, sid, self.conn_id);
+                    out
+                });
+                match buf {
+                    Some(b) => return Ok(IpcBuffer::from_vec(b)),
+                    None => continue, // chunk shm unavailable — skip
+                }
             }
             let frag = frag.unwrap();
 

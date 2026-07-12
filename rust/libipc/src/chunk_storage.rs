@@ -1,27 +1,23 @@
-#![allow(dead_code)] // chunk storage: deferred to xlang milestone 3
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
 //
-// Port of cpp-ipc/src/libipc/ipc.cpp: chunk_info_t / acquire_storage /
-// find_storage / recycle_storage / id_pool.
+// Port of cpp-ipc/src/libipc/ipc.cpp: chunk_info_t / id_pool / acquire_storage /
+// find_storage / recycle_storage. **Byte-exact with the C++ chunk storage** so a
+// C++ sender's large (>64B) messages can be read by a Rust receiver — see
+// context/xlang-channel-abi.md §6c.
 //
-// Large messages (> DATA_LENGTH bytes) are stored in a separate named shm
-// segment instead of being fragmented across multiple ring slots.  Only a
-// 4-byte `storage_id` is placed in the ring slot's data field.
+// A C++ sender stores messages >large_msg_limit (64B) in a chunk shm and pushes a
+// single msg_t with storage_=true and the storage_id in the payload. A Rust
+// receiver reads it via find_storage and frees it via recycle_storage. (A Rust
+// sender keeps fragmenting instead — C++ recv reassembles — so acquire_storage is
+// present for symmetry but unused by the current send path.)
 //
-// Shared-memory layout for a given `chunk_size`:
-//
-//   [ ChunkInfo header ]
-//   [ chunk_size bytes ] × MAX_COUNT   ← chunk data array
-//
-// ChunkInfo header:
-//   lock    : AtomicU32   (spin-lock protecting cursor + next[])
-//   cursor  : u8          (head of the free-list)
-//   next    : [u8; MAX_COUNT]  (free-list links; next[i] = index of next free slot)
-//
-// Each chunk (chunk_size bytes):
-//   conns   : AtomicU32   (broadcast connection bitmask — ref-count per receiver)
-//   payload : [u8; chunk_size - CHUNK_HEADER]
+// Chunk shm layout for a given `chunk_size` (name __IPC_SHM__CHUNK_INFO__<size>):
+//   [ chunk_info_t (40B) ] [ chunk_t of chunk_size bytes ] × MAX_COUNT
+// chunk_info_t: id_pool { next_[32]; cursor_; prepared_ } + spin_lock @36.
+// chunk_t: conns (AtomicU32) @0, payload @ make_align(8,4)=8.
+
+#![allow(dead_code)] // acquire_storage/id_pool helpers unused by the fragmenting send path
 
 use std::io;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -33,109 +29,110 @@ use crate::shm::ShmHandle;
 #[cfg(not(unix))]
 use crate::shm::ShmOpenMode;
 
-/// Maximum number of large-message slots per chunk size (matches C++ `large_msg_cache = 32`).
+/// Max large-message slots per chunk size (C++ `large_msg_cache = 32`).
 pub const MAX_COUNT: usize = 32;
-
-/// Alignment for chunk sizes (matches C++ `large_msg_align = 1024`).
+/// Chunk-size alignment (C++ `large_msg_align = 1024`).
 pub const CHUNK_ALIGN: usize = 1024;
+/// Per-chunk header = `make_align(alignof(max_align_t)=8, sizeof(atomic<cc_t>)=4)` = 8.
+const CHUNK_HEADER: usize = 8;
 
-/// Bytes consumed by the per-chunk connection bitmask at the start of each chunk.
-const CHUNK_HEADER: usize = std::mem::size_of::<u32>(); // AtomicU32 is 4 bytes
-
-/// A `storage_id` value; -1 means "invalid / not allocated".
+/// A `storage_id` (C++ `storage_id_t = int32`); < 0 means invalid.
 pub type StorageId = i32;
 
 // ---------------------------------------------------------------------------
-// ChunkInfo — lives at the start of the chunk shm segment
+// chunk_info_t — byte-exact with C++ { id_pool pool_; spin_lock lock_; }
 // ---------------------------------------------------------------------------
 
-/// Header stored at the beginning of each chunk-storage shm segment.
-///
-/// Mirrors C++ `chunk_info_t` (id_pool + spin_lock).
-/// The chunk data array follows immediately after this struct in memory.
 #[repr(C)]
 struct ChunkInfo {
-    /// Spin-lock protecting `cursor` and `next`.
-    lock: AtomicU32,
-    /// Head of the free-list (index of the next free slot, or MAX_COUNT when empty).
-    cursor: u8,
-    /// Free-list links: `next[i]` is the index of the slot after `i` in the free list.
-    next: [u8; MAX_COUNT],
+    next_: [u8; MAX_COUNT], // @0  id_pool free-list links
+    cursor_: u8,            // @32 head of the free list
+    prepared_: u8,          // @33 id_pool::prepared_ (bool)
+    _pad: [u8; 2],          // @34..36
+    #[cfg(target_vendor = "apple")]
+    lock_: libc::os_unfair_lock, // @36 (C++ spin_lock)
+    #[cfg(not(target_vendor = "apple"))]
+    lock_: [u8; 4], // @36 (TODO(xlang): byte-exact Linux spin_lock)
 }
 
+const _: () = {
+    assert!(std::mem::size_of::<ChunkInfo>() == 40);
+    assert!(std::mem::offset_of!(ChunkInfo, next_) == 0);
+    assert!(std::mem::offset_of!(ChunkInfo, cursor_) == 32);
+    assert!(std::mem::offset_of!(ChunkInfo, prepared_) == 33);
+    assert!(std::mem::offset_of!(ChunkInfo, lock_) == 36);
+};
+
 impl ChunkInfo {
-    /// Total shm size for this header + `MAX_COUNT` chunks of `chunk_size` bytes each.
+    /// Total shm size: header + MAX_COUNT chunks of `chunk_size` bytes.
     pub const fn shm_size(chunk_size: usize) -> usize {
         std::mem::size_of::<ChunkInfo>() + MAX_COUNT * chunk_size
     }
 
-    /// Initialise the free-list if the pool looks uninitialised (all-zero = fresh shm).
-    ///
-    /// Mirrors C++ `id_pool::prepare()` / `id_pool::init()`.
-    /// Must be called while the spin-lock is held.
-    fn ensure_init(&mut self) {
-        // Fresh shm is zero-filled: cursor==0 and next==[0,0,...].
-        // A properly initialised pool has next[i] = i+1 for i < MAX_COUNT-1
-        // and next[MAX_COUNT-1] = MAX_COUNT (sentinel).
-        // We detect uninitialised state by checking next[0]: in a valid pool
-        // next[0] == 1 (or MAX_COUNT if the pool was full and then emptied).
-        // A zero value for next[0] is only valid if cursor==MAX_COUNT (empty).
-        if self.cursor == 0 && self.next[0] == 0 {
+    /// C++ id_pool::prepare()/init(): a fresh (zeroed) pool is "invalid" → build the
+    /// free list `next_[i] = i+1`. Call under the lock.
+    fn prepare(&mut self) {
+        if self.prepared_ == 0 && self.cursor_ == 0 && self.next_[0] == 0 {
             for i in 0..MAX_COUNT {
-                self.next[i] = (i + 1) as u8;
+                self.next_[i] = (i + 1) as u8;
             }
-            // cursor stays 0 — first free slot is index 0
         }
+        self.prepared_ = 1;
     }
 
+    /// C++ id_pool::acquire(): id = cursor_; cursor_ = next_[id].
     fn acquire(&mut self) -> StorageId {
-        if self.cursor as usize >= MAX_COUNT {
-            return -1; // pool exhausted
+        if self.cursor_ as usize >= MAX_COUNT {
+            return -1;
         }
-        let id = self.cursor as StorageId;
-        self.cursor = self.next[id as usize];
+        let id = self.cursor_ as StorageId;
+        self.cursor_ = self.next_[id as usize];
         id
     }
 
+    /// C++ id_pool::release(): next_[id] = cursor_; cursor_ = id.
     fn release(&mut self, id: StorageId) {
         if id < 0 || id as usize >= MAX_COUNT {
             return;
         }
-        self.next[id as usize] = self.cursor;
-        self.cursor = id as u8;
+        self.next_[id as usize] = self.cursor_;
+        self.cursor_ = id as u8;
     }
 }
 
-// ---------------------------------------------------------------------------
-// Spin-lock helpers (reuse the same pattern as spin_lock.rs)
-// ---------------------------------------------------------------------------
-
-fn spin_lock(lock: &AtomicU32) {
-    let mut k = 0u32;
-    while lock
-        .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
-        .is_err()
+/// Lock the chunk_info_t spin_lock (C++ os_unfair_lock on Apple).
+unsafe fn chunk_lock(info: &ChunkInfo) {
+    #[cfg(target_vendor = "apple")]
     {
-        crate::spin_lock::adaptive_yield_pub(&mut k);
+        libc::os_unfair_lock_lock(&info.lock_ as *const _ as *mut libc::os_unfair_lock);
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        let _ = info; // TODO(xlang): Linux spin_lock; chunk storage is Apple-only for now
     }
 }
 
-fn spin_unlock(lock: &AtomicU32) {
-    lock.store(0, Ordering::Release);
+unsafe fn chunk_unlock(info: &ChunkInfo) {
+    #[cfg(target_vendor = "apple")]
+    {
+        libc::os_unfair_lock_unlock(&info.lock_ as *const _ as *mut libc::os_unfair_lock);
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        let _ = info;
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Chunk-size calculation (mirrors C++ calc_chunk_size / align_chunk_size)
+// Chunk-size calculation — byte-exact with C++ calc_chunk_size
 // ---------------------------------------------------------------------------
 
-/// Round `size` up to the next multiple of `CHUNK_ALIGN`, then add the per-chunk
-/// header (AtomicU32 conn bitmask).  This is the total bytes allocated per slot.
-pub fn calc_chunk_size(payload_size: usize) -> usize {
-    let aligned = ((payload_size + CHUNK_ALIGN - 1) / CHUNK_ALIGN) * CHUNK_ALIGN;
-    // Add header, then align the whole thing to max_align (16 bytes on most platforms).
-    let total = std::mem::size_of::<u32>() + aligned;
-    let align = std::mem::align_of::<u128>(); // 16
-    (total + align - 1) / align * align
+/// `calc_chunk_size(size) = ceil((CHUNK_HEADER + size) / CHUNK_ALIGN) * CHUNK_ALIGN`
+/// (C++: make_align(8, align_chunk_size(make_align(8, sizeof(atomic<cc_t>)) + size))).
+/// `size` is the message size. The chunk-shm name embeds this, so it must match C++.
+pub fn calc_chunk_size(size: usize) -> usize {
+    let x = CHUNK_HEADER + size;
+    x.div_ceil(CHUNK_ALIGN) * CHUNK_ALIGN
 }
 
 // ---------------------------------------------------------------------------
@@ -175,11 +172,16 @@ fn chunk_cache() -> &'static std::sync::Mutex<crate::platform::posix::ShmCache> 
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Open (or create) the chunk-storage shm segment for `chunk_size`-byte chunks.
-/// Returns a handle whose mmap is shared within the process (required on macOS).
+/// Chunk-shm name, byte-exact with C++ make_prefix(prefix, "CHUNK_INFO__", chunk_size).
+/// `full_prefix` must be the prefix-global `"{prefix}__IPC_SHM__"` (NO channel name).
+fn chunk_shm_name(full_prefix: &str, chunk_size: usize) -> String {
+    format!("{full_prefix}CHUNK_INFO__{chunk_size}")
+}
+
+/// Open (or create) the chunk-storage shm for `chunk_size`-byte chunks.
 #[cfg(unix)]
 pub fn open_chunk_shm(full_prefix: &str, chunk_size: usize) -> io::Result<ChunkShmHandle> {
-    let name = format!("{full_prefix}CH_CONN__{chunk_size}");
+    let name = chunk_shm_name(full_prefix, chunk_size);
     let size = ChunkInfo::shm_size(chunk_size);
     let cached = cached_shm_acquire(chunk_cache(), &name, size, |_| Ok(()))?;
     Ok(ChunkShmHandle { cached, name })
@@ -187,45 +189,28 @@ pub fn open_chunk_shm(full_prefix: &str, chunk_size: usize) -> io::Result<ChunkS
 
 #[cfg(not(unix))]
 pub fn open_chunk_shm(full_prefix: &str, chunk_size: usize) -> io::Result<ShmHandle> {
-    let name = format!("{full_prefix}CH_CONN__{chunk_size}");
+    let name = chunk_shm_name(full_prefix, chunk_size);
     let size = ChunkInfo::shm_size(chunk_size);
     ShmHandle::acquire(&name, size, ShmOpenMode::CreateOrOpen)
 }
 
-/// Acquire a free slot from the chunk-storage shm.
-///
-/// Returns `(storage_id, *mut u8 payload pointer)` on success, or `None` if
-/// the pool is exhausted or the shm is unavailable.
-///
-/// Mirrors C++ `acquire_storage`.
-pub fn acquire_storage(
-    base: *mut u8,
-    chunk_size: usize,
-    conns: u32,
-) -> Option<(StorageId, *mut u8)> {
+/// C++ acquire_storage: allocate a chunk id, stamp its conns bitmask, return the
+/// payload pointer. (Unused by the fragmenting send path; kept for symmetry.)
+pub fn acquire_storage(base: *mut u8, chunk_size: usize, conns: u32) -> Option<(StorageId, *mut u8)> {
     let info = unsafe { &mut *(base as *mut ChunkInfo) };
-
-    spin_lock(&info.lock);
-    info.ensure_init();
+    unsafe { chunk_lock(info) };
+    info.prepare();
     let id = info.acquire();
-    spin_unlock(&info.lock);
-
+    unsafe { chunk_unlock(info) };
     if id < 0 {
         return None;
     }
-
-    let payload_ptr = chunk_payload_ptr(base, chunk_size, id);
-
-    // Store the connection bitmask in the per-chunk header (before the payload).
     let conns_ptr = unsafe { chunk_conns_ptr(base, chunk_size, id) };
     unsafe { (*conns_ptr).store(conns, Ordering::Relaxed) };
-
-    Some((id, payload_ptr))
+    Some((id, chunk_payload_ptr(base, chunk_size, id)))
 }
 
-/// Return a pointer to the payload of chunk `id`.
-///
-/// Mirrors C++ `chunk_info_t::at(chunk_size, id)->data()`.
+/// C++ find_storage: pointer to the payload of chunk `id` (offset CHUNK_HEADER).
 pub fn find_storage(base: *mut u8, chunk_size: usize, id: StorageId) -> Option<*mut u8> {
     if id < 0 || id as usize >= MAX_COUNT {
         return None;
@@ -233,19 +218,13 @@ pub fn find_storage(base: *mut u8, chunk_size: usize, id: StorageId) -> Option<*
     Some(chunk_payload_ptr(base, chunk_size, id))
 }
 
-/// Clear the receiver's bit from the chunk's connection bitmask.
-/// When the bitmask reaches zero (last reader), release the slot back to the pool.
-///
-/// Mirrors C++ `recycle_storage` / `sub_rc<broadcast>`.
+/// C++ recycle_storage / sub_rc<broadcast>: clear this receiver's bit from the
+/// chunk's conns; when it reaches 0 (last reader), release the id to the pool.
 pub fn recycle_storage(base: *mut u8, chunk_size: usize, id: StorageId, conn_id: u32) {
     if id < 0 || id as usize >= MAX_COUNT {
         return;
     }
-
-    let conns_ptr = unsafe { chunk_conns_ptr(base, chunk_size, id) };
-    let conns = unsafe { &*conns_ptr };
-
-    // CAS-clear our bit; check if we were the last reader.
+    let conns = unsafe { &*chunk_conns_ptr(base, chunk_size, id) };
     let mut k = 0u32;
     let last = loop {
         let cur = conns.load(Ordering::Acquire);
@@ -258,18 +237,17 @@ pub fn recycle_storage(base: *mut u8, chunk_size: usize, id: StorageId, conn_id:
         }
         crate::spin_lock::adaptive_yield_pub(&mut k);
     };
-
     if last {
         let info = unsafe { &mut *(base as *mut ChunkInfo) };
-        spin_lock(&info.lock);
+        unsafe { chunk_lock(info) };
         info.release(id);
-        spin_unlock(&info.lock);
+        unsafe { chunk_unlock(info) };
     }
 }
 
 /// Remove the chunk-storage shm segment for `chunk_size`.
 pub fn clear_chunk_shm(full_prefix: &str, chunk_size: usize) {
-    let name = format!("{full_prefix}CH_CONN__{chunk_size}");
+    let name = chunk_shm_name(full_prefix, chunk_size);
     #[cfg(unix)]
     cached_shm_purge(chunk_cache(), &name);
     ShmHandle::clear_storage(&name);
@@ -279,13 +257,13 @@ pub fn clear_chunk_shm(full_prefix: &str, chunk_size: usize) {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Pointer to the `AtomicU32` connection bitmask at the start of chunk `id`.
+/// Pointer to chunk `id`'s conns bitmask (AtomicU32 @ start of the chunk).
 unsafe fn chunk_conns_ptr(base: *mut u8, chunk_size: usize, id: StorageId) -> *mut AtomicU32 {
     let chunks_base = base.add(std::mem::size_of::<ChunkInfo>());
     chunks_base.add(chunk_size * id as usize) as *mut AtomicU32
 }
 
-/// Pointer to the payload bytes of chunk `id` (after the 4-byte conn header).
+/// Pointer to chunk `id`'s payload (after the CHUNK_HEADER-byte conns header).
 fn chunk_payload_ptr(base: *mut u8, chunk_size: usize, id: StorageId) -> *mut u8 {
     unsafe {
         let chunks_base = base.add(std::mem::size_of::<ChunkInfo>());
