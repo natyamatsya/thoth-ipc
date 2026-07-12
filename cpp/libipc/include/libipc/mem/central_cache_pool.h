@@ -77,9 +77,13 @@ public:
   }
 
   /// \brief Get the singleton instance.
+  /// Intentionally leaked (never destroyed): thread-local block caches release into
+  /// this pool from ~block_pool during thread exit, which can happen after static
+  /// destruction would otherwise have run. Never destroying it keeps release() safe.
+  /// See central_cache_allocator() for the full teardown rationale.
   static central_cache_pool &instance() noexcept {
-    static central_cache_pool pool;
-    return pool;
+    static central_cache_pool *pool = new central_cache_pool;
+    return *pool;
   }
 };
 
@@ -122,9 +126,13 @@ public:
   }
 
   /// \brief Get the singleton instance.
+  /// Intentionally leaked (never destroyed): thread-local block caches release into
+  /// this pool from ~block_pool during thread exit, which can happen after static
+  /// destruction would otherwise have run. Never destroying it keeps release() safe.
+  /// See central_cache_allocator() for the full teardown rationale.
   static central_cache_pool &instance() noexcept {
-    static central_cache_pool pool;
-    return pool;
+    static central_cache_pool *pool = new central_cache_pool;
+    return *pool;
   }
 };
 
