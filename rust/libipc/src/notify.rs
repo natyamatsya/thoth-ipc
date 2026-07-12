@@ -22,6 +22,21 @@
 
 use crate::shm_name::fnv1a_64;
 
+/// Platform-neutral Layer-1 readiness handle: a pollable fd on unix, a waitable
+/// auto-reset Event `HANDLE` on Windows. Represented as `isize` on Windows (not
+/// a raw `*mut c_void`) so it stays `Send`/`Sync` for the async path and matches
+/// the C++ `wait_handle_t` (void*). `INVALID_WAIT_HANDLE` is the per-platform
+/// sentinel (-1 fd / null HANDLE).
+#[cfg(unix)]
+pub type WaitHandle = std::os::unix::io::RawFd;
+#[cfg(windows)]
+pub type WaitHandle = isize;
+
+#[cfg(unix)]
+pub const INVALID_WAIT_HANDLE: WaitHandle = -1;
+#[cfg(windows)]
+pub const INVALID_WAIT_HANDLE: WaitHandle = 0;
+
 /// Short, service-/filesystem-safe channel identity: 16-hex FNV-1a-64 of
 /// `make_prefix(prefix, "NOTIFY__", name)` = `"{prefix}__IPC_SHM__NOTIFY__{name}"`.
 /// Byte-exact with C++ `ipc::detail::notify_hash`.
@@ -444,6 +459,162 @@ mod backend {
     }
 }
 
+// =============================================================================
+// Windows — named auto-reset Events (one per reader connection slot)
+// =============================================================================
+#[cfg(windows)]
+mod backend {
+    use super::{notify_hash, WaitHandle};
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::Threading::{
+        CreateEventW, OpenEventW, SetEvent, EVENT_MODIFY_STATE,
+    };
+
+    /// Max reader connection slots in broadcast mode (C++ `notify_max_slots`).
+    const MAX_SLOTS: usize = 32;
+
+    /// Bit position (0..31) of a single-bit connection id, or -1 if none.
+    fn slot_of(bit: u32) -> i32 {
+        if bit == 0 {
+            -1
+        } else {
+            bit.trailing_zeros() as i32
+        }
+    }
+
+    /// Deterministic, cross-process AND cross-language event name:
+    /// `<ns>ipcntf_<hash>_<slot>`, where `<ns>` is the Windows object namespace
+    /// prefix (default `Local\`, from `win_object_name`). Byte-exact with the C++
+    /// `notify_event_name`; returned as a NUL-terminated UTF-16 buffer.
+    fn event_name(prefix: &str, name: &str, slot: usize) -> Vec<u16> {
+        let logical = format!("ipcntf_{}_{}", notify_hash(prefix, name), slot);
+        crate::platform::windows::win_object_name(&logical)
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    /// Reader side: owns the auto-reset Event for this receiver's connection slot.
+    /// Stored as `isize` (not a raw HANDLE) so the type is `Send`.
+    pub struct NotifySink {
+        ev: isize,
+    }
+
+    impl NotifySink {
+        pub fn new() -> Self {
+            Self { ev: 0 }
+        }
+
+        pub fn open(&mut self, prefix: &str, name: &str, slot_bit: u32) -> bool {
+            if self.ev != 0 {
+                return true;
+            }
+            let slot = slot_of(slot_bit);
+            if slot < 0 || slot >= MAX_SLOTS as i32 {
+                return false;
+            }
+            let en = event_name(prefix, name, slot as usize);
+            // Auto-reset (manual_reset = FALSE), initially non-signaled. CreateEventW
+            // opens the existing object if a sender created it first (idempotent).
+            let h = unsafe { CreateEventW(std::ptr::null(), 0, 0, en.as_ptr()) };
+            if h.is_null() {
+                return false;
+            }
+            self.ev = h as isize;
+            true
+        }
+
+        pub fn valid(&self) -> bool {
+            self.ev != 0
+        }
+
+        pub fn native_handle(&self) -> WaitHandle {
+            self.ev
+        }
+
+        /// No-op: an auto-reset Event self-resets when a wait wakes on it, so there
+        /// is no readiness token to drain (unlike the fd backends' level trigger).
+        pub fn drain(&self) {}
+
+        pub fn close(&mut self) {
+            if self.ev != 0 {
+                unsafe { CloseHandle(self.ev as HANDLE) };
+                self.ev = 0;
+            }
+        }
+    }
+
+    impl Drop for NotifySink {
+        fn drop(&mut self) {
+            self.close();
+        }
+    }
+
+    /// Writer side: on enqueue, `SetEvent` every connected reader slot's Event
+    /// (skipping our own slot). `SetEvent` on an already-signaled auto-reset event
+    /// is idempotent — it stays signaled, the level-triggered behaviour the fd
+    /// backends have.
+    pub struct NotifySource {
+        ev: [isize; MAX_SLOTS],
+    }
+
+    impl NotifySource {
+        pub fn new() -> Self {
+            Self {
+                ev: [0; MAX_SLOTS],
+            }
+        }
+
+        fn close_slot(&mut self, i: usize) {
+            if self.ev[i] != 0 {
+                unsafe { CloseHandle(self.ev[i] as HANDLE) };
+                self.ev[i] = 0;
+            }
+        }
+
+        pub fn signal(&mut self, prefix: &str, name: &str, conns: u32, self_bit: u32) {
+            for i in 0..MAX_SLOTS {
+                let bit = 1u32 << i;
+                let want = (conns & bit) != 0 && (self_bit & bit) == 0;
+                if !want {
+                    self.close_slot(i); // drop stale slot handle
+                    continue;
+                }
+                if self.ev[i] == 0 {
+                    let en = event_name(prefix, name, i);
+                    // Open the reader's event; if it does not exist yet, create it
+                    // (auto-reset) so a sender-first race still lands a token.
+                    let mut h = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, en.as_ptr()) };
+                    if h.is_null() {
+                        h = unsafe { CreateEventW(std::ptr::null(), 0, 0, en.as_ptr()) };
+                    }
+                    if h.is_null() {
+                        continue; // reader vanished; try next time
+                    }
+                    self.ev[i] = h as isize;
+                }
+                unsafe { SetEvent(self.ev[i] as HANDLE) };
+            }
+        }
+
+        pub fn close(&mut self) {
+            for i in 0..MAX_SLOTS {
+                self.close_slot(i);
+            }
+        }
+    }
+
+    impl Drop for NotifySource {
+        fn drop(&mut self) {
+            self.close();
+        }
+    }
+
+    /// Events are refcounted kernel objects, freed when the last handle closes —
+    /// nothing on disk to reclaim (C++ `notify_clear_storage` is likewise a no-op).
+    pub fn clear_storage(_prefix: &str, _name: &str) {}
+}
+
 pub use backend::{clear_storage, NotifySink, NotifySource};
 
 #[cfg(test)]
@@ -458,5 +629,42 @@ mod tests {
     fn notify_hash_matches_cpp_golden() {
         assert_eq!(notify_hash("", "xchan"), "d7484adebb2d170d");
         assert_eq!(notify_hash("app", "st.agent.cmd"), "ad223836b598bfaa");
+    }
+
+    // Pin the Windows named-Event assembly `<ns>ipcntf_<hash>_<slot>`. The C++
+    // WINEVENT backend composes the identical name, so a Rust send()'s SetEvent
+    // and a C++ async_recv()'s wait target the same kernel object.
+    #[cfg(windows)]
+    #[test]
+    fn windows_event_name_assembly() {
+        let logical = format!("ipcntf_{}_{}", notify_hash("", "xchan"), 3);
+        assert_eq!(logical, "ipcntf_d7484adebb2d170d_3");
+        let qualified = crate::platform::windows::win_object_name(&logical);
+        #[cfg(not(feature = "win-global"))]
+        assert_eq!(qualified, "Local\\ipcntf_d7484adebb2d170d_3");
+        #[cfg(feature = "win-global")]
+        assert_eq!(qualified, "Global\\ipcntf_d7484adebb2d170d_3");
+    }
+
+    // End-to-end: a source SetEvent wakes the sink's auto-reset Event, and the
+    // event self-resets after the wait consumes it (level → one-shot semantics).
+    #[cfg(windows)]
+    #[test]
+    fn windows_source_wakes_sink() {
+        use super::{NotifySink, NotifySource};
+        use windows_sys::Win32::Foundation::{HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
+        use windows_sys::Win32::System::Threading::WaitForSingleObject;
+
+        let mut sink = NotifySink::new();
+        assert!(sink.open("t", "wake", 0b1)); // slot bit 0
+        let h = sink.native_handle() as HANDLE;
+        // Not signaled before any post.
+        assert_eq!(unsafe { WaitForSingleObject(h, 0) }, WAIT_TIMEOUT);
+
+        let mut src = NotifySource::new();
+        src.signal("t", "wake", 0b1, 0); // conns = slot-0 bit, sender not a receiver
+        assert_eq!(unsafe { WaitForSingleObject(h, 1000) }, WAIT_OBJECT_0);
+        // Auto-reset consumed the token → times out again.
+        assert_eq!(unsafe { WaitForSingleObject(h, 0) }, WAIT_TIMEOUT);
     }
 }

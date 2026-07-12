@@ -401,9 +401,10 @@ impl ChanInner {
     /// The sink is registered lazily on first call (byte-exact with C++
     /// notify_open_sink(connected_id); conn_id is this receiver's slot bit).
     #[cfg(feature = "notify")]
-    fn native_wait_handle(&mut self) -> std::os::unix::io::RawFd {
+    fn native_wait_handle(&mut self) -> crate::notify::WaitHandle {
+        use crate::notify::INVALID_WAIT_HANDLE;
         if self.mode != Mode::Receiver {
-            return -1;
+            return INVALID_WAIT_HANDLE;
         }
         if !self.notify_sink.valid() {
             self.notify_sink.open(&self.prefix, &self.name, self.conn_id);
@@ -411,7 +412,7 @@ impl ChanInner {
         if self.notify_sink.valid() {
             self.notify_sink.native_handle()
         } else {
-            -1
+            INVALID_WAIT_HANDLE
         }
     }
 
@@ -918,14 +919,16 @@ impl Route {
     /// Layer 1 (`notify` feature): this receiver's readiness fd, or -1 if none.
     /// Woken on every matching enqueue (including from a C++/Swift sender), so it
     /// can be multiplexed on epoll/kqueue/`AsyncFd` instead of a blocking recv.
-    /// Byte-exact with C++ `native_wait_handle()`.
+    /// Byte-exact with C++ `native_wait_handle()`. On Windows this is a waitable
+    /// auto-reset Event HANDLE (as `isize`); on unix a readiness fd.
     #[cfg(feature = "notify")]
-    pub fn native_wait_handle(&mut self) -> std::os::unix::io::RawFd {
+    pub fn native_wait_handle(&mut self) -> crate::notify::WaitHandle {
         self.inner.native_wait_handle()
     }
 
-    /// Drain pending readiness tokens after the fd signalled readable
-    /// (level-triggered). Call before/after a `try_recv()` in a reactor loop.
+    /// Drain pending readiness tokens after the handle signalled (level-triggered
+    /// on unix; a no-op on Windows where the auto-reset event self-resets). Call
+    /// before/after a `try_recv()` in a reactor loop.
     #[cfg(feature = "notify")]
     pub fn drain_wait_handle(&self) {
         self.inner.drain_wait_handle();
@@ -1088,10 +1091,11 @@ impl Channel {
         self.inner.try_recv()
     }
 
-    /// Layer 1 (`notify` feature): this receiver's readiness fd, or -1 if none.
-    /// Byte-exact with C++ `native_wait_handle()`; multiplexable on epoll/kqueue.
+    /// Layer 1 (`notify` feature): this receiver's readiness handle, or the
+    /// invalid sentinel if none. Byte-exact with C++ `native_wait_handle()`;
+    /// multiplexable on epoll/kqueue (unix) or a wait registration (Windows).
     #[cfg(feature = "notify")]
-    pub fn native_wait_handle(&mut self) -> std::os::unix::io::RawFd {
+    pub fn native_wait_handle(&mut self) -> crate::notify::WaitHandle {
         self.inner.native_wait_handle()
     }
 

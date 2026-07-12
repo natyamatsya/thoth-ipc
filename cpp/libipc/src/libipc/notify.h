@@ -32,21 +32,21 @@
 
 #if defined(LIBIPC_NOTIFY_FD)
 
+// Backend selection: named auto-reset Events on Windows; libnotify on Apple by
+// default; POSIX FIFO elsewhere (and on Apple when LIBIPC_NOTIFY_FIFO forces the
+// portable path).
 #if defined(LIBIPC_OS_WIN)
-#  error "LIBIPC_NOTIFY_FD: the Windows (named-event) backend is not implemented yet; \
-build with LIBIPC_NOTIFY_FD=OFF on Windows for now."
-#endif
-
-// Backend selection: libnotify on Apple by default, POSIX FIFO elsewhere (and on
-// Apple when LIBIPC_NOTIFY_FIFO forces the portable path).
-#if defined(LIBIPC_OS_APPLE) && !defined(LIBIPC_NOTIFY_FIFO)
+#  define LIBIPC_NOTIFY_BACKEND_WINEVENT 1
+#elif defined(LIBIPC_OS_APPLE) && !defined(LIBIPC_NOTIFY_FIFO)
 #  define LIBIPC_NOTIFY_BACKEND_LIBNOTIFY 1
 #else
 #  define LIBIPC_NOTIFY_BACKEND_FIFO 1
 #endif
 
+#if !defined(LIBIPC_NOTIFY_BACKEND_WINEVENT)
 #include <fcntl.h>
 #include <unistd.h>
+#endif
 
 #include <cerrno>
 #include <cstdint>
@@ -73,7 +73,125 @@ inline std::string notify_hash(std::string const &prefix, std::string const &nam
 } // namespace ipc
 
 // =============================================================================
-#if defined(LIBIPC_NOTIFY_BACKEND_LIBNOTIFY)
+#if defined(LIBIPC_NOTIFY_BACKEND_WINEVENT)
+// =============================================================================
+
+#include <intrin.h> // _BitScanForward
+#include "libipc/imp/log.h"                // LIBIPC_LOG (used by get_sa.h)
+#include "libipc/platform/win/to_tchar.h" // to_tchar + win_object_name (+ <Windows.h>)
+#include "libipc/platform/win/get_sa.h"   // detail::get_sa (SECURITY_ATTRIBUTES)
+
+namespace ipc {
+namespace detail {
+
+// Max reader connection slots in broadcast mode (see circ::conn_head).
+inline constexpr int notify_max_slots = 32;
+
+// Bit position (0..31) of a single-bit connection id, or -1 if none.
+inline int notify_slot_of(ipc::circ::cc_t bit) noexcept {
+    if (bit == 0) return -1;
+    unsigned long idx = 0;
+    _BitScanForward(&idx, static_cast<unsigned long>(bit));
+    return static_cast<int>(idx);
+}
+
+// Deterministic, cross-process AND cross-language event name:
+//   <ns>ipcntf_<16-hex hash>_<slot>
+// where <ns> is the Windows object namespace prefix (default Local\, via
+// win_object_name). Byte-exact with the Rust WINEVENT backend. Returns a TCHAR
+// string (narrow or wide per the build's UNICODE setting) for ::CreateEvent /
+// ::OpenEvent; ASCII names map to the same kernel object either way.
+inline auto notify_event_name(std::string const &prefix,
+                              std::string const &name, int slot) {
+    std::string id = "ipcntf_" + notify_hash(prefix, name) + "_" + std::to_string(slot);
+    return to_tchar(win_object_name(id));
+}
+
+// Reader side: owns the auto-reset Event for this receiver's connection slot.
+class notify_sink {
+    HANDLE ev_ = nullptr;
+
+public:
+    notify_sink() = default;
+    notify_sink(notify_sink const &) = delete;
+    notify_sink &operator=(notify_sink const &) = delete;
+    ~notify_sink() { close(); }
+
+    bool valid() const noexcept { return ev_ != nullptr; }
+    HANDLE native_handle() const noexcept { return ev_; }
+
+    bool open(std::string const &prefix, std::string const &name,
+              ipc::circ::cc_t slot_bit) {
+        if (ev_ != nullptr) return true;
+        int slot = notify_slot_of(slot_bit);
+        if (slot < 0 || slot >= notify_max_slots) return false;
+        auto en = notify_event_name(prefix, name, slot);
+        // Auto-reset (manual reset FALSE), initially non-signaled. CreateEvent
+        // opens the existing object if a sender created it first (idempotent).
+        ev_ = ::CreateEvent(detail::get_sa(), FALSE, FALSE, en.c_str());
+        return ev_ != nullptr;
+    }
+
+    // No-op: an auto-reset event self-resets when a wait wakes on it.
+    void drain() noexcept {}
+
+    void close() noexcept {
+        if (ev_ != nullptr) { ::CloseHandle(ev_); ev_ = nullptr; }
+    }
+};
+
+// Writer side: on enqueue, SetEvent every connected reader slot's Event (skip
+// our own). SetEvent on an already-signaled auto-reset event is idempotent —
+// it stays signaled, the level-triggered behaviour the fd backends have.
+class notify_source {
+    HANDLE ev_[notify_max_slots];
+
+    void close_slot(int i) noexcept {
+        if (ev_[i] != nullptr) { ::CloseHandle(ev_[i]); ev_[i] = nullptr; }
+    }
+
+public:
+    notify_source() { for (int i = 0; i < notify_max_slots; ++i) ev_[i] = nullptr; }
+    notify_source(notify_source const &) = delete;
+    notify_source &operator=(notify_source const &) = delete;
+    ~notify_source() { close(); }
+
+    void signal(std::string const &prefix, std::string const &name,
+                ipc::circ::cc_t conns, ipc::circ::cc_t self) noexcept {
+        for (int i = 0; i < notify_max_slots; ++i) {
+            ipc::circ::cc_t bit = static_cast<ipc::circ::cc_t>(1u) << i;
+            bool want = (conns & bit) && !(self & bit);
+            if (!want) { close_slot(i); continue; }
+            if (ev_[i] == nullptr) {
+                auto en = notify_event_name(prefix, name, i);
+                // Open the reader's event; if it doesn't exist yet, create it
+                // (auto-reset) so a sender-first race still lands a token.
+                ev_[i] = ::OpenEvent(EVENT_MODIFY_STATE, FALSE, en.c_str());
+                if (ev_[i] == nullptr) {
+                    ev_[i] = ::CreateEvent(detail::get_sa(), FALSE, FALSE, en.c_str());
+                }
+                if (ev_[i] == nullptr) continue; // reader vanished; retry next time
+            }
+            ::SetEvent(ev_[i]);
+        }
+    }
+
+    void close() noexcept {
+        for (int i = 0; i < notify_max_slots; ++i) close_slot(i);
+    }
+};
+
+// Events are refcounted kernel objects freed when the last handle closes —
+// nothing on disk to reclaim.
+inline void notify_clear_storage(std::string const &, std::string const &) noexcept {}
+inline void notify_clear_slot(std::string const &, std::string const &,
+                              ipc::circ::cc_t /*slot_bit*/) noexcept {}
+
+} // namespace detail
+} // namespace ipc
+
+// =============================================================================
+#elif defined(LIBIPC_NOTIFY_BACKEND_LIBNOTIFY)
 // =============================================================================
 
 #include <notify.h>
