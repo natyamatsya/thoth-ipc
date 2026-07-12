@@ -258,6 +258,11 @@ struct ChanInner {
     // via native_wait_handle() for async integration.
     #[cfg(feature = "notify")]
     notify_sink: crate::notify::NotifySink,
+    // Dead-connection reaper owner table (LV_CONN__); kept mapped for the endpoint's
+    // lifetime. Receivers record their {pid, start_token} here so a reaper can
+    // reclaim the slot if the process dies.
+    #[allow(dead_code)]
+    liveness_shm: ShmHandle,
 }
 
 impl ChanInner {
@@ -276,6 +281,8 @@ impl ChanInner {
         // per-channel counter would collide a C++ sender's cc_id with a Rust
         // receiver's and the receiver would drop every message as "self".
         let cc_id_name = format!("{full_prefix}CA_CONN__");
+        // Dead-connection reaper owner table (byte-exact with C++ LV_CONN__).
+        let lv_name = format!("{full_prefix}LV_CONN__{name}");
 
         let ring_shm = ShmHandle::acquire(&ring_name, ring_shm_size(), ShmOpenMode::CreateOrOpen)?;
         let cc_id_shm = ShmHandle::acquire(
@@ -283,6 +290,9 @@ impl ChanInner {
             std::mem::size_of::<u32>(),
             ShmOpenMode::CreateOrOpen,
         )?;
+        let liveness_shm =
+            ShmHandle::acquire(&lv_name, crate::liveness::LIVENESS_SHM_SIZE, ShmOpenMode::CreateOrOpen)?;
+        let liveness_ptr = liveness_shm.get() as *mut crate::liveness::ConnLiveness;
 
         // Byte-exact DCLP header init (C++ conn_head_base::init), so a C++ peer
         // does not re-zero the header and wipe our connection bit.
@@ -308,6 +318,13 @@ impl ChanInner {
                 hdr.sender_count.fetch_add(1, Ordering::Relaxed);
             }
             Mode::Receiver => {
+                // Reclaim slots held by dead peers before claiming one (byte-exact
+                // with C++ reap-on-connect). PID-liveness; a slot whose owner is
+                // unknown (pid==0) or alive is left untouched.
+                let live = hdr.connections.load(Ordering::Acquire);
+                crate::liveness::reap_dead_receivers(liveness_ptr, live, |bit| {
+                    hdr.connections.fetch_and(!bit, Ordering::AcqRel);
+                });
                 // Allocate a bit in the connection bitmask
                 let mut k = 0u32;
                 loop {
@@ -329,6 +346,8 @@ impl ChanInner {
                     }
                     crate::spin_lock::adaptive_yield_pub(&mut k);
                 }
+                // Record ownership so a reaper can reclaim this slot if we die.
+                crate::liveness::set_owner(liveness_ptr, conn_id);
                 read_cursor = hdr.write_cursor.load(Ordering::Acquire);
                 // Broadcast that a new receiver connected
                 let _ = cc_waiter.broadcast();
@@ -352,6 +371,7 @@ impl ChanInner {
             _cc_id_shm: cc_id_shm,
             chunk_shm: HashMap::new(),
             disconnected: false,
+            liveness_shm,
             #[cfg(feature = "notify")]
             notify_source: crate::notify::NotifySource::new(),
             // Registered lazily on the first native_wait_handle() call so the
@@ -744,6 +764,9 @@ impl ChanInner {
             }
             Mode::Receiver => {
                 hdr.connections.fetch_and(!self.conn_id, Ordering::AcqRel);
+                // Release our owner-table slot so a reaper never touches it.
+                let lv = self.liveness_shm.get() as *mut crate::liveness::ConnLiveness;
+                crate::liveness::clear_owner(lv, self.conn_id);
                 // Wake any senders waiting for this receiver to drain.
                 let _ = self.wt_waiter.broadcast();
             }
@@ -928,6 +951,7 @@ impl Route {
         let full_prefix = format!("{prefix}__IPC_SHM__");
         ShmHandle::clear_storage(&format!("{full_prefix}QU_CONN__{name}__{DATA_LENGTH}__{RING_ALIGN}"));
         ShmHandle::clear_storage(&format!("{full_prefix}CA_CONN__{name}"));
+        ShmHandle::clear_storage(&format!("{full_prefix}LV_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}WT_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}RD_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}CC_CONN__{name}"));

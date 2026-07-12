@@ -141,6 +141,31 @@ fn main() {
         Route::clear_storage(name);
         exit(0);
     }
+    // Connect a receiver and hold it (populating the LV_CONN__ owner table), so a
+    // test can SIGKILL this process and check a reaper reclaims the slot. Prints
+    // READY once connected. Optional arg: hold seconds (default 30).
+    if verb == "hold" {
+        let secs: u64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(30);
+        let _r = Route::connect(name, Mode::Receiver).expect("connect receiver");
+        println!("READY");
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        std::thread::sleep(std::time::Duration::from_secs(secs));
+        exit(0);
+    }
+    // Observe the receiver count without side effects (a sender neither claims a
+    // slot nor reaps).
+    if verb == "probe" {
+        let r = Route::connect(name, Mode::Sender).expect("connect sender");
+        println!("{}", r.recv_count());
+        exit(0);
+    }
+    // Connect a RECEIVER (reap-on-connect runs), then report the count.
+    if verb == "count" {
+        let r = Route::connect(name, Mode::Receiver).expect("connect receiver");
+        println!("{}", r.recv_count());
+        exit(0);
+    }
     if args.len() < 5 {
         eprintln!("write/read need <count> <size>");
         exit(1);

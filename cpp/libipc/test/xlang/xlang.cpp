@@ -12,10 +12,12 @@
 //
 // Payload pattern: byte[i] = 'A' + (i % 26). The reader checks length + bytes.
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "libipc/ipc.h"
@@ -70,6 +72,30 @@ int main(int argc, char** argv) {
     std::string verb = argv[1];
     const char* name = argv[2];
     if (verb == "clear") { ipc::route::clear_storage(name); return 0; }
+    // Observe the receiver count WITHOUT side effects (a sender neither claims a
+    // receiver slot nor reaps).
+    if (verb == "probe") {
+        ipc::route s{name, ipc::sender};
+        std::printf("%zu\n", s.recv_count());
+        return 0;
+    }
+    // Connect a RECEIVER (reap-on-connect runs), then report the count. Used to
+    // check that a dead cross-language receiver was reaped (and a live one wasn't).
+    if (verb == "count") {
+        ipc::route r{name, ipc::receiver};
+        std::printf("%zu\n", r.recv_count());
+        return 0;
+    }
+    // Connect a receiver and hold it (populating the owner table), so a test can
+    // SIGKILL this process and check a reaper reclaims the slot.
+    if (verb == "hold") {
+        int secs = (argc > 3) ? std::atoi(argv[3]) : 30;
+        ipc::route r{name, ipc::receiver};
+        std::printf("READY\n");
+        std::fflush(stdout);
+        std::this_thread::sleep_for(std::chrono::seconds(secs));
+        return 0;
+    }
     if (argc < 5) { std::fprintf(stderr, "write/read need <count> <size>\n"); return 1; }
     int count = std::atoi(argv[3]);
     std::size_t size = static_cast<std::size_t>(std::atoll(argv[4]));

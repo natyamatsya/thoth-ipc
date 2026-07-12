@@ -45,6 +45,8 @@ pub(crate) mod chunk_storage;
 #[cfg(feature = "notify")]
 pub mod notify;
 
+pub mod liveness;
+
 #[cfg(feature = "async-tokio")]
 pub mod async_recv;
 
