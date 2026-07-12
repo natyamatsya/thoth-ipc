@@ -253,7 +253,16 @@ struct prod_cons_impl<wr<relat::single, relat::multi, trans::broadcast>> {
             circ::cc_t rem_cc = cur_rc & ep_mask;
             if (cc & rem_cc) {
                 log.debug("force_push: k = ", k, ", cc = ", cc, ", rem_cc = ", rem_cc);
-                cc = wrapper->elems()->disconnect_receiver(rem_cc); // disconnect all invalid readers
+                // Reap only the readers on this stuck element whose owner process
+                // has died (dead-connection reaper, Phase 2). Keeps live-but-slow
+                // readers connected instead of the old blanket disconnect.
+                circ::cc_t before = cc;
+                cc = wrapper->reap_dead(cc & rem_cc);
+                if (cc == before) {
+                    // Nothing dead — a genuinely live-but-wedged reader is holding
+                    // the ring. Fall back to disconnecting them so we cannot deadlock.
+                    cc = wrapper->elems()->disconnect_receiver(rem_cc);
+                }
                 if (cc == 0) return false; // no reader
             }
             // just compare & exchange

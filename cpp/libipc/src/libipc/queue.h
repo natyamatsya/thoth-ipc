@@ -19,6 +19,7 @@
 #include "libipc/platform/detail.h"
 #include "libipc/circ/elem_def.h"
 #include "libipc/mem/resource.h"
+#include "libipc/liveness.h"
 
 namespace ipc {
 namespace detail {
@@ -106,6 +107,7 @@ protected:
     elems_t * elems_ = nullptr;
     decltype(std::declval<elems_t>().cursor()) cursor_ = 0;
     bool sender_flag_ = false;
+    ipc::detail::conn_liveness *liveness_ = nullptr; // dead-connection reaper (broadcast only)
 
 public:
     using base_t::base_t;
@@ -140,6 +142,27 @@ public:
 
     elems_t       * elems()       noexcept { return elems_; }
     elems_t const * elems() const noexcept { return elems_; }
+
+    // Dead-connection reaper hook (RFC: context/dead-connection-reaper-rfc.md).
+    // conn_info_head hands us the per-slot owner table so force_push can reap dead
+    // readers instead of blanket-disconnecting live-but-slow ones. Null (and thus
+    // inert) unless set for a broadcast channel.
+    void set_liveness(ipc::detail::conn_liveness *lv) noexcept { liveness_ = lv; }
+
+    // Reap the DEAD receivers among `candidates` (a subset of the current
+    // connections), clearing their cc_ bits. Returns the new connections mask.
+    // The notify FIFO of a reaped slot self-heals on the sender side; the connect
+    // path does the explicit FIFO cleanup.
+    circ::cc_t reap_dead(circ::cc_t candidates) noexcept {
+        if (elems_ == nullptr) return 0;
+        if (liveness_ != nullptr) {
+            ipc::detail::reap_dead_receivers(
+                liveness_, candidates,
+                [this](circ::cc_t bit) { elems_->disconnect_receiver(bit); },
+                [](circ::cc_t) {});
+        }
+        return elems_->connections(std::memory_order_relaxed);
+    }
 
     bool ready_sending() noexcept {
         if (elems_ == nullptr) return false;

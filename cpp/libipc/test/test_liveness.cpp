@@ -9,9 +9,11 @@
 
 #if !defined(_WIN32)
 
+#include <atomic>
 #include <cstddef>
 #include <csignal>
 #include <sys/wait.h>
+#include <thread>
 #include <unistd.h>
 
 #include "libipc/ipc.h"
@@ -67,6 +69,69 @@ TEST(Liveness, ReapsDeadReceiverOnConnect) {
         ipc::route fresh2{name, ipc::receiver};
         EXPECT_EQ(fresh2.recv_count(), 2u);
     }
+
+    ipc::route::clear_storage(name);
+}
+
+// Phase 2: when a dead receiver blocks ring reclamation, force_push must reap the
+// dead reader and KEEP the live one that is still draining — instead of the old
+// blanket disconnect that dropped live readers too.
+TEST(Liveness, ForcePushReapsDeadKeepsLive) {
+    char const *name = "st.liveness.forcepush";
+    ipc::route::clear_storage(name);
+
+    // Dead receiver: connects, never reads, gets SIGKILLed — it will block the
+    // ring because it never consumes.
+    pid_t pid = ::fork();
+    ASSERT_GE(pid, 0);
+    if (pid == 0) {
+        ipc::route dead{name, ipc::receiver};
+        ::pause();
+        ::_exit(0);
+    }
+    {
+        ipc::route probe{name, ipc::sender};
+        ASSERT_TRUE(probe.wait_for_recv(1, 3000)) << "dead receiver never connected";
+    }
+
+    // Live receiver in this process, draining in a thread.
+    ipc::route live{name, ipc::receiver};
+    ASSERT_EQ(observed_recv_count(name), 2u); // dead (phantom-to-be) + live
+
+    ::kill(pid, SIGKILL);
+    int status = 0;
+    ASSERT_EQ(::waitpid(pid, &status, 0), pid);
+
+    std::atomic<int> received{0};
+    std::atomic<bool> stop{false};
+    std::thread reader([&] {
+        while (!stop.load(std::memory_order_acquire)) {
+            ipc::buff_t b = live.recv(200);
+            if (!b.empty()) received.fetch_add(1, std::memory_order_relaxed);
+        }
+    });
+
+    // Sender storm: the dead receiver blocks reclamation, so the writer hits
+    // force_push, which reaps the dead slot and keeps the live (draining) reader.
+    {
+        ipc::route s{name, ipc::sender};
+        ASSERT_TRUE(s.wait_for_recv(1, 3000));
+        char msg[8] = "phase2";
+        for (int i = 0; i < 1000; ++i) {
+            s.send(msg, sizeof(msg), 200);
+        }
+    }
+
+    // Give the reader a moment to drain the tail, then stop it.
+    for (int i = 0; i < 50 && received.load() == 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    stop.store(true, std::memory_order_release);
+    reader.join();
+
+    // The dead receiver was reaped; the live one survived (not blanket-disconnected).
+    EXPECT_EQ(live.recv_count(), 1u) << "live reader was dropped by force_push";
+    EXPECT_GT(received.load(), 0) << "live reader received nothing";
 
     ipc::route::clear_storage(name);
 }

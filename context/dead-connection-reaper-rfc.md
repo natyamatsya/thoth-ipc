@@ -1,6 +1,6 @@
 # RFC: Dead-connection reaping for broadcast routes
 
-Status: **Phase 1 implemented (C++)** · Author: agent-control integration ·
+Status: **Phases 1–2 implemented (C++)** · Author: agent-control integration ·
 Revised after cross-language review (owner table is now an xlang ABI; notify
 cleanup added) and again to record the lock-free implementation ·
 Relates to [`macos_ipc_roadmap.md`](macos_ipc_roadmap.md) (reuses its PID-liveness
@@ -161,23 +161,30 @@ This is simpler than an `lc_`-guarded scan and — importantly — keeps the con
 path a plain CAS, so **the ports need only the same "owner store after bit set,
 CAS-clear before reap" discipline**, not a shared spin-lock protocol.
 
-### 4. Unblocking in-flight elements (the careful part)
+### 4. In-flight elements (implemented — simpler than expected)
 
-Clearing the bit stops *future* pushes from waiting on the phantom, but elements
-already in the ring recorded the old reader set. `unblock_inflight(bit)` must clear
-`bit` from each outstanding element's pending-reader accounting so reclamation can
-proceed — a bounded scan of `elem_max` (256) slots, mirroring what
-`force_push`/`pop` already do to a reader's bit, but targeted to one slot instead of
-`~0`. Two details:
+The original worry was that elements already in the ring recorded the phantom in
+their reader set and would stall reclamation. **For the single-producer `route`
+policy this turned out to need no separate element sweep:** the writer's `push`
+gates reclamation on `cc & rem_cc` (connections **∩** an element's still-pending
+readers), *not* on `rem_cc` alone. Once the phantom's bit is cleared from `cc_`
+(the reap), `cc & rem_cc` no longer includes it, so the next push to that slot
+reclaims it; the stale bit lingering in `rc_` is simply masked out. No hot-path
+element-layout change was required.
 
-- Use the **same atomic CAS** as `pop` (`rc_.fetch_and(~bit)` semantics), never a
-  plain store — producers may be racing on `rc_`.
-- `rc_` packs the epoch in its high 32 bits (`EP_MASK`); clear only the low-32
-  connection bit, preserve the epoch generation.
+What Phase 2 *does* change is `force_push` (the ring-full recovery): instead of
+`disconnect_receiver(rem_cc)` — which blanket-drops every lingering reader, live
+or dead — it now `reap_dead(cc & rem_cc)` first (PID-liveness) and only falls back
+to the blanket disconnect if **nothing** was dead (a genuinely live-but-wedged
+reader is holding the ring, and dropping it is the only way to avoid deadlock).
+So a dead reader blocking the ring is reaped while a live reader that is still
+draining keeps its connection.
 
-This is the one piece that touches the hot path's element layout
-(`circ/elem_array.h`) and deserves the most test scrutiny (a killed-mid-stream
-receiver, then a live receiver that must still drain the backlog).
+`force_push` runs below the `conn_info_head` that owns the owner table, so the
+table pointer is handed down to the queue (`queue_base::set_liveness`) and
+`force_push` calls `wrapper->reap_dead(...)`. (The multi-producer `channel`
+policy's `force_push` is left as-is for now — same scoping as the byte-exact
+route work.)
 
 ### 5. PID-reuse hardening
 
@@ -266,8 +273,9 @@ on) dead slots.
 1. **C++ owner table + `reap_dead_receivers()` + reap-on-connect.** Fixes phantom
    accumulation and the 32-slot exhaustion; PID-liveness only. No hot-path element
    change yet — reaping just fixes the count and future pushes.
-2. **`unblock_inflight` + `force_push` uses reaper (+ notify FIFO cleanup).** Fixes
-   ring-reclamation stalls; the element-layout-sensitive part.
+2. **`force_push` uses the reaper (reap-dead-first) (+ notify FIFO cleanup).** Fixes
+   ring-reclamation stalls; keeps live-but-draining readers instead of the blanket
+   disconnect. (No separate in-flight element sweep needed for `route` — §4.)
 3. **Start-token hardening (§5).** PID-reuse safety.
 4. **Cross-language: Rust + Swift populate the owner table (§8) + xlang §9 + the
    reaping matrix scenario.** Makes the fix apply to the bridge and any port peer,

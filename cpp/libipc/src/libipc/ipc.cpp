@@ -464,11 +464,16 @@ struct queue_generator {
         void init() {
             conn_info_head::init();
             if (!que_.valid()) {
-                que_.open(ipc::make_prefix(prefix_, 
-                          "QU_CONN__", 
-                          this->name_, 
-                          "__", DataSize, 
+                que_.open(ipc::make_prefix(prefix_,
+                          "QU_CONN__",
+                          this->name_,
+                          "__", DataSize,
                           "__", AlignSize).c_str());
+            }
+            // Dead-connection reaping is only meaningful for broadcast (cc_ is a
+            // per-receiver bitmask); non-broadcast uses cc_ as a plain count.
+            if constexpr (ipc::relat_trait<typename queue_t::policy_t>::is_broadcast) {
+                que_.set_liveness(this->liveness());
             }
         }
 
@@ -491,7 +496,9 @@ struct queue_generator {
             bool dis = que_.disconnect();
             this->quit_waiting();
             if (dis) {
-                this->liveness_clear_owner(self);
+                if constexpr (ipc::relat_trait<typename queue_t::policy_t>::is_broadcast) {
+                    this->liveness_clear_owner(self);
+                }
                 this->recv_cache().clear();
 #if defined(LIBIPC_NOTIFY_FD)
                 this->notify_close_sink();
@@ -500,15 +507,19 @@ struct queue_generator {
         }
 
         // Clear the cc_ bits of any receivers whose owner process has died
-        // (dead-connection reaper, Phase 1). Callable by any participant; run on
-        // connect so a new joiner reclaims phantom slots before claiming one.
+        // (dead-connection reaper). Callable by any participant; run on connect so
+        // a new joiner reclaims phantom slots before claiming one. Broadcast only.
         ipc::circ::cc_t reap() noexcept {
-            auto *elems = que_.elems();
-            if (elems == nullptr) return 0;
-            return ipc::detail::reap_dead_receivers(
-                this->liveness(), elems->connections(),
-                [elems](ipc::circ::cc_t bit) { elems->disconnect_receiver(bit); },
-                [this](ipc::circ::cc_t bit) { this->notify_clear_slot(bit); });
+            if constexpr (ipc::relat_trait<typename queue_t::policy_t>::is_broadcast) {
+                auto *elems = que_.elems();
+                if (elems == nullptr) return 0;
+                return ipc::detail::reap_dead_receivers(
+                    this->liveness(), elems->connections(),
+                    [elems](ipc::circ::cc_t bit) { elems->disconnect_receiver(bit); },
+                    [this](ipc::circ::cc_t bit) { this->notify_clear_slot(bit); });
+            } else {
+                return 0;
+            }
         }
     };
 };
@@ -563,9 +574,11 @@ static bool reconnect(ipc::handle_t * ph, bool start_to_recv) {
     info_of(*ph)->init();
     if (start_to_recv) {
         que->shut_sending();
-        info_of(*ph)->reap(); // reclaim slots held by dead peers before claiming one
+        info_of(*ph)->reap(); // reclaim slots held by dead peers before claiming one (broadcast-only)
         if (que->connect()) { // wouldn't connect twice
-            info_of(*ph)->liveness_set_owner(que->connected_id());
+            if constexpr (ipc::relat_trait<typename queue_t::policy_t>::is_broadcast) {
+                info_of(*ph)->liveness_set_owner(que->connected_id());
+            }
             info_of(*ph)->cc_waiter_.broadcast();
 #if defined(LIBIPC_NOTIFY_FD)
             // Now that we own a reader slot, create its readiness FIFO.
