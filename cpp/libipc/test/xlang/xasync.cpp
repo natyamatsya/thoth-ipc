@@ -87,6 +87,8 @@ int main(int argc, char** argv) {
     std::string verb = argv[1];
     const char* name = argv[2];
     if (verb == "clear") { ipc::route::clear_storage(name); return 0; }
+    // Built with LIBIPC_STDEXEC (⇒ LIBIPC_NOTIFY_FD): posts notify + async_recv.
+    if (verb == "caps") { std::printf("notify async\n"); return 0; }
     if (argc < 5) { std::fprintf(stderr, "write/aread need <count> <size>\n"); return 1; }
     int count = std::atoi(argv[3]);
     std::size_t size = static_cast<std::size_t>(std::atoll(argv[4]));

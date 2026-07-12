@@ -92,6 +92,34 @@ def run_pair(w_lang, w_bin, r_lang, r_bin, size, idx, read_verb="read"):
     return ok, detail
 
 
+def harness_caps(bin_path):
+    """Capabilities a harness reports via its `caps` verb (e.g. {'notify','async'})."""
+    try:
+        out = subprocess.run([bin_path, "caps", "_"], stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, text=True, timeout=10).stdout
+        return set(out.split())
+    except Exception:
+        return set()
+
+
+def check_async_caps(langs):
+    """The async matrix needs each harness to post the notify (writer) and drive an
+    async recv (reader). A harness built without those features would just hang, so
+    verify up front and fail fast with an actionable message. Returns True if OK."""
+    need = {"notify", "async"}
+    ok = True
+    for name in sorted(langs):
+        caps = harness_caps(langs[name])
+        if not need <= caps:
+            ok = False
+            have = " ".join(sorted(caps)) or "(none)"
+            print(f"error: async matrix needs caps [notify, async] but harness "
+                  f"'{name}' reports [{have}] — rebuild it with the notify/async "
+                  f"feature (Rust: `--features async-tokio`; C++: LIBIPC_STDEXEC or "
+                  f"LIBIPC_NOTIFY_FD).\n         {langs[name]}", file=sys.stderr)
+    return ok
+
+
 def run_reap_pair(h_lang, h_bin, r_lang, r_bin, kind, idx):
     """A holder connects a receiver; a reaper of another language then connects
     (reap-on-connect). `dead`: kill the holder first — the reaper must reclaim its
@@ -210,6 +238,10 @@ def main():
         f, t, idx = run_matrix(sync, "read", "sync matrix", idx)
         failures += f; total += t
     if asyncl:
+        # Fail fast (rather than hang 30s/pairing) if any async harness was built
+        # without the notify/async features.
+        if not check_async_caps(asyncl):
+            return 2
         # Async matrix: a writer's notify must wake an async receiver on the
         # readiness fd. Divergent notify keys (name or hash) fail the pairing.
         f, t, idx = run_matrix(asyncl, "aread", "async matrix (notify wakeup)", idx)

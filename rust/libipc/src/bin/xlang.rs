@@ -141,6 +141,15 @@ fn main() {
         Route::clear_storage(name);
         exit(0);
     }
+    // Report build capabilities so the matrix driver can fail fast (rather than
+    // hang) if this harness was built without the notify/async features.
+    if verb == "caps" {
+        let mut caps: Vec<&str> = Vec::new();
+        if cfg!(feature = "notify") { caps.push("notify"); }
+        if cfg!(feature = "async-tokio") { caps.push("async"); }
+        println!("{}", caps.join(" "));
+        exit(0);
+    }
     // Connect a receiver and hold it (populating the LV_CONN__ owner table), so a
     // test can SIGKILL this process and check a reaper reclaims the slot. Prints
     // READY once connected. Optional arg: hold seconds (default 30).

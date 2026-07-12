@@ -85,6 +85,8 @@ if args.count < 3 {
 }
 let verb = args[1], name = args[2]
 if verb == "clear" { Route.clearStorageBlocking(name: name); exit(0) }
+// Swift's notify source/sink + AsyncRoute are always-on (no feature gate).
+if verb == "caps" { print("notify async"); exit(0) }
 // Dead-connection reaper harness verbs (see tools/xlang_matrix.py --reap).
 if verb == "hold" {
     // Connect a receiver and hold it (populating the owner table), so a test can
