@@ -38,7 +38,7 @@ public:
     bool open(char const *name) noexcept {
         LIBIPC_LOG();
         close();
-        h_ = ::CreateMutex(detail::get_sa(), FALSE, detail::to_tchar(name).c_str());
+        h_ = ::CreateMutex(detail::get_sa(), FALSE, detail::to_tchar(detail::win_object_name(name)).c_str());
         if (h_ == NULL) {
             log.error("fail CreateMutex[", static_cast<unsigned long>(::GetLastError()), "]: ", name);
             return false;

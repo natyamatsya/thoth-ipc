@@ -41,6 +41,13 @@ option(LIBIPC_NOTIFY_FIFO
 option(LIBIPC_STDEXEC
     "Opt-in Layer 2: ipc::async_recv() senders/receivers (P2300) receive API + a process-global reactor. Requires C++23 and stdexec (provided via find_package, else fetched). Implies LIBIPC_NOTIFY_FD."
     OFF)
+# Windows only: the named-object namespace for all shared kernel objects (shm,
+# mutexes, semaphores, notify events). Default "Local" (session-local
+# BaseNamedObjects); set to "Global" for services / cross-session (session 0),
+# or "" for verbatim unqualified names. Must match the Rust `win-global` feature
+# at build time. No effect off Windows.
+set(LIBIPC_WIN_OBJ_NAMESPACE "Local" CACHE STRING
+    "Windows named-object namespace prefix: Local (default), Global, or empty.")
 
 if(LIBIPC_SECURE_OPENSSL)
     set(SECURE_CRYPTO_C_OPENSSL ON CACHE BOOL

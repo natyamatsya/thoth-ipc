@@ -35,9 +35,9 @@ public:
     bool open(char const *name, std::uint32_t count) noexcept {
         LIBIPC_LOG();
         close();
-        h_ = ::CreateSemaphore(detail::get_sa(), 
-                               static_cast<LONG>(count), LONG_MAX, 
-                               detail::to_tchar(name).c_str());
+        h_ = ::CreateSemaphore(detail::get_sa(),
+                               static_cast<LONG>(count), LONG_MAX,
+                               detail::to_tchar(detail::win_object_name(name)).c_str());
         if (h_ == NULL) {
             log.error("fail CreateSemaphore[", static_cast<unsigned long>(::GetLastError()), "]: ", name);
             return false;

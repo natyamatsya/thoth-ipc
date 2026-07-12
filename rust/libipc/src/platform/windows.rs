@@ -30,6 +30,29 @@ fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+/// Compile-time Windows object namespace (default `Local`, the session-local
+/// `BaseNamedObjects`). Enable the `win-global` feature to target `Global\`
+/// (session 0 — services / cross-session). Must match the C++ side's
+/// `LIBIPC_WIN_OBJ_NS` at build time so C++ and Rust name the same kernel
+/// objects.
+#[cfg(feature = "win-global")]
+pub(crate) const WIN_OBJ_NS: &str = "Global";
+#[cfg(not(feature = "win-global"))]
+pub(crate) const WIN_OBJ_NS: &str = "Local";
+
+/// Qualify a logical object name with the Windows namespace prefix. `Local\<n>`
+/// and a bare `<n>` both resolve to the same per-session kernel object, so the
+/// default is wire-compatible with an unprefixed peer while making the
+/// namespace explicit and switchable. An empty `WIN_OBJ_NS` yields the bare
+/// name (verbatim).
+pub(crate) fn win_object_name(name: &str) -> String {
+    if WIN_OBJ_NS.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{WIN_OBJ_NS}\\{name}")
+    }
+}
+
 // ---------------------------------------------------------------------------
 // PlatformShm — Windows shared memory via file mapping
 // ---------------------------------------------------------------------------
@@ -64,7 +87,7 @@ impl PlatformShm {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "size is 0"));
         }
 
-        let wide_name = to_wide(name);
+        let wide_name = to_wide(&win_object_name(name));
 
         let handle;
         let total_size;
@@ -234,7 +257,7 @@ impl PlatformMutex {
         use windows_sys::Win32::Foundation::FALSE;
         use windows_sys::Win32::System::Threading::CreateMutexW;
 
-        let wide_name = to_wide(name);
+        let wide_name = to_wide(&win_object_name(name));
         let h = unsafe { CreateMutexW(ptr::null(), FALSE, wide_name.as_ptr()) };
         if h.is_null() {
             return Err(io::Error::last_os_error());

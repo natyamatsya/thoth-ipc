@@ -51,7 +51,7 @@ id_t acquire(char const * name, std::size_t size, unsigned mode) {
         return nullptr;
     }
     HANDLE h;
-    auto fmt_name = ipc::detail::to_tchar(name);
+    auto fmt_name = ipc::detail::to_tchar(ipc::detail::win_object_name(name));
     // Opens a named file mapping object.
     if (mode == open) {
         h = ::OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, fmt_name.c_str());

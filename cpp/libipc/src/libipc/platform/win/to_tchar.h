@@ -36,6 +36,26 @@ template <typename T, typename S, typename R = S>
 using IsSameChar = ipc::require<is_same_char<T, S>::value, R>;
 
 ////////////////////////////////////////////////////////////////
+/// Windows named-object namespace qualification
+////////////////////////////////////////////////////////////////
+
+// Compile-time namespace prefix for every shared kernel object (shm, mutex,
+// semaphore, notify event). Default "Local" (session-local BaseNamedObjects);
+// "Global" targets session 0 (services / cross-session); "" is verbatim.
+// `Local\<n>` and a bare `<n>` resolve to the same per-session object, so the
+// default is wire-compatible with unprefixed peers. Must match the Rust
+// `win-global` feature at build time.
+#ifndef LIBIPC_WIN_OBJ_NS
+#define LIBIPC_WIN_OBJ_NS "Local"
+#endif
+
+inline std::string win_object_name(std::string const &name) {
+    std::string ns = LIBIPC_WIN_OBJ_NS;
+    if (ns.empty()) return name;
+    return ns + "\\" + name;
+}
+
+////////////////////////////////////////////////////////////////
 /// to_tchar implementation
 ////////////////////////////////////////////////////////////////
 

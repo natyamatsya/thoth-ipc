@@ -62,6 +62,12 @@ if(LIBIPC_SHM_NAME_MAX GREATER 0)
   target_compile_definitions(${PROJECT_NAME} PRIVATE LIBIPC_SHM_NAME_MAX=${LIBIPC_SHM_NAME_MAX})
 endif()
 
+if(WIN32)
+  # Windows named-object namespace prefix (see top-level LIBIPC_WIN_OBJ_NAMESPACE).
+  # PUBLIC so downstream TUs building notify/event names agree with the library.
+  target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_WIN_OBJ_NS="${LIBIPC_WIN_OBJ_NAMESPACE}")
+endif()
+
 if(LIBIPC_USE_FILE_SHM)
   target_compile_definitions(${PROJECT_NAME} PRIVATE LIBIPC_USE_FILE_SHM)
 endif()

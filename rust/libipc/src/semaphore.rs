@@ -209,7 +209,8 @@ impl WindowsSemaphore {
         if name.is_empty() {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "name is empty"));
         }
-        let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+        let qualified = crate::platform::windows::win_object_name(name);
+        let wide: Vec<u16> = qualified.encode_utf16().chain(std::iter::once(0)).collect();
         let h =
             unsafe { CreateSemaphoreW(std::ptr::null(), count as i32, i32::MAX, wide.as_ptr()) };
         if h.is_null() {
