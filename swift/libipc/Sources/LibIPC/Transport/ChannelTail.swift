@@ -116,6 +116,12 @@ public final class Route: @unchecked Sendable {
         try inner.recv(timeout: timeout)
     }
     public func tryRecv() throws(IpcError) -> IpcBuffer { try inner.tryRecv() }
+    /// Layer 1: this receiver's readiness fd (or -1), woken on every matching
+    /// enqueue (including from a C++/Rust sender). Registered lazily; multiplex it
+    /// with `DispatchSource`/`kqueue` instead of a blocking recv. See `AsyncRoute`.
+    public func nativeWaitHandle() -> Int32 { inner.nativeWaitHandle() }
+    /// Drain pending readiness tokens after the fd signalled (level-triggered).
+    public func drainWaitHandle() { inner.drainWaitHandle() }
     public func waitForRecv(count: Int, timeout: Duration? = nil) throws(IpcError) -> Bool {
         try inner.waitForRecv(count: count, timeout: timeout)
     }
@@ -171,6 +177,12 @@ public final class Channel: @unchecked Sendable {
         try inner.recv(timeout: timeout)
     }
     public func tryRecv() throws(IpcError) -> IpcBuffer { try inner.tryRecv() }
+    /// Layer 1: this receiver's readiness fd (or -1), woken on every matching
+    /// enqueue (including from a C++/Rust sender). Registered lazily; multiplex it
+    /// with `DispatchSource`/`kqueue` instead of a blocking recv. See `AsyncRoute`.
+    public func nativeWaitHandle() -> Int32 { inner.nativeWaitHandle() }
+    /// Drain pending readiness tokens after the fd signalled (level-triggered).
+    public func drainWaitHandle() { inner.drainWaitHandle() }
     public func waitForRecv(count: Int, timeout: Duration? = nil) throws(IpcError) -> Bool {
         try inner.waitForRecv(count: count, timeout: timeout)
     }

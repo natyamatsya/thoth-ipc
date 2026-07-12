@@ -149,6 +149,8 @@ final class ChanInner: @unchecked Sendable {
     let ringShm:  ShmHandle
     let ccIdShm:  ShmHandle
     let livenessShm: ShmHandle   // LV_CONN__ owner table (dead-connection reaper)
+    let notifySource = NotifySource() // Layer 1: post on send
+    let notifySink = NotifySink()     // Layer 1: readiness fd (registered lazily)
     var chunkShms: [Int: ChunkShmEntry] = [:]
     var connId:     UInt32
     var ccId:       UInt32
@@ -287,6 +289,19 @@ final class ChanInner: @unchecked Sendable {
         Int(ua32(&hdrPtr.pointee.connections).load(ordering: .acquiring).nonzeroBitCount)
     }
 
+    /// Layer 1: this receiver's readiness fd (or -1), woken on every matching
+    /// enqueue (including from a C++/Rust sender). Registered lazily on first call
+    /// so the blocking recv path stays zero-cost. Byte-exact with C++
+    /// `native_wait_handle()`.
+    func nativeWaitHandle() -> Int32 {
+        guard mode == .receiver else { return -1 }
+        if !notifySink.valid { notifySink.open(prefix, name) }
+        return notifySink.valid ? notifySink.fd : -1
+    }
+
+    /// Drain pending readiness tokens after the fd signalled (level-triggered).
+    func drainWaitHandle() { notifySink.drain() }
+
     func withChunkShm<R>(chunkSize: Int, _ body: (borrowing ShmHandle) -> R) -> R? {
         if chunkShms[chunkSize] == nil {
             guard let shm = try? openChunkShm(prefix: prefix, chunkSize: chunkSize) else { return nil }
@@ -305,6 +320,7 @@ final class ChanInner: @unchecked Sendable {
         case .receiver:
             _ = ua32(&hdrPtr.pointee.connections).loadThenBitwiseAnd(with: ~connId, ordering: .acquiringAndReleasing)
             livenessClearOwner(livenessShm.ptr, connId)
+            notifySink.close()
             try? wtWaiter.broadcast()
         }
         disconnected = true
@@ -358,6 +374,9 @@ extension ChanInner {
             let remain = Int32(tail) - Int32(dataLength)
             if !(try pushFragment(msgId: msgId, remain: remain, payload: Array(data[offset...]), timeout: timeout)) { return false }
         }
+        // Layer 1: wake any async receiver parked on the readiness fd (byte-exact
+        // with C++/Rust notify_signal). libnotify is multicast; a no-op if unlistened.
+        notifySource.signal(prefix, name)
         return true
     }
 

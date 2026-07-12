@@ -7,6 +7,10 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <mach/thread_policy.h>
+// Darwin libnotify (Layer 1 async-receive notify backend): notify_post /
+// notify_register_file_descriptor / notify_cancel are not re-exported by the
+// Swift Darwin module, so surface them here for `import LibIPCShim`.
+#include <notify.h>
 
 int libipc_shm_open_create(const char *name, mode_t mode);
 int libipc_shm_open_open(const char *name, mode_t mode);

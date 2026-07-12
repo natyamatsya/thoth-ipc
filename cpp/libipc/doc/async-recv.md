@@ -186,7 +186,9 @@ port (`rust/libipc`, features `notify` / `async-tokio`) implements a byte-exact
 Rust `send()` wakes a C++ `async_recv` and a C++ `send()` wakes a Rust
 `AsyncRoute::recv().await`. This is verified by the async matrix
 (`tools/xlang_matrix.py --async-lang …`, CI: `.github/workflows/xlang.yml`).
-Swift has the wire ABI but not yet the notify layer.
+Swift too: the notify source/sink are byte-exact (`Notify.swift`) and
+`AsyncRoute.recv() async` (over the readiness fd via `DispatchSource`) is woken by
+a C++/Rust/Swift sender — verified by the full 3-language async matrix.
 
 ## See also
 

@@ -234,16 +234,22 @@ notify identity must be byte-exact.
   FIFO is point-to-point, so a sender pokes every connected slot except its own;
   a receiver owns the FIFO for its connection slot (`s = ctz(connected_id)`).
 - **native_wait_handle()** returns the reader's fd (or the invalid handle if the
-  peer lacks the notify layer / is not a receiver). The Rust sink is registered
-  **lazily** on first `native_wait_handle()`, keeping the blocking recv path
-  zero-cost even with the feature compiled in.
+  peer lacks the notify layer / is not a receiver). The Rust/Swift sink is
+  registered **lazily** on first `native_wait_handle()`, keeping the blocking recv
+  path zero-cost even with the feature compiled in.
+
+**Consumers per language:** C++ stdexec `async_recv` (sender + reactor); Rust
+`AsyncRoute::recv().await` (tokio `AsyncFd`); Swift `AsyncRoute.recv() async`
+(`DispatchSource` on the fd). All three sit on the same byte-exact notify key, so
+a `send()` in any language wakes an async receiver in any other.
 
 **Verification.** `xlang_matrix.py --async-lang …` runs the async matrix: a
 writer's notify must wake an async receiver (verb `aread`) on its readiness fd —
 so divergent notify keys fail a pairing. Harnesses: C++ `xasync`
-(`LIBIPC_STDEXEC`), Rust `xlang aread` (`async-tokio`). CI runs the C++↔Rust
-async matrix on macOS (libnotify) and Linux (FIFO). A Rust unit test also pins
-`notify_hash` to the golden values above.
+(`LIBIPC_STDEXEC`), Rust `xlang aread` (`async-tokio`), Swift `xlang-harness
+aread`. CI runs the C++↔Rust async matrix on Linux (FIFO) and the full
+C++/Rust/Swift 3×3 on macOS (libnotify). A Rust unit test also pins `notify_hash`
+to the golden values above.
 
 ## 9. Dead-connection reaper owner table (LV_CONN__)
 

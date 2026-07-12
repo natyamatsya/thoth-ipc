@@ -11,9 +11,37 @@
 //
 // Payload pattern: byte[i] = 'A' + (i % 26).
 import Foundation
+import Dispatch
 import LibIPC
 
 func pattern(_ n: Int) -> [UInt8] { (0..<n).map { UInt8(65 + ($0 % 26)) } }
+
+/// Async receive via the shipped `AsyncRoute.recv()`. Drives the async work on a
+/// Task and blocks the harness thread until it finishes.
+func doAread(_ name: String, _ count: Int, _ size: Int) -> Int32 {
+    let sem = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var code: Int32 = 0
+    Task {
+        do {
+            let r = try await AsyncRoute.connect(name: name)
+            let want = pattern(size)
+            for i in 0..<count {
+                let bytes = try await r.recv().bytes
+                if bytes.count != size {
+                    FileHandle.standardError.write(Data("[swift-async] recv \(i) wrong size \(bytes.count)\n".utf8)); code = 6; break
+                }
+                if bytes != want {
+                    FileHandle.standardError.write(Data("[swift-async] recv \(i) mismatch\n".utf8)); code = 7; break
+                }
+            }
+        } catch {
+            FileHandle.standardError.write(Data("[swift-async] error: \(error)\n".utf8)); code = 5
+        }
+        sem.signal()
+    }
+    sem.wait()
+    return code
+}
 
 func doWrite(_ name: String, _ count: Int, _ size: Int) -> Int32 {
     let w = Route.connectBlocking(name: name, mode: .sender)
@@ -82,5 +110,6 @@ let size = Int(args[4]) ?? 0
 switch verb {
 case "write": exit(doWrite(name, count, size))
 case "read":  exit(doRead(name, count, size))
+case "aread": exit(doAread(name, count, size))
 default: FileHandle.standardError.write(Data("unknown verb '\(verb)'\n".utf8)); exit(1)
 }

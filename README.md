@@ -111,10 +111,25 @@ Swift Package Manager package targeting macOS 14+.
 - Apple ulock sync primitives (`IpcMutex`, `IpcCondition`, `IpcSemaphore`) aligned with C++ and Rust ABI
 - Typed protocol layer: FlatBuffers, Protocol Buffers
 - Secure codec with AEAD envelope, optional OpenSSL EVP backend
+- **Async receive**: `AsyncRoute.recv() async` over the Layer-1 readiness fd
+  (`DispatchSource`), woken by a C++/Rust/Swift sender's notify
 - Bench and demo executables included
 
 ```sh
 cd swift/libipc && swift build
+```
+
+**Async receive** — a Swift `send()` posts the readiness notify, and
+`AsyncRoute` awaits it on any Swift concurrency executor:
+
+```swift
+import LibIPC
+
+let r = try await AsyncRoute.connect(name: "st.agent.cmd")   // receiver
+while true {
+    let msg = try await r.recv()                             // woken by any-language sender
+    // dispatch msg.bytes ...
+}
 ```
 
 ## Status

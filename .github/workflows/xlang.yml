@@ -121,8 +121,13 @@ jobs:
     - name: Build Rust async harness
       run: cargo build --release --bin xlang --features async-tokio
       working-directory: rust/libipc
-    - name: Run async matrix (cpp, rust)
+    - name: Build Swift harness (Layer 1 notify + AsyncRoute)
+      run: swift build -c release --product xlang-harness
+      working-directory: swift/libipc
+    - name: Run async matrix (cpp, rust, swift)
       run: |
+        SWIFT_BIN="$(cd swift/libipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
         python3 tools/xlang_matrix.py \
           --async-lang cpp:cpp/libipc/bin/xasync \
-          --async-lang rust:rust/libipc/target/release/xlang
+          --async-lang rust:rust/libipc/target/release/xlang \
+          --async-lang swift:"$SWIFT_BIN"
