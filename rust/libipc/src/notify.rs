@@ -444,6 +444,124 @@ mod backend {
     }
 }
 
+// =============================================================================
+// Windows — named-Event backend. SCAFFOLD (context/windows-parity-rfc.md §2):
+// authored on macOS, NOT compiled on Windows here; the windows-sys calls are
+// best-effort. Mirrors the C++ WINEVENT backend byte-for-byte (event name
+// `Local\ipcntf_<hash>_<slot>`, one auto-reset event per reader slot).
+// NOTE: not yet wired into channel.rs — native_wait_handle there is `RawFd`-typed
+// and needs a cross-platform wait-handle type (see RFC §3, deferred).
+// =============================================================================
+#[cfg(windows)]
+mod backend {
+    use super::notify_hash;
+    use std::os::windows::io::RawHandle;
+
+    use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HANDLE};
+    use windows_sys::Win32::System::Threading::{
+        CreateEventW, OpenEventW, SetEvent, EVENT_MODIFY_STATE,
+    };
+
+    const MAX_SLOTS: usize = 32;
+
+    fn slot_of(bit: u32) -> i32 {
+        if bit == 0 { -1 } else { bit.trailing_zeros() as i32 }
+    }
+
+    /// `Local\ipcntf_<16-hex hash>_<slot>` as a NUL-terminated UTF-16 string.
+    fn event_name_w(prefix: &str, name: &str, slot: usize) -> Vec<u16> {
+        let s = format!("Local\\ipcntf_{}_{slot}", notify_hash(prefix, name));
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    /// Writer side: SetEvent every connected reader slot except our own.
+    pub struct NotifySource {
+        ev: [HANDLE; MAX_SLOTS],
+    }
+    impl NotifySource {
+        pub fn new() -> Self {
+            Self { ev: [std::ptr::null_mut(); MAX_SLOTS] }
+        }
+        pub fn signal(&mut self, prefix: &str, name: &str, conns: u32, self_bit: u32) {
+            for i in 0..MAX_SLOTS {
+                let bit = 1u32 << i;
+                let want = (conns & bit) != 0 && (self_bit & bit) == 0;
+                if !want {
+                    self.close_slot(i);
+                    continue;
+                }
+                if self.ev[i].is_null() {
+                    let key = event_name_w(prefix, name, i);
+                    self.ev[i] = unsafe { OpenEventW(EVENT_MODIFY_STATE, FALSE, key.as_ptr()) };
+                    if self.ev[i].is_null() {
+                        continue; // reader not connected yet
+                    }
+                }
+                if unsafe { SetEvent(self.ev[i]) } == 0 {
+                    self.close_slot(i); // reader gone → reopen next time
+                }
+            }
+        }
+        fn close_slot(&mut self, i: usize) {
+            if !self.ev[i].is_null() {
+                unsafe { CloseHandle(self.ev[i]) };
+                self.ev[i] = std::ptr::null_mut();
+            }
+        }
+        pub fn close(&mut self) {
+            for i in 0..MAX_SLOTS {
+                self.close_slot(i);
+            }
+        }
+    }
+
+    /// Reader side: owns the auto-reset Event for its connection slot.
+    pub struct NotifySink {
+        ev: HANDLE,
+    }
+    impl NotifySink {
+        pub fn new() -> Self {
+            Self { ev: std::ptr::null_mut() }
+        }
+        pub fn open(&mut self, prefix: &str, name: &str, slot_bit: u32) -> bool {
+            if !self.ev.is_null() {
+                return true;
+            }
+            let slot = slot_of(slot_bit);
+            if slot < 0 || slot >= MAX_SLOTS as i32 {
+                return false;
+            }
+            let key = event_name_w(prefix, name, slot as usize);
+            // Auto-reset (bManualReset = FALSE), initially non-signaled.
+            self.ev = unsafe { CreateEventW(std::ptr::null(), FALSE, FALSE, key.as_ptr()) };
+            !self.ev.is_null()
+        }
+        pub fn valid(&self) -> bool {
+            !self.ev.is_null()
+        }
+        /// The wait HANDLE (as a RawHandle). native_wait_handle wiring is deferred.
+        pub fn native_handle(&self) -> RawHandle {
+            self.ev as RawHandle
+        }
+        /// Auto-reset events self-consume on wait; nothing to drain.
+        pub fn drain(&self) {}
+        pub fn close(&mut self) {
+            if !self.ev.is_null() {
+                unsafe { CloseHandle(self.ev) };
+                self.ev = std::ptr::null_mut();
+            }
+        }
+    }
+    impl Drop for NotifySink {
+        fn drop(&mut self) {
+            self.close();
+        }
+    }
+
+    /// Named Events are reclaimed when their last handle closes — nothing to unlink.
+    pub fn clear_storage(_prefix: &str, _name: &str) {}
+}
+
 pub use backend::{clear_storage, NotifySink, NotifySource};
 
 #[cfg(test)]

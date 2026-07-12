@@ -32,21 +32,22 @@
 
 #if defined(LIBIPC_NOTIFY_FD)
 
+// Backend selection: named Events on Windows; libnotify on Apple by default;
+// POSIX FIFO elsewhere (and on Apple when LIBIPC_NOTIFY_FIFO forces it).
 #if defined(LIBIPC_OS_WIN)
-#  error "LIBIPC_NOTIFY_FD: the Windows (named-event) backend is not implemented yet; \
-build with LIBIPC_NOTIFY_FD=OFF on Windows for now."
-#endif
-
-// Backend selection: libnotify on Apple by default, POSIX FIFO elsewhere (and on
-// Apple when LIBIPC_NOTIFY_FIFO forces the portable path).
-#if defined(LIBIPC_OS_APPLE) && !defined(LIBIPC_NOTIFY_FIFO)
+#  define LIBIPC_NOTIFY_BACKEND_WINEVENT 1
+#elif defined(LIBIPC_OS_APPLE) && !defined(LIBIPC_NOTIFY_FIFO)
 #  define LIBIPC_NOTIFY_BACKEND_LIBNOTIFY 1
 #else
 #  define LIBIPC_NOTIFY_BACKEND_FIFO 1
 #endif
 
-#include <fcntl.h>
-#include <unistd.h>
+#if defined(LIBIPC_OS_WIN)
+#  include <windows.h> // CreateEventW / OpenEventW / SetEvent / CloseHandle
+#else
+#  include <fcntl.h>
+#  include <unistd.h>
+#endif
 
 #include <cerrno>
 #include <cstdint>
@@ -151,6 +152,111 @@ inline void notify_clear_storage(std::string const &, std::string const &) noexc
 // Per-slot reclamation (dead-connection reaper): nothing to do for libnotify.
 inline void notify_clear_slot(std::string const &, std::string const &,
                               ipc::circ::cc_t /*slot_bit*/) noexcept {}
+
+} // namespace detail
+} // namespace ipc
+
+// =============================================================================
+#elif defined(LIBIPC_NOTIFY_BACKEND_WINEVENT)
+// =============================================================================
+// Windows named-Event backend. SCAFFOLD (context/windows-parity-rfc.md §2):
+// authored on macOS, NOT compiled on Windows here — the API calls below are
+// best-effort and need to be built + verified on the box.
+//
+// Model (mirrors the FIFO per-slot design, which is broadcast-correct): one named
+// auto-reset Event per reader connection slot. The sender SetEvents every
+// connected slot (except its own) on enqueue; a reader waits on its own slot's
+// event. native_handle() returns the Event HANDLE (wait_handle_t == void*).
+
+namespace ipc {
+namespace detail {
+
+inline constexpr int notify_max_slots = 32;
+
+inline int notify_slot_of(ipc::circ::cc_t bit) noexcept {
+    return (bit == 0) ? -1 : __builtin_ctz(static_cast<unsigned>(bit));
+}
+
+// Event object name: Local\ipcntf_<16-hex hash>_<slot>. Same FNV-1a hash as the
+// POSIX backends; C++ and the Rust Windows backend must agree byte-for-byte.
+// TODO(windows): confirm the namespace (Local\ same-session vs Global\) and any
+// LIBIPC_SHM_NAME_MAX-style shortening used by shm_win.cpp.
+inline std::wstring notify_event_name(std::string const &prefix,
+                                      std::string const &name, int slot) {
+    std::string a = "Local\\ipcntf_" + notify_hash(prefix, name) + "_" + std::to_string(slot);
+    return std::wstring(a.begin(), a.end()); // ASCII-only → widen directly
+}
+
+// Reader side: owns the auto-reset Event for this receiver's connection slot.
+class notify_sink {
+    HANDLE ev_ = nullptr;
+
+public:
+    notify_sink() = default;
+    notify_sink(notify_sink const &) = delete;
+    notify_sink &operator=(notify_sink const &) = delete;
+    ~notify_sink() { close(); }
+
+    bool valid() const noexcept { return ev_ != nullptr; }
+    ipc::wait_handle_t native_handle() const noexcept { return ev_; }
+
+    bool open(std::string const &prefix, std::string const &name,
+              ipc::circ::cc_t slot_bit) {
+        if (ev_ != nullptr) return true;
+        int slot = notify_slot_of(slot_bit);
+        if (slot < 0 || slot >= notify_max_slots) return false;
+        std::wstring key = notify_event_name(prefix, name, slot);
+        // Auto-reset (bManualReset = FALSE), initially non-signaled.
+        ev_ = ::CreateEventW(nullptr, FALSE, FALSE, key.c_str());
+        return ev_ != nullptr;
+    }
+
+    // Auto-reset events self-consume on wait; nothing to drain.
+    void drain() noexcept {}
+
+    void close() noexcept {
+        if (ev_ != nullptr) { ::CloseHandle(ev_); ev_ = nullptr; }
+    }
+};
+
+// Writer side: on enqueue, SetEvent every connected reader slot (skipping self).
+class notify_source {
+    HANDLE ev_[notify_max_slots] = {};
+    void close_slot(int i) noexcept {
+        if (ev_[i] != nullptr) { ::CloseHandle(ev_[i]); ev_[i] = nullptr; }
+    }
+
+public:
+    notify_source() = default;
+    notify_source(notify_source const &) = delete;
+    notify_source &operator=(notify_source const &) = delete;
+    ~notify_source() { close(); }
+
+    void signal(std::string const &prefix, std::string const &name,
+                ipc::circ::cc_t conns, ipc::circ::cc_t self) noexcept {
+        for (int i = 0; i < notify_max_slots; ++i) {
+            ipc::circ::cc_t bit = static_cast<ipc::circ::cc_t>(1u) << i;
+            bool want = (conns & bit) && !(self & bit);
+            if (!want) { close_slot(i); continue; }
+            if (ev_[i] == nullptr) {
+                std::wstring key = notify_event_name(prefix, name, i);
+                // Open the reader's event; may not exist yet (reader not connected).
+                ev_[i] = ::OpenEventW(EVENT_MODIFY_STATE, FALSE, key.c_str());
+                if (ev_[i] == nullptr) continue;
+            }
+            if (!::SetEvent(ev_[i])) close_slot(i); // reader gone → reopen next time
+        }
+    }
+
+    void close() noexcept {
+        for (int i = 0; i < notify_max_slots; ++i) close_slot(i);
+    }
+};
+
+// Named kernel Events are reclaimed when their last handle closes — nothing on disk.
+inline void notify_clear_storage(std::string const &, std::string const &) noexcept {}
+inline void notify_clear_slot(std::string const &, std::string const &,
+                              ipc::circ::cc_t) noexcept {}
 
 } // namespace detail
 } // namespace ipc

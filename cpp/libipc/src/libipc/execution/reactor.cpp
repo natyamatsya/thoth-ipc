@@ -1,6 +1,9 @@
 #include "libipc/execution/reactor.h"
 
-#if defined(LIBIPC_NOTIFY_FD)
+// The kqueue/epoll reactor below is POSIX. The Windows reactor
+// (RegisterWaitForSingleObject) is scaffolded at the end of this file — see
+// context/windows-parity-rfc.md §3.
+#if defined(LIBIPC_NOTIFY_FD) && !defined(LIBIPC_OS_WIN)
 
 #include <atomic>
 #include <condition_variable>
@@ -302,4 +305,45 @@ void reactor::remove(int fd, reactor_waiter *w) {
 } // namespace detail
 } // namespace ipc
 
-#endif // LIBIPC_NOTIFY_FD
+#endif // LIBIPC_NOTIFY_FD && !LIBIPC_OS_WIN
+
+// =============================================================================
+// Windows reactor — SCAFFOLD (context/windows-parity-rfc.md §3).
+// The real implementation is a thin registry over RegisterWaitForSingleObject /
+// UnregisterWaitEx, and additionally requires reactor.h + async_recv.h/coro_recv.h
+// to widen `int fd` to `wait_handle_t` (a HANDLE on Windows). That refactor is
+// deferred to the Windows box; this stub only satisfies the symbols so a Windows
+// build with LIBIPC_NOTIFY_FD can use Layer 1 (notify source/sink) — calling into
+// async_recv/the reactor is a no-op until it lands.
+// =============================================================================
+#if defined(LIBIPC_NOTIFY_FD) && defined(LIBIPC_OS_WIN)
+
+#include <cstdio>
+
+namespace ipc {
+namespace detail {
+
+struct reactor::impl {};
+
+reactor::reactor() : p_(nullptr) {}
+reactor::~reactor() = default;
+
+reactor &reactor::instance() {
+    static reactor r;
+    return r;
+}
+
+void reactor::add(int /*fd*/, reactor_waiter * /*w*/) {
+    // TODO(windows): RegisterWaitForSingleObject((HANDLE)fd, callback → on_ready).
+    std::fprintf(stderr, "ipc reactor: async receive is not yet implemented on "
+                         "Windows (see context/windows-parity-rfc.md §3)\n");
+}
+
+void reactor::remove(int /*fd*/, reactor_waiter * /*w*/) {
+    // TODO(windows): UnregisterWaitEx(wait, INVALID_HANDLE_VALUE) — synchronous.
+}
+
+} // namespace detail
+} // namespace ipc
+
+#endif // LIBIPC_NOTIFY_FD && LIBIPC_OS_WIN

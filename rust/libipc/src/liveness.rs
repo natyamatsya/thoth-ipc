@@ -53,7 +53,12 @@ fn slot_index(bit: u32) -> usize {
 fn self_pid() -> i32 {
     unsafe { libc::getpid() }
 }
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn self_pid() -> i32 {
+    // GetCurrentProcessId never fails; Windows PIDs fit in i32 in practice.
+    unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() as i32 }
+}
+#[cfg(not(any(unix, windows)))]
 fn self_pid() -> i32 {
     0
 }
@@ -70,7 +75,11 @@ fn start_token(pid: i32) -> u64 {
 fn start_token(pid: i32) -> u64 {
     linux::start_token(pid)
 }
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn start_token(pid: i32) -> u64 {
+    windows_backend::start_token(pid)
+}
+#[cfg(not(any(unix, windows)))]
 fn start_token(_pid: i32) -> u64 {
     0
 }
@@ -96,7 +105,11 @@ fn is_process_alive(pid: i32, tok: u64) -> bool {
     }
     cur == tok // mismatch ⇒ PID was reused ⇒ our owner is gone
 }
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn is_process_alive(pid: i32, tok: u64) -> bool {
+    windows_backend::is_process_alive(pid, tok)
+}
+#[cfg(not(any(unix, windows)))]
 fn is_process_alive(_pid: i32, _tok: u64) -> bool {
     true
 }
@@ -248,6 +261,79 @@ mod linux {
             .nth(19)
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(0)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Windows start-token + liveness. SCAFFOLD (see context/windows-parity-rfc.md §4):
+// authored on macOS, not compiled on Windows here. TODO(windows): build against
+// windows-sys 0.61 on the box and confirm the API paths/constants below.
+// ---------------------------------------------------------------------------
+#[cfg(windows)]
+mod windows_backend {
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME};
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    const STILL_ACTIVE: u32 = 259;
+
+    /// Process creation time (FILETIME = 100-ns ticks since 1601) packed as a u64 —
+    /// the Windows row of the xlang §9 token formula, identical in C++. 0 = unknown.
+    pub fn start_token(pid: i32) -> u64 {
+        if pid <= 0 {
+            return 0;
+        }
+        unsafe {
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid as u32);
+            if h.is_null() {
+                return 0;
+            }
+            let mut creation = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+            let mut exit = creation;
+            let mut kernel = creation;
+            let mut user = creation;
+            let ok = GetProcessTimes(h, &mut creation, &mut exit, &mut kernel, &mut user);
+            CloseHandle(h);
+            if ok == 0 {
+                return 0;
+            }
+            ((creation.dwHighDateTime as u64) << 32) | (creation.dwLowDateTime as u64)
+        }
+    }
+
+    /// Conservative liveness — any "can't determine" answer errs toward ALIVE so a
+    /// live-but-idle peer is never false-reaped (identical policy to POSIX).
+    pub fn is_process_alive(pid: i32, tok: u64) -> bool {
+        if pid <= 0 {
+            return false;
+        }
+        unsafe {
+            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid as u32);
+            if h.is_null() {
+                // Open fails for "no such process" OR access-denied; err toward ALIVE.
+                // TODO(windows): GetLastError()==ERROR_INVALID_PARAMETER ⇒ treat as
+                // gone for tighter reclamation.
+                return true;
+            }
+            let mut code: u32 = 0;
+            let ok = GetExitCodeProcess(h, &mut code);
+            CloseHandle(h);
+            if ok == 0 {
+                return true; // couldn't determine → alive
+            }
+            if code != STILL_ACTIVE {
+                return false; // exited → gone
+            }
+            if tok == 0 {
+                return true; // no recorded token → token-less fallback
+            }
+            let cur = start_token(pid);
+            if cur == 0 {
+                return true; // couldn't read current token → don't risk a false reap
+            }
+            cur == tok // mismatch ⇒ PID reused ⇒ our owner is gone
+        }
     }
 }
 

@@ -199,6 +199,44 @@ Only three functions are platform-specific; the owner table (`LV_CONN__`, 16-byt
 Do 1–2 first: they are small, make the reaper work, and prove the ABI, before the
 larger notify/reactor/async work in 3–5.
 
+## Scaffold status (branch `windows-parity-scaffold`)
+
+A **dry scaffold** was landed to give a consistent skeleton — authored on macOS,
+so the Windows-gated code is **not compiled here**. It does **not** touch or
+break the macOS/Linux builds (verified: C++ both configs + `cargo check
+--target x86_64-unknown-linux-gnu` base/notify/async all green). First step on
+the box: build C++ with `-DLIBIPC_STDEXEC=ON` and `cargo check --target
+x86_64-pc-windows-msvc` (base + `notify` + `async-tokio`), then fix compile
+errors — the `windows-sys` API paths/constants below are best-effort.
+
+**Scaffolded (present, `#[cfg(windows)]` / `#if LIBIPC_OS_WIN`; verify + finish):**
+- **Reaper liveness — near-complete.** C++ `liveness.h` and Rust
+  `liveness.rs::windows_backend`: `self_pid`=`GetCurrentProcessId`,
+  `is_process_alive`=`OpenProcess`+`GetExitCodeProcess`, `start_token`=
+  `GetProcessTimes` creation FILETIME packed as u64. Fixes the Rust `self_pid==0`
+  bug. Should be functional after a compile check.
+- **Notify (Layer 1) — skeleton.** C++ `notify.h` `LIBIPC_NOTIFY_BACKEND_WINEVENT`
+  (replaces the `#error`) and Rust `notify.rs` `#[cfg(windows)]` backend: named
+  auto-reset Events, `Local\ipcntf_<hash>_<slot>`, `SetEvent`/`CreateEventW`/
+  `OpenEventW`. The C++ sink returns `wait_handle_t` (correct); the Rust sink
+  returns a `RawHandle`.
+- **Reactor — stub.** `reactor.cpp` gates the POSIX reactor to `!LIBIPC_OS_WIN`
+  and adds a Windows stub (symbols only; `add`/`remove` are no-ops that log). Lets
+  a Windows `LIBIPC_NOTIFY_FD` build link and use Layer 1; async is inert.
+
+**Deferred to the box (a small type refactor, do coherently — NOT scaffolded to
+avoid breaking working POSIX/unix code blind):**
+- **Widen `int fd` → `wait_handle_t`** through `reactor.h`, `async_recv.h`
+  (`recv_op`), and `coro_recv.h` (a `HANDLE` is `void*`, not `int`). Then
+  implement the real Windows reactor over `RegisterWaitForSingleObject` (§3) and
+  C++ stdexec + coroutine async work unchanged.
+- **Rust `RawFd` → `HANDLE`:** `Channel`/`Route::native_wait_handle` and
+  `AsyncRoute`/`async_recv.rs` are `RawFd`-typed (unix). Introduce a
+  cross-platform wait-handle type, wire the Windows notify sink (already written)
+  into `channel.rs`, and implement the Windows `AsyncRoute` (§3).
+- Verify the `windows-sys` feature set covers everything used (Threading:
+  process + event APIs; Foundation) and add any missing feature to `Cargo.toml`.
+
 ## 7. Open questions to resolve on Windows
 
 - `libc::max_align_t` on `windows-msvc` for `AlignSize` — verify (=16) or replace.

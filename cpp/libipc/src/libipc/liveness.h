@@ -29,6 +29,7 @@
 
 #if defined(LIBIPC_OS_WIN)
 #  include <process.h>
+#  include <windows.h> // OpenProcess / GetProcessTimes / GetExitCodeProcess
 #else
 #  include <csignal>
 #  include <cerrno>
@@ -92,8 +93,19 @@ inline std::int32_t self_pid() noexcept {
 //   * Linux: the raw starttime jiffies from /proc/<pid>/stat field 22.
 inline std::uint64_t start_token(std::int32_t pid) noexcept {
 #if defined(LIBIPC_OS_WIN)
-    (void)pid;
-    return 0; // TODO: process creation time via GetProcessTimes
+    // Windows: creation FILETIME (100-ns ticks since 1601) packed as u64 — the
+    // Windows row of the xlang §9 formula, identical in the Rust port. SCAFFOLD
+    // (context/windows-parity-rfc.md §4): authored on macOS; verify on Windows.
+    if (pid <= 0) return 0;
+    HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                             static_cast<DWORD>(pid));
+    if (h == nullptr) return 0;
+    FILETIME creation{}, exit{}, kernel{}, user{};
+    BOOL ok = ::GetProcessTimes(h, &creation, &exit, &kernel, &user);
+    ::CloseHandle(h);
+    if (!ok) return 0;
+    return (static_cast<std::uint64_t>(creation.dwHighDateTime) << 32)
+         | static_cast<std::uint64_t>(creation.dwLowDateTime);
 #elif defined(LIBIPC_OS_APPLE)
     if (pid <= 0) return 0;
     struct proc_bsdinfo info;
@@ -141,9 +153,26 @@ inline std::uint64_t self_start_token() noexcept {
 // ALIVE, so a live-but-idle peer is never falsely reaped.
 inline bool is_process_alive(std::int32_t pid, std::uint64_t tok) noexcept {
 #if defined(LIBIPC_OS_WIN)
-    (void)pid;
-    (void)tok;
-    return true; // TODO: OpenProcess + creation-time compare
+    // SCAFFOLD (context/windows-parity-rfc.md §4). Conservative: any "can't
+    // determine" answer errs toward ALIVE so a live-but-idle peer is never
+    // falsely reaped (identical policy to POSIX). Verify on Windows.
+    if (pid <= 0) return false;
+    HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                             static_cast<DWORD>(pid));
+    if (h == nullptr) {
+        // Open fails for "no such process" OR access-denied — err toward ALIVE.
+        // TODO(windows): GetLastError()==ERROR_INVALID_PARAMETER ⇒ treat as gone.
+        return true;
+    }
+    DWORD code = 0;
+    BOOL ok = ::GetExitCodeProcess(h, &code);
+    ::CloseHandle(h);
+    if (!ok) return true;                 // couldn't determine → alive
+    if (code != STILL_ACTIVE) return false; // exited → gone
+    if (tok == 0) return true;            // no recorded token → token-less fallback
+    std::uint64_t cur = start_token(pid);
+    if (cur == 0) return true;            // couldn't read → don't risk a false reap
+    return cur == tok;                    // mismatch ⇒ PID reused ⇒ owner is gone
 #else
     if (pid <= 0) return false;
     bool exists = (::kill(static_cast<pid_t>(pid), 0) == 0) || (errno != ESRCH);
