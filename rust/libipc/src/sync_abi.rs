@@ -3,6 +3,7 @@
 
 use std::io;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 
 use crate::{ShmHandle, ShmOpenMode};
 
@@ -10,7 +11,18 @@ const SYNC_ABI_MAGIC: u32 = 0x4C49_5341; // "LISA" (LibIPC Sync ABI)
 const SYNC_ABI_INIT_IN_PROGRESS: u32 = u32::MAX;
 const SYNC_ABI_VERSION_MAJOR: u32 = 1;
 const SYNC_ABI_VERSION_MINOR: u32 = 0;
-const SYNC_ABI_INIT_WAIT_LIMIT: u32 = 16_384;
+/// How long a concurrent opener will wait for another thread/process that has
+/// claimed the `INIT_IN_PROGRESS` slot to publish the finished stamp before it
+/// gives up and reports a stalled (presumably dead) initializer.
+///
+/// The initializer's critical section is a handful of relaxed atomic stores —
+/// nanoseconds in the common case — but it can be preempted, and multiple
+/// waiters used to burn a fixed *spin count* fast enough to falsely time out a
+/// merely-descheduled initializer (and, by busy-spinning, starve it of the CPU
+/// it needed to finish). A generous wall-clock deadline plus backoff that
+/// actually sleeps makes the wait robust: a live initializer always wins, and
+/// only a genuinely dead one (crashed mid-init) trips the timeout.
+const SYNC_ABI_INIT_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[cfg(target_os = "macos")]
 const SYNC_BACKEND_ID: u32 = 2; // apple_ulock
@@ -146,7 +158,21 @@ fn init_or_validate(
     expected: SyncAbiExpected,
     primitive: PrimitiveKind,
 ) -> io::Result<()> {
+    init_or_validate_within(stamp, expected, primitive, SYNC_ABI_INIT_TIMEOUT)
+}
+
+fn init_or_validate_within(
+    stamp: &SyncAbiStamp,
+    expected: SyncAbiExpected,
+    primitive: PrimitiveKind,
+    init_timeout: Duration,
+) -> io::Result<()> {
+    // Spin count *within the current INIT_IN_PROGRESS wait* — drives backoff
+    // escalation only; the give-up decision is wall-clock based (`deadline`).
     let mut init_wait_spins = 0u32;
+    // Lazily armed on the first INIT_IN_PROGRESS observation so an already-live
+    // stamp (or one we initialize ourselves) never pays for a clock read.
+    let mut deadline: Option<Instant> = None;
     loop {
         let magic = stamp.magic.load(Ordering::Acquire);
 
@@ -155,7 +181,8 @@ fn init_or_validate(
         }
 
         if magic == SYNC_ABI_INIT_IN_PROGRESS {
-            if init_wait_spins >= SYNC_ABI_INIT_WAIT_LIMIT {
+            let deadline = *deadline.get_or_insert_with(|| Instant::now() + init_timeout);
+            if Instant::now() >= deadline {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     format!(
@@ -164,12 +191,23 @@ fn init_or_validate(
                     ),
                 ));
             }
-            init_wait_spins += 1;
-            std::thread::yield_now();
+            // Back off with an escalating strategy: a brief CPU spin for the
+            // common sub-microsecond case, then `yield_now`, then an actual
+            // sleep. Sleeping (rather than spinning) hands the CPU back to the
+            // initializer so it can finish, instead of starving it.
+            if init_wait_spins < 64 {
+                std::hint::spin_loop();
+            } else if init_wait_spins < 1024 {
+                std::thread::yield_now();
+            } else {
+                std::thread::sleep(Duration::from_micros(200));
+            }
+            init_wait_spins = init_wait_spins.saturating_add(1);
             continue;
         }
 
         init_wait_spins = 0;
+        deadline = None;
 
         if magic == 0 {
             if stamp
@@ -331,10 +369,11 @@ mod tests {
             .magic
             .store(SYNC_ABI_INIT_IN_PROGRESS, Ordering::Release);
 
-        let err = init_or_validate(
+        let err = init_or_validate_within(
             &stamp,
             expected_for(PrimitiveKind::Mutex),
             PrimitiveKind::Mutex,
+            Duration::from_millis(50),
         )
         .expect_err("stuck INIT_IN_PROGRESS must not spin forever");
 

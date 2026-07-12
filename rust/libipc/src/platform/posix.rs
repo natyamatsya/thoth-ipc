@@ -179,6 +179,12 @@ pub struct PlatformShm {
 unsafe impl Send for PlatformShm {}
 unsafe impl Sync for PlatformShm {}
 
+/// How long a concurrent opener waits for the creator to size a freshly
+/// created shm object before assuming the creator died and recovering itself.
+/// The real wait is microseconds (one syscall on the creator's side); this is a
+/// generous liveness backstop, not a hot-path cost.
+const SHM_SIZE_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// Open mode flags — mirrors C++ `ipc::shm::create` / `ipc::shm::open`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShmMode {
@@ -208,7 +214,7 @@ impl PlatformShm {
         // For CreateOrOpen: try exclusive create first so we only call ftruncate
         // when we actually own the new object.  On macOS, calling ftruncate on an
         // already-sized shm object can zero its contents before returning EINVAL.
-        let (fd, mut need_truncate) = match mode {
+        let (fd, need_truncate) = match mode {
             ShmMode::Create => {
                 let f = unsafe {
                     libc::shm_open(
@@ -259,32 +265,88 @@ impl PlatformShm {
             }
         };
 
-        if !need_truncate && mode == ShmMode::CreateOrOpen {
-            let mut st: libc::stat = unsafe { std::mem::zeroed() };
-            let ret = unsafe { libc::fstat(fd, &mut st) };
-            if ret != 0 {
-                let err = io::Error::last_os_error();
-                unsafe { libc::close(fd) };
-                return Err(err);
-            }
-            if (st.st_size as usize) < total_size {
-                need_truncate = true;
-            }
-        }
-
         // Ensure permissions (mirrors fchmod in C++)
         unsafe { libc::fchmod(fd, perms) };
 
+        // Sizing contract. On macOS/XNU a shm object accepts exactly ONE sizing
+        // `ftruncate`; a second call fails with EINVAL (code 22) and can even
+        // zero the object. So the exclusive creator sizes it once, and everyone
+        // else *waits* for that size to become visible rather than racing a
+        // second `ftruncate`. The old code let a concurrent opener observe the
+        // transient size-0 window and issue its own `ftruncate`, which made two
+        // openers collide on the one-shot truncate and surface a spurious
+        // EINVAL from `acquire` (a flaky "open" failure under contention).
         if need_truncate {
-            let ret = unsafe { libc::ftruncate(fd, total_size as libc::off_t) };
-            if ret != 0 {
-                let err = io::Error::last_os_error();
+            // We created the object (O_EXCL winner) — size it once.
+            if let Err(err) = Self::ftruncate_to_size(fd, total_size) {
                 unsafe { libc::close(fd) };
                 return Err(err);
+            }
+        } else if mode == ShmMode::CreateOrOpen {
+            // We opened an object another thread/process created. Wait for the
+            // creator to publish the size instead of truncating it ourselves.
+            if !Self::wait_until_sized(fd, total_size) {
+                // Still undersized after the deadline: the creator crashed
+                // between shm_open(O_EXCL) and its ftruncate, leaving a
+                // zero-length husk. Recover by sizing it ourselves, tolerating
+                // the EINVAL a peer recoverer's truncate may hand us.
+                if let Err(err) = Self::ftruncate_to_size(fd, total_size) {
+                    unsafe { libc::close(fd) };
+                    return Err(err);
+                }
             }
         }
 
         Self::mmap_and_finish(fd, total_size, user_size, name.to_owned(), posix_name)
+    }
+
+    /// `ftruncate(fd, total_size)`, tolerating the macOS one-shot-sizing EINVAL.
+    ///
+    /// On XNU a POSIX shm object can be sized exactly once; if a peer sized it
+    /// first, our call fails with `EINVAL`. That is benign as long as the object
+    /// ended up at least as large as we need, so we re-`fstat` and accept it.
+    /// Any other error — or a still-undersized object — is propagated.
+    fn ftruncate_to_size(fd: i32, total_size: usize) -> io::Result<()> {
+        if unsafe { libc::ftruncate(fd, total_size as libc::off_t) } == 0 {
+            return Ok(());
+        }
+        let err = io::Error::last_os_error();
+        if err.raw_os_error() == Some(libc::EINVAL) {
+            let mut st: libc::stat = unsafe { std::mem::zeroed() };
+            if unsafe { libc::fstat(fd, &mut st) } == 0 && (st.st_size as usize) >= total_size {
+                return Ok(());
+            }
+        }
+        Err(err)
+    }
+
+    /// Wait for the object referenced by `fd` to reach at least `total_size`
+    /// bytes, i.e. for its creator to finish its sizing `ftruncate`. Returns
+    /// `true` once sized, or `false` if a short deadline elapses first (which
+    /// implies the creator died mid-create and the caller must recover).
+    ///
+    /// The creator's window between `shm_open(O_EXCL)` and its `ftruncate` is a
+    /// single syscall, so this almost always succeeds on the first `fstat`; the
+    /// deadline is only a liveness backstop, and we back off with sleeps so we
+    /// hand the CPU to the creator instead of starving it.
+    fn wait_until_sized(fd: i32, total_size: usize) -> bool {
+        let deadline = std::time::Instant::now() + SHM_SIZE_WAIT_TIMEOUT;
+        let mut spins = 0u32;
+        loop {
+            let mut st: libc::stat = unsafe { std::mem::zeroed() };
+            if unsafe { libc::fstat(fd, &mut st) } == 0 && (st.st_size as usize) >= total_size {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            if spins < 128 {
+                std::hint::spin_loop();
+            } else {
+                std::thread::sleep(std::time::Duration::from_micros(100));
+            }
+            spins = spins.saturating_add(1);
+        }
     }
 
     fn mmap_and_finish(
