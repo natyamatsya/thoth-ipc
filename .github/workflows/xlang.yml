@@ -134,3 +134,65 @@ jobs:
           --async-lang rust:rust/libipc/target/release/xlang \
           --async-lang swift:"$SWIFT_BIN" \
           --async-lang coro:cpp/libipc/bin/xcoro
+
+  # Windows runners have C++ (MSVC) and Rust (Swift is a macOS-only SwiftPM
+  # package). Covers the byte-exact wire ABI (named auto-reset condition var,
+  # AlignSize=8, verbatim Local\ object names) and the reaper (GetProcessTimes
+  # start token). MSVC is a multi-config generator: outputs land in
+  # build/bin/Release/*.exe, unlike the Makefile bin/ on Linux/macOS.
+  matrix-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    - name: Build C++ harness (MSVC)
+      run: |
+        cmake -B build -DLIBIPC_BUILD_TESTS=ON
+        cmake --build build --config Release --target xlang_ipc
+      working-directory: cpp/libipc
+    - name: Build Rust harness
+      run: cargo build --release --bin xlang
+      working-directory: rust/libipc
+    - name: Run cross-language matrix (cpp, rust)
+      run: |
+        python tools/xlang_matrix.py \
+          --lang cpp:cpp/libipc/build/bin/Release/xlang_ipc.exe \
+          --lang rust:rust/libipc/target/release/xlang.exe \
+          --reap-lang cpp:cpp/libipc/build/bin/Release/xlang_ipc.exe \
+          --reap-lang rust:rust/libipc/target/release/xlang.exe
+
+  # Async (Layer 1 notify + Layer 2) matrix on Windows: a sender's SetEvent must
+  # wake an async receiver. C++ uses stdexec async_recv + coroutines over the
+  # named-Event backend and a RegisterWaitForSingleObject reactor; Rust uses
+  # AsyncRoute (thread-pool wait + tokio Notify). stdexec is fetched (needs C++23).
+  async-matrix-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    - name: Build C++ async harness (named-Event backend)
+      run: |
+        cmake -B build -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_STDEXEC=ON
+        cmake --build build --config Release --target xasync xcoro
+      working-directory: cpp/libipc
+    - name: Build Rust async harness
+      run: cargo build --release --bin xlang --features async-tokio
+      working-directory: rust/libipc
+    - name: Run async matrix (cpp, rust, coro)
+      run: |
+        python tools/xlang_matrix.py \
+          --async-lang cpp:cpp/libipc/build/bin/Release/xasync.exe \
+          --async-lang rust:rust/libipc/target/release/xlang.exe \
+          --async-lang coro:cpp/libipc/build/bin/Release/xcoro.exe
