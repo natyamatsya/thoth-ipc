@@ -17,6 +17,7 @@
 #include "libipc/rw_lock.h"
 #include "libipc/waiter.h"
 #include "libipc/notify.h"
+#include "libipc/liveness.h"
 
 #include "libipc/imp/log.h"
 #include "libipc/utility/id_pool.h"
@@ -115,6 +116,28 @@ struct conn_info_head {
     msg_id_t    cc_id_; // connection-info id
     ipc::detail::waiter cc_waiter_, wt_waiter_, rd_waiter_;
     ipc::shm::handle acc_h_;
+    ipc::shm::handle lv_h_; // LV_CONN__ per-slot owner table (dead-connection reaper)
+
+    // Per-slot owner table (dead-connection reaper, RFC:
+    // context/dead-connection-reaper-rfc.md). Lives in its own segment so the
+    // byte-exact ring/waiter segments are untouched.
+    ipc::detail::conn_liveness *liveness() noexcept {
+        return static_cast<ipc::detail::conn_liveness *>(lv_h_.get());
+    }
+    void liveness_set_owner(ipc::circ::cc_t bit) noexcept {
+        ipc::detail::liveness_set_owner(liveness(), bit);
+    }
+    void liveness_clear_owner(ipc::circ::cc_t bit) noexcept {
+        ipc::detail::liveness_clear_owner(liveness(), bit);
+    }
+    // Reclaim a reaped slot's readiness FIFO (no-op unless the FIFO notify backend is on).
+    void notify_clear_slot(ipc::circ::cc_t bit) noexcept {
+#if defined(LIBIPC_NOTIFY_FD)
+        ipc::detail::notify_clear_slot(prefix_, name_, bit);
+#else
+        (void)bit;
+#endif
+    }
 
 #if defined(LIBIPC_NOTIFY_FD)
     // Opt-in Layer 1 (RFC context/stdexec-async-recv-rfc.md). notify_sink_ owns
@@ -156,6 +179,7 @@ struct conn_info_head {
         if (!wt_waiter_.valid()) wt_waiter_.open(ipc::make_prefix(prefix_, "WT_CONN__", name_).c_str());
         if (!rd_waiter_.valid()) rd_waiter_.open(ipc::make_prefix(prefix_, "RD_CONN__", name_).c_str());
         if (!acc_h_.valid()) acc_h_.acquire(ipc::make_prefix(prefix_, "AC_CONN__", name_).c_str(), sizeof(acc_t));
+        if (!lv_h_.valid()) lv_h_.acquire(ipc::make_prefix(prefix_, "LV_CONN__", name_).c_str(), sizeof(ipc::detail::conn_liveness));
         if (cc_id_ != 0) {
             return;
         }
@@ -176,6 +200,7 @@ struct conn_info_head {
         wt_waiter_.clear();
         rd_waiter_.clear();
         acc_h_.clear();
+        lv_h_.clear();
     }
 
     static void clear_storage(char const * prefix, char const * name) noexcept {
@@ -185,6 +210,7 @@ struct conn_info_head {
         ipc::detail::waiter::clear_storage(ipc::make_prefix(p, "WT_CONN__", n).c_str());
         ipc::detail::waiter::clear_storage(ipc::make_prefix(p, "RD_CONN__", n).c_str());
         ipc::shm::handle::clear_storage(ipc::make_prefix(p, "AC_CONN__", n).c_str());
+        ipc::shm::handle::clear_storage(ipc::make_prefix(p, "LV_CONN__", n).c_str());
 #if defined(LIBIPC_NOTIFY_FD)
         ipc::detail::notify_clear_storage(p, n);
 #endif
@@ -461,14 +487,28 @@ struct queue_generator {
         }
 
         void disconnect_receiver() {
+            ipc::circ::cc_t self = que_.connected_id();
             bool dis = que_.disconnect();
             this->quit_waiting();
             if (dis) {
+                this->liveness_clear_owner(self);
                 this->recv_cache().clear();
 #if defined(LIBIPC_NOTIFY_FD)
                 this->notify_close_sink();
 #endif
             }
+        }
+
+        // Clear the cc_ bits of any receivers whose owner process has died
+        // (dead-connection reaper, Phase 1). Callable by any participant; run on
+        // connect so a new joiner reclaims phantom slots before claiming one.
+        ipc::circ::cc_t reap() noexcept {
+            auto *elems = que_.elems();
+            if (elems == nullptr) return 0;
+            return ipc::detail::reap_dead_receivers(
+                this->liveness(), elems->connections(),
+                [elems](ipc::circ::cc_t bit) { elems->disconnect_receiver(bit); },
+                [this](ipc::circ::cc_t bit) { this->notify_clear_slot(bit); });
         }
     };
 };
@@ -523,7 +563,9 @@ static bool reconnect(ipc::handle_t * ph, bool start_to_recv) {
     info_of(*ph)->init();
     if (start_to_recv) {
         que->shut_sending();
+        info_of(*ph)->reap(); // reclaim slots held by dead peers before claiming one
         if (que->connect()) { // wouldn't connect twice
+            info_of(*ph)->liveness_set_owner(que->connected_id());
             info_of(*ph)->cc_waiter_.broadcast();
 #if defined(LIBIPC_NOTIFY_FD)
             // Now that we own a reader slot, create its readiness FIFO.

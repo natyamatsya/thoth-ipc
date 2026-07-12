@@ -148,6 +148,9 @@ public:
 
 // No filesystem node to reclaim for libnotify.
 inline void notify_clear_storage(std::string const &, std::string const &) noexcept {}
+// Per-slot reclamation (dead-connection reaper): nothing to do for libnotify.
+inline void notify_clear_slot(std::string const &, std::string const &,
+                              ipc::circ::cc_t /*slot_bit*/) noexcept {}
 
 } // namespace detail
 } // namespace ipc
@@ -306,6 +309,15 @@ inline void notify_clear_storage(std::string const &prefix,
                                  std::string const &name) noexcept {
     for (int i = 0; i < notify_max_slots; ++i) {
         ::unlink(notify_fifo_path(prefix, name, i).c_str());
+    }
+}
+
+// Reclaim a single reaped slot's FIFO node (dead-connection reaper).
+inline void notify_clear_slot(std::string const &prefix, std::string const &name,
+                              ipc::circ::cc_t slot_bit) noexcept {
+    int slot = notify_slot_of(slot_bit);
+    if (slot >= 0 && slot < notify_max_slots) {
+        ::unlink(notify_fifo_path(prefix, name, slot).c_str());
     }
 }
 

@@ -1,7 +1,8 @@
 # RFC: Dead-connection reaping for broadcast routes
 
-Status: proposal · Author: agent-control integration · Revised after
-cross-language review (owner table is now an xlang ABI; notify cleanup added) ·
+Status: **Phase 1 implemented (C++)** · Author: agent-control integration ·
+Revised after cross-language review (owner table is now an xlang ABI; notify
+cleanup added) and again to record the lock-free implementation ·
 Relates to [`macos_ipc_roadmap.md`](macos_ipc_roadmap.md) (reuses its PID-liveness
 primitive) and [`xlang-channel-abi.md`](xlang-channel-abi.md) (the byte-exact
 cross-language contract this extends).
@@ -141,19 +142,24 @@ cc_t reap_dead_receivers() {
 `is_process_alive` is the mutex-layer function, extended with the start-token
 compare from §5.
 
-### 3. Concurrency
+### 3. Concurrency — lock-free (implemented)
 
-Reap under the existing `conn_head_base::lc_` spin-lock so slot claim/release and
-reaping serialize. The lock closes the TOCTOU window where a freed bit is
-re-`connect()`ed by a new process between "read pid" and "disconnect": because the
-reaper only disconnects a bit whose recorded PID it *just* verified dead, and a
-fresh `connect()` overwrites `slots[b].pid` with a live PID under the same lock, the
-reaper never evicts the newcomer.
+The implementation is **lock-free** — no new shared lock, and `conn_head`'s
+byte-exact `lc_` is left untouched. Two rules give the same TOCTOU guarantee a
+lock would:
 
-**Note:** `conn_head<P,true>::connect()` is today a lock-free CAS, *not* `lc_`-guarded.
-Serializing the owner-write + bit-set under `lc_` is a real (small) change to the
-connect path — connect is not hot, so this is acceptable, but **every port must
-adopt the same discipline** or the TOCTOU guarantee is one-sided.
+- **Connect writes its owner *after* claiming the bit** (`que->connect()`'s CAS,
+  then `slots[i].pid.store(getpid())`). A set bit whose owner is still `0`
+  (mid-connect, or a non-participating port) is *skipped* by the reaper — safe,
+  never a false reap.
+- **The reaper CAS-claims the owner** (`pid.compare_exchange(dead, 0)`) before
+  clearing the bit. A slot cannot be reused by a newcomer until the reaper frees
+  the bit, so between "read dead PID" and "CAS" no live PID can appear; and if two
+  reapers race, only one CAS wins. The newcomer is never evicted.
+
+This is simpler than an `lc_`-guarded scan and — importantly — keeps the connect
+path a plain CAS, so **the ports need only the same "owner store after bit set,
+CAS-clear before reap" discipline**, not a shared spin-lock protocol.
 
 ### 4. Unblocking in-flight elements (the careful part)
 
