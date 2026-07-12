@@ -208,3 +208,39 @@ checks the reader receives exactly what the writer sent, byte-for-byte (payload
 pattern `byte[i] = 'A' + (i%26)`). Any drift in names **or** layout fails a
 pairing. `.github/workflows/xlang.yml` runs the C++↔Rust matrix on Linux and the
 full C++/Rust/Swift 3×3 on macOS.
+
+## 8. Layer 1 — notify readiness (optional async receive)
+
+An **opt-in** notify layer turns channel readiness into a waitable fd so an async
+receiver (C++ stdexec `async_recv`, Rust `AsyncRoute`) can be woken by any
+language's sender instead of blocking a thread. It sits *on top of* the wire ABI
+(the shm ring is unchanged); it is off unless enabled: C++ `LIBIPC_NOTIFY_FD`,
+Rust `notify`/`async-tokio` features. **A sender posts on enqueue; a receiver
+registers a readiness fd** — so for a port send to wake a C++ `async_recv`, the
+notify identity must be byte-exact.
+
+- **Channel identity hash** — `notify_hash(prefix, name)` = 16-lowercase-hex of
+  `fnv1a_64("{prefix}__IPC_SHM__NOTIFY__{name}")` (i.e. `make_prefix(prefix,
+  "NOTIFY__", name)`). Golden: `("", "xchan") → d7484adebb2d170d`;
+  `("app", "st.agent.cmd") → ad223836b598bfaa`.
+- **macOS backend — libnotify** (default on Apple): service key
+  `"ipc.ntf." + notify_hash`. Sender `notify_post(key)` (multicast — one post
+  wakes every registered reader, honouring 1→N/N→N broadcast). Reader
+  `notify_register_file_descriptor(key, &fd, 0, &tok)` → an fd that receives a
+  token int per post; drain by reading ints until `EAGAIN`.
+- **POSIX backend — named FIFO** (Linux; Apple with `LIBIPC_NOTIFY_FIFO` /
+  Rust `notify_fifo`): per reader **slot** `s ∈ 0..31`, path
+  `<dir>/ipcntf_<notify_hash>.<s>` (`dir` = `$LIBIPC_NOTIFY_DIR` or `/tmp`).
+  FIFO is point-to-point, so a sender pokes every connected slot except its own;
+  a receiver owns the FIFO for its connection slot (`s = ctz(connected_id)`).
+- **native_wait_handle()** returns the reader's fd (or the invalid handle if the
+  peer lacks the notify layer / is not a receiver). The Rust sink is registered
+  **lazily** on first `native_wait_handle()`, keeping the blocking recv path
+  zero-cost even with the feature compiled in.
+
+**Verification.** `xlang_matrix.py --async-lang …` runs the async matrix: a
+writer's notify must wake an async receiver (verb `aread`) on its readiness fd —
+so divergent notify keys fail a pairing. Harnesses: C++ `xasync`
+(`LIBIPC_STDEXEC`), Rust `xlang aread` (`async-tokio`). CI runs the C++↔Rust
+async matrix on macOS (libnotify) and Linux (FIFO). A Rust unit test also pins
+`notify_hash` to the golden values above.

@@ -66,10 +66,31 @@ Pure Rust crate, binary-compatible with the C++ and Swift libraries.
 - Secure codec with AEAD envelope, OpenSSL EVP backend (feature-gated)
 - Apple ulock sync ABI alignment with C++ and Swift
 - Service registry, process manager, real-time audio demos
+- **Async receive** (opt-in): a Layer-1 notify readiness fd (byte-exact with C++
+  `LIBIPC_NOTIFY_FD`) + `AsyncRoute::recv().await` on tokio — a Rust `send()`
+  wakes a C++ `async_recv` and vice versa
 
 ```sh
 cd rust/libipc && cargo test
 ```
+
+**Async receive** — enable the `async-tokio` feature (implies `notify`):
+
+```rust
+use libipc::async_recv::AsyncRoute;
+
+let mut r = AsyncRoute::connect("st.agent.cmd")?; // receiver
+loop {
+    let msg = r.recv().await?;                     // woken by any-language sender
+    // dispatch msg.data() ...
+}
+```
+
+The sender side just needs the `notify` feature — every `Route::send` then posts
+the readiness signal that wakes a C++/Rust async receiver. Runtime-agnostic users
+can drive `native_wait_handle()` (a `RawFd`) on their own reactor instead of
+tokio. See [`context/xlang-channel-abi.md`](context/xlang-channel-abi.md) §8 for
+the byte-exact notify protocol.
 
 ### Swift — [`swift/libipc/`](swift/libipc/)
 

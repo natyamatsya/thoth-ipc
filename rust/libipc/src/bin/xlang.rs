@@ -152,8 +152,9 @@ fn main() {
         "read" => do_read(name, count, size),
         #[cfg(all(unix, feature = "notify"))]
         "arecv" => do_arecv(name, count, size),
+        // Canonical async receiver = the shipped AsyncRoute::recv().await.
         #[cfg(all(unix, feature = "async-tokio"))]
-        "arecv-tokio" => do_arecv_tokio(name, count, size),
+        "aread" => do_arecv_tokio(name, count, size),
         other => { eprintln!("unknown verb '{other}'"); 1 }
     };
     exit(code);

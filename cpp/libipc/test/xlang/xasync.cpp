@@ -7,7 +7,7 @@
 // recv(). Built only when LIBIPC_STDEXEC (which implies LIBIPC_NOTIFY_FD) is on.
 //
 //   xasync write <name> <count> <size>   send <count> pattern messages (posts notify)
-//   xasync recv  <name> <count> <size>   async_recv+verify; exit 0 iff all match
+//   xasync aread <name> <count> <size>   async_recv+verify; exit 0 iff all match
 //
 // Purpose: prove the notify+reactor readiness path wakes cross-process on Darwin,
 // and (paired against the Rust/Swift notify source) that a port send() wakes a
@@ -87,11 +87,11 @@ int main(int argc, char** argv) {
     std::string verb = argv[1];
     const char* name = argv[2];
     if (verb == "clear") { ipc::route::clear_storage(name); return 0; }
-    if (argc < 5) { std::fprintf(stderr, "write/recv need <count> <size>\n"); return 1; }
+    if (argc < 5) { std::fprintf(stderr, "write/aread need <count> <size>\n"); return 1; }
     int count = std::atoi(argv[3]);
     std::size_t size = static_cast<std::size_t>(std::atoll(argv[4]));
     if (verb == "write") return do_write(name, count, size);
-    if (verb == "recv")  return do_recv(name, count, size);
+    if (verb == "aread") return do_recv(name, count, size);
     std::fprintf(stderr, "unknown verb '%s'\n", verb.c_str());
     return 1;
 }

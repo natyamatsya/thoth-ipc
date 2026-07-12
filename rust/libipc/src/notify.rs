@@ -226,7 +226,9 @@ mod backend {
 
     #[cfg(target_vendor = "apple")]
     fn set_nosigpipe(f: &File) {
-        unsafe { libc::fcntl(f.as_raw_fd(), libc::F_SETNOSIGPIPE, 1) };
+        // F_SETNOSIGPIPE (73 on Darwin) is not re-exported by the libc crate.
+        const F_SETNOSIGPIPE: libc::c_int = 73;
+        unsafe { libc::fcntl(f.as_raw_fd(), F_SETNOSIGPIPE, 1) };
     }
     #[cfg(not(target_vendor = "apple"))]
     fn set_nosigpipe(_f: &File) {}
@@ -443,3 +445,18 @@ mod backend {
 }
 
 pub use backend::{clear_storage, NotifySink, NotifySource};
+
+#[cfg(test)]
+mod tests {
+    use super::notify_hash;
+
+    // Golden values computed independently (FNV-1a-64 of the id string). C++
+    // notify.h uses the identical algorithm, so equality here guarantees a Rust
+    // send() and a C++ async_recv() derive the same notify key. If this breaks,
+    // cross-language async wakeup silently stops working.
+    #[test]
+    fn notify_hash_matches_cpp_golden() {
+        assert_eq!(notify_hash("", "xchan"), "d7484adebb2d170d");
+        assert_eq!(notify_hash("app", "st.agent.cmd"), "ad223836b598bfaa");
+    }
+}

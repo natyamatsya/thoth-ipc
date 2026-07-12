@@ -57,14 +57,14 @@ def clear(bin_path, name):
         pass
 
 
-def run_pair(w_lang, w_bin, r_lang, r_bin, size, idx):
+def run_pair(w_lang, w_bin, r_lang, r_bin, size, idx, read_verb="read"):
     """Start the reader, then the writer; return (ok, detail)."""
     name = f"xm_{w_lang}_{r_lang}_{size}_{os.getpid()}_{idx}"
     # Clear any stale segment from a previous run using both endpoints' clearers.
     clear(r_bin, name)
     clear(w_bin, name)
 
-    reader = run(r_bin, "read", name, COUNT, size)
+    reader = run(r_bin, read_verb, name, COUNT, size)
     # Give the reader a moment to create the ring and register as a receiver.
     time.sleep(0.4)
     writer = run(w_bin, "write", name, COUNT, size)
@@ -92,46 +92,73 @@ def run_pair(w_lang, w_bin, r_lang, r_bin, size, idx):
     return ok, detail
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Cross-language IPC round-trip matrix")
-    ap.add_argument("--lang", action="append", default=[], metavar="NAME:BIN",
-                    help="a language name and its harness binary path (repeatable)")
-    args = ap.parse_args()
-
+def parse_langs(specs, flag):
     langs = {}
-    for spec in args.lang:
+    for spec in specs:
         name, _, path = spec.partition(":")
         if not path:
-            print(f"error: bad --lang '{spec}', expected NAME:BIN", file=sys.stderr)
-            return 2
+            print(f"error: bad {flag} '{spec}', expected NAME:BIN", file=sys.stderr)
+            return None
         if not (os.path.isfile(path) and os.access(path, os.X_OK)):
             print(f"error: harness for '{name}' not executable: {path}", file=sys.stderr)
-            return 2
+            return None
         langs[name] = path
+    return langs
 
-    if len(langs) < 1:
-        print("error: no languages provided", file=sys.stderr)
-        return 2
 
+def run_matrix(langs, read_verb, title, idx_start):
+    """Run the full writer x reader matrix; return (failures, count, next_idx)."""
     names = sorted(langs)
-    print(f"xlang matrix: languages={names} sizes={SIZES} count={COUNT}\n")
-
+    print(f"{title}: languages={names} sizes={SIZES} count={COUNT}\n")
     failures = []
-    idx = 0
+    idx = idx_start
     for w in names:
         for r in names:
             for size in SIZES:
                 idx += 1
-                ok, detail = run_pair(w, langs[w], r, langs[r], size, idx)
+                ok, detail = run_pair(w, langs[w], r, langs[r], size, idx, read_verb)
                 status = "PASS" if ok else "FAIL"
                 line = f"  [{status}] {w:>5} -> {r:<5}  {size:>5}B"
                 if not ok:
                     line += f"   {detail}"
                     failures.append((w, r, size, detail))
                 print(line)
-
     total = len(names) * len(names) * len(SIZES)
-    print(f"\n{total - len(failures)}/{total} pairings passed.")
+    print(f"\n  {total - len(failures)}/{total} {title} pairings passed.\n")
+    return failures, total, idx
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Cross-language IPC round-trip matrix")
+    ap.add_argument("--lang", action="append", default=[], metavar="NAME:BIN",
+                    help="a language whose harness does blocking read/write (repeatable)")
+    ap.add_argument("--async-lang", action="append", default=[], metavar="NAME:BIN",
+                    dest="async_lang",
+                    help="a language whose harness `write` posts a notify and `aread` "
+                         "does an async (readiness-fd-driven) receive (repeatable)")
+    args = ap.parse_args()
+
+    sync = parse_langs(args.lang, "--lang")
+    asyncl = parse_langs(args.async_lang, "--async-lang")
+    if sync is None or asyncl is None:
+        return 2
+    if not sync and not asyncl:
+        print("error: no languages provided", file=sys.stderr)
+        return 2
+
+    failures = []
+    total = 0
+    idx = 0
+    if sync:
+        f, t, idx = run_matrix(sync, "read", "sync matrix", idx)
+        failures += f; total += t
+    if asyncl:
+        # Async matrix: a writer's notify must wake an async receiver on the
+        # readiness fd. Divergent notify keys (name or hash) fail the pairing.
+        f, t, idx = run_matrix(asyncl, "aread", "async matrix (notify wakeup)", idx)
+        failures += f; total += t
+
+    print(f"TOTAL: {total - len(failures)}/{total} pairings passed.")
     if failures:
         print("FAILURES:")
         for w, r, size, detail in failures:
