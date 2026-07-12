@@ -126,7 +126,10 @@ const EP_INCR: u64 = 0x0000_0001_0000_0000;
 #[repr(C)]
 struct RingHeader {
     connections: AtomicU32,        // @0
-    lc: libc::os_unfair_lock,      // @4
+    #[cfg(target_vendor = "apple")]
+    lc: libc::os_unfair_lock,      // @4 (C++ spin_lock = os_unfair_lock on Apple)
+    #[cfg(not(target_vendor = "apple"))]
+    lc: [u8; 4],                   // @4 (TODO(xlang): byte-exact Linux spin_lock)
     constructed: AtomicU8,         // @8
     _pad_a: [u8; 55],              // @9..64
     write_cursor: AtomicU32,       // @64
@@ -167,16 +170,25 @@ unsafe fn init_header(hdr: &RingHeader) {
     if hdr.constructed.load(Ordering::Acquire) != 0 {
         return;
     }
-    let lc = &hdr.lc as *const libc::os_unfair_lock as *mut libc::os_unfair_lock;
-    libc::os_unfair_lock_lock(lc);
-    if hdr.constructed.load(Ordering::Relaxed) == 0 {
-        // Fresh shm is zero-filled (cc_ already 0); publish constructed_. (We do
-        // not re-zero lc_ while holding it, unlike C++'s placement-new — the
-        // resulting bytes are identical: lc_ ends unlocked, constructed_ = 1.)
-        hdr.connections.store(0, Ordering::Relaxed);
+    #[cfg(target_vendor = "apple")]
+    {
+        let lc = &hdr.lc as *const libc::os_unfair_lock as *mut libc::os_unfair_lock;
+        libc::os_unfair_lock_lock(lc);
+        if hdr.constructed.load(Ordering::Relaxed) == 0 {
+            // Fresh shm is zero-filled (cc_ already 0); publish constructed_. (We do
+            // not re-zero lc_ while holding it, unlike C++'s placement-new — the
+            // resulting bytes are identical: lc_ ends unlocked, constructed_ = 1.)
+            hdr.connections.store(0, Ordering::Relaxed);
+            hdr.constructed.store(1, Ordering::Release);
+        }
+        libc::os_unfair_lock_unlock(lc);
+    }
+    // TODO(xlang): byte-exact DCLP via the Linux C++ spin_lock. Best-effort for now
+    // (Linux byte-exactness is not yet implemented; Rust↔Rust is unaffected).
+    #[cfg(not(target_vendor = "apple"))]
+    {
         hdr.constructed.store(1, Ordering::Release);
     }
-    libc::os_unfair_lock_unlock(lc);
 }
 
 /// Get a pointer to the ring header from the shm base.
