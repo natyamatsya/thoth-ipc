@@ -11,6 +11,12 @@ name = "libipc"
 path = "src/lib.rs"
 
 [features]
+# Layer 1: expose a per-receiver readiness handle signalled on enqueue (byte-exact
+# with C++ LIBIPC_NOTIFY_FD) so a Rust send() wakes a C++ async_recv reactor.
+# Zero cost when off. macOS uses libnotify; other POSIX uses named FIFOs.
+notify = []
+# Force the portable POSIX FIFO notify backend even on macOS (default is libnotify).
+notify_fifo = ["notify"]
 bump_alloc = ["dep:bumpalo"]
 slab_pool = ["dep:slab"]
 codec-protobuf = []

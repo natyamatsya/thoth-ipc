@@ -42,6 +42,9 @@ pub mod circ;
 
 pub(crate) mod chunk_storage;
 
+#[cfg(feature = "notify")]
+pub mod notify;
+
 pub mod channel;
 pub use channel::{Channel, Mode, Route};
 

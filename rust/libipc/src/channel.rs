@@ -250,6 +250,10 @@ struct ChanInner {
     #[cfg(not(unix))]
     chunk_shm: HashMap<usize, ShmHandle>, // large-message chunk storage (CH_CONN__), keyed by chunk_size
     disconnected: bool, // true after explicit disconnect()
+    // Layer 1 (opt-in `notify` feature): on send, poke the per-channel readiness
+    // notifier so an async receiver (e.g. a C++ async_recv reactor) wakes.
+    #[cfg(feature = "notify")]
+    notify_source: crate::notify::NotifySource,
 }
 
 impl ChanInner {
@@ -344,6 +348,8 @@ impl ChanInner {
             _cc_id_shm: cc_id_shm,
             chunk_shm: HashMap::new(),
             disconnected: false,
+            #[cfg(feature = "notify")]
+            notify_source: crate::notify::NotifySource::new(),
         })
     }
 
@@ -474,6 +480,14 @@ impl ChanInner {
             if !self.push_fragment(msg_id, remain, &data[offset..], timeout_ms)? {
                 return Ok(false);
             }
+        }
+        // Layer 1: wake any async receiver parked on the readiness fd (byte-exact
+        // with C++ notify_signal — a no-op when the `notify` feature is off).
+        #[cfg(feature = "notify")]
+        {
+            let conns = self.hdr().connections.load(Ordering::Relaxed);
+            self.notify_source
+                .signal(&self.prefix, &self.name, conns, self.conn_id);
         }
         Ok(true)
     }

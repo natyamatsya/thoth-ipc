@@ -47,4 +47,17 @@ target_include_directories(xlang_ipc PRIVATE ${LIBIPC_PROJECT_DIR}/include)
 target_link_libraries(xlang_ipc ipc)
 set_target_properties(xlang_ipc PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# Async (Layer 2) endpoint of the same harness — only when stdexec is enabled.
+# ipc propagates STDEXEC::stdexec + LIBIPC_STDEXEC publicly, so linking ipc is
+# enough. Proves the notify+reactor readiness path wakes cross-process, and
+# (paired with the port notify sources) that a port send wakes C++ async_recv.
+if(LIBIPC_STDEXEC)
+    add_executable(xasync ${LIBIPC_PROJECT_DIR}/test/xlang/xasync.cpp)
+    target_include_directories(xasync PRIVATE ${LIBIPC_PROJECT_DIR}/include)
+    target_link_libraries(xasync ipc)
+    set_target_properties(xasync PROPERTIES
+        CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+endif()
 #target_link_libraries(${PROJECT_NAME} tcmalloc_minimal)
