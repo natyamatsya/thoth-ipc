@@ -430,10 +430,13 @@ impl Drop for AppleCondition {
 struct WindowsCondition {
     sem: crate::IpcSemaphore,
     lock: IpcMutex,
-    // For simplicity, use an atomic counter in local memory.
-    // In the full C++ impl this is in shared memory for cross-process,
-    // but for initial port we keep it in-process.
-    counter: std::sync::atomic::AtomicI32,
+    // Waiter counter in SHARED memory (name `{name}_COND_SHM_`, an i32 at
+    // offset 0) — byte/behavior-exact with C++ `win/condition.h`. It MUST be
+    // cross-process (and cross-language): a sender's broadcast reads the count
+    // of parked receivers to decide how many times to post the semaphore. A
+    // process-local counter (the earlier port) made every broadcast a no-op
+    // because the sender's local count was always 0, so receivers never woke.
+    counter_shm: crate::shm::ShmHandle,
 }
 
 #[cfg(windows)]
@@ -441,30 +444,45 @@ impl WindowsCondition {
     fn open(name: &str) -> io::Result<Self> {
         let sem = crate::IpcSemaphore::open(&format!("{name}_COND_SEM_"), 0)?;
         let lock = IpcMutex::open(&format!("{name}_COND_LOCK_"))?;
+        let counter_shm = crate::shm::ShmHandle::acquire(
+            &format!("{name}_COND_SHM_"),
+            std::mem::size_of::<i32>(),
+            crate::shm::ShmOpenMode::CreateOrOpen,
+        )?;
         Ok(Self {
             sem,
             lock,
-            counter: std::sync::atomic::AtomicI32::new(0),
+            counter_shm,
         })
+    }
+
+    /// Pointer to the shared i32 waiter counter. Only ever read/written while
+    /// `self.lock` is held, so plain volatile access (no atomics) matches the
+    /// C++ `std::int32_t &` under `lock_guard`.
+    #[inline]
+    fn counter(&self) -> *mut i32 {
+        self.counter_shm.get() as *mut i32
     }
 
     fn wait(&self, mtx: &IpcMutex, timeout_ms: Option<u64>) -> io::Result<bool> {
         {
             self.lock.lock()?;
-            let c = self.counter.load(std::sync::atomic::Ordering::Relaxed);
-            self.counter.store(
-                if c < 0 { 1 } else { c + 1 },
-                std::sync::atomic::Ordering::Relaxed,
-            );
+            let cptr = self.counter();
+            let c = unsafe { cptr.read_volatile() };
+            unsafe { cptr.write_volatile(if c < 0 { 1 } else { c + 1 }) };
             self.lock.unlock()?;
         }
+        // Release the outer mutex, then park on the counting semaphore. A post
+        // that races in after the unlock is not lost — the semaphore retains
+        // the token and `wait` consumes it (the non-atomic analogue of C++'s
+        // SignalObjectAndWait).
         mtx.unlock()?;
         let result = self.sem.wait(timeout_ms)?;
         mtx.lock()?;
         if !result {
             self.lock.lock()?;
-            self.counter
-                .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            let cptr = self.counter();
+            unsafe { cptr.write_volatile(cptr.read_volatile() - 1) };
             self.lock.unlock()?;
         }
         Ok(result)
@@ -472,11 +490,11 @@ impl WindowsCondition {
 
     fn notify(&self) -> io::Result<()> {
         self.lock.lock()?;
-        let c = self.counter.load(std::sync::atomic::Ordering::Relaxed);
+        let cptr = self.counter();
+        let c = unsafe { cptr.read_volatile() };
         if c > 0 {
             self.sem.post(1)?;
-            self.counter
-                .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            unsafe { cptr.write_volatile(c - 1) };
         }
         self.lock.unlock()?;
         Ok(())
@@ -484,10 +502,11 @@ impl WindowsCondition {
 
     fn broadcast(&self) -> io::Result<()> {
         self.lock.lock()?;
-        let c = self.counter.load(std::sync::atomic::Ordering::Relaxed);
+        let cptr = self.counter();
+        let c = unsafe { cptr.read_volatile() };
         if c > 0 {
             self.sem.post(c as u32)?;
-            self.counter.store(0, std::sync::atomic::Ordering::Relaxed);
+            unsafe { cptr.write_volatile(0) };
         }
         self.lock.unlock()?;
         Ok(())

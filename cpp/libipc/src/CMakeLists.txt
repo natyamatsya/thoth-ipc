@@ -75,9 +75,8 @@ endif()
 # TUs can feature-test it (#if defined(LIBIPC_NOTIFY_FD)) before relying on a
 # functional handle. When OFF, native_wait_handle returns ipc::invalid_wait_handle.
 if(LIBIPC_NOTIFY_FD)
-  if(WIN32)
-    message(FATAL_ERROR "LIBIPC_NOTIFY_FD: the Windows backend is not implemented yet; build with LIBIPC_NOTIFY_FD=OFF on Windows.")
-  endif()
+  # Windows uses the named-Event backend (notify.h LIBIPC_NOTIFY_BACKEND_WINEVENT);
+  # POSIX uses libnotify (Apple) or the FIFO backend. All are wired below.
   target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_NOTIFY_FD)
   # macOS default backend is libnotify (part of libSystem, no extra link).
   # LIBIPC_NOTIFY_FIFO forces the portable FIFO backend instead.

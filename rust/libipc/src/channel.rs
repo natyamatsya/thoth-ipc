@@ -29,11 +29,16 @@ use crate::waiter::Waiter;
 /// Default data length per ring slot (matches C++ `ipc::data_length = 64`).
 const DATA_LENGTH: usize = 64;
 /// Ring element alignment folded into the shm name, matching C++'s queue
-/// `AlignSize = min(DataSize, alignof(std::max_align_t))` (8 on Apple arm64,
-/// 16 on x86-64 / Linux aarch64). Derived from `libc::max_align_t` to stay
-/// byte-identical to C++ per target.
+/// `AlignSize = min(DataSize, alignof(std::max_align_t))`, byte-identical to C++
+/// per target: 8 on Apple arm64, 16 on x86-64 / Linux aarch64, and **8 on
+/// windows-msvc** (MSVC `alignof(std::max_align_t)` == 8 on x64/arm64, verified
+/// against the C++ build — NOT 16). `libc` is unix-only, so Windows uses an
+/// explicit constant rather than `libc::max_align_t`.
 const RING_ALIGN: usize = {
+    #[cfg(unix)]
     let a = std::mem::align_of::<libc::max_align_t>();
+    #[cfg(windows)]
+    let a = 8usize;
     if DATA_LENGTH < a { DATA_LENGTH } else { a }
 };
 
