@@ -1,6 +1,6 @@
 # RFC: Dead-connection reaping for broadcast routes
 
-Status: **Phases 1–2 implemented (C++)** · Author: agent-control integration ·
+Status: **Phases 1–3 implemented (C++)** · Author: agent-control integration ·
 Revised after cross-language review (owner table is now an xlang ABI; notify
 cleanup added) and again to record the lock-free implementation ·
 Relates to [`macos_ipc_roadmap.md`](macos_ipc_roadmap.md) (reuses its PID-liveness
@@ -196,7 +196,16 @@ unrelated live process — the slot then looks alive forever. Store a process
 - Linux: `/proc/<pid>/stat` field 22 (starttime, in jiffies since boot).
 
 `is_process_alive(pid, tok)` ⇒ `kill(pid,0)==0 && start_token(pid)==tok`. The
-current mutex `is_process_alive(pid)` is the token-less base; both can coexist.
+token-less `is_process_alive(pid)` is the base (`tok == 0`); both coexist.
+
+**Implemented.** The reaper now records `self_start_token()` on connect and, when
+a slot's PID looks alive, additionally requires the recorded token to match — so a
+recycled PID belonging to a different process is treated as gone. The check is
+*conservative*: any "can't determine" answer (no recorded token, or the current
+token can't be read) errs toward ALIVE, so a live-but-idle peer is never falsely
+reaped. Concrete formula (macOS): `pbi_start_tvsec * 1'000'000 + pbi_start_tvusec`
+(verified non-zero, e.g. pid 81596 → token 1783855653429030); Linux:
+`/proc/<pid>/stat` field 22 (starttime jiffies).
 
 **Cross-language caveat:** the reaper compares *its own* freshly computed
 `start_token(pid)` against the *stored* token. If a C++ reaper may run against a
@@ -276,7 +285,7 @@ on) dead slots.
 2. **`force_push` uses the reaper (reap-dead-first) (+ notify FIFO cleanup).** Fixes
    ring-reclamation stalls; keeps live-but-draining readers instead of the blanket
    disconnect. (No separate in-flight element sweep needed for `route` — §4.)
-3. **Start-token hardening (§5).** PID-reuse safety.
+3. **Start-token hardening (§5).** PID-reuse safety. *(done)*
 4. **Cross-language: Rust + Swift populate the owner table (§8) + xlang §9 + the
    reaping matrix scenario.** Makes the fix apply to the bridge and any port peer,
    with drift protection.

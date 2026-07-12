@@ -33,17 +33,25 @@
 #  include <csignal>
 #  include <cerrno>
 #  include <unistd.h>
+#  if defined(LIBIPC_OS_APPLE)
+#    include <libproc.h>
+#    include <sys/proc_info.h>
+#  else
+#    include <cstdio>
+#    include <cstdlib>
+#    include <cstring>
+#  endif
 #endif
 
 namespace ipc {
 namespace detail {
 
 // One owner record per cc_ bit. **Byte-exact cross-language layout** (Phase 4 /
-// xlang §9): pid @0 (int32), start_tok @8 (uint64, reserved for PID-reuse
-// hardening in Phase 3 — written as 0 here). sizeof == 16.
+// xlang §9): pid @0 (int32), start_tok @8 (uint64, the owner's process start
+// token — see start_token()). sizeof == 16.
 struct slot_owner {
     std::atomic<std::int32_t>  pid{0};       // @0  0 == free
-    std::atomic<std::uint64_t> start_tok{0}; // @8  reserved (Phase 3)
+    std::atomic<std::uint64_t> start_tok{0}; // @8  process start token (PID-reuse guard)
 };
 static_assert(sizeof(slot_owner) == 16, "slot_owner must be 16 bytes (xlang ABI)");
 static_assert(alignof(slot_owner) == 8, "slot_owner must be 8-aligned (xlang ABI)");
@@ -74,16 +82,82 @@ inline std::int32_t self_pid() noexcept {
 #endif
 }
 
-// Is `pid` a live process? `kill(pid, 0)` is definitive on POSIX and NEVER
-// reports a live process as dead (EPERM ⇒ exists). Windows reaping is a TODO
-// (Phase 3+): report alive so nothing is falsely reaped.
-inline bool is_process_alive(std::int32_t pid) noexcept {
+// A process "start token": a stable identifier of *this* incarnation of a PID,
+// used to detect PID reuse (the OS recycling a dead receiver's PID for an
+// unrelated live process). 0 means "couldn't determine" and is never used to
+// reap. **The formula is cross-language ABI** (xlang §9) — it must match across
+// ports, since any participant's reaper compares its own computed token against
+// a token another language wrote:
+//   * macOS: BSD start time packed as tvsec * 1'000'000 + tvusec.
+//   * Linux: the raw starttime jiffies from /proc/<pid>/stat field 22.
+inline std::uint64_t start_token(std::int32_t pid) noexcept {
 #if defined(LIBIPC_OS_WIN)
-    return true; // TODO: OpenProcess + GetExitCodeProcess
+    (void)pid;
+    return 0; // TODO: process creation time via GetProcessTimes
+#elif defined(LIBIPC_OS_APPLE)
+    if (pid <= 0) return 0;
+    struct proc_bsdinfo info;
+    int n = ::proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info));
+    if (n != static_cast<int>(sizeof(info))) return 0;
+    return static_cast<std::uint64_t>(info.pbi_start_tvsec) * 1000000ull
+         + static_cast<std::uint64_t>(info.pbi_start_tvusec);
+#else
+    if (pid <= 0) return 0;
+    char path[64];
+    std::snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+    std::FILE *f = std::fopen(path, "re");
+    if (f == nullptr) return 0;
+    char buf[1024];
+    std::size_t len = std::fread(buf, 1, sizeof(buf) - 1, f);
+    std::fclose(f);
+    if (len == 0) return 0;
+    buf[len] = '\0';
+    // Field 2 (comm) is parenthesised and may itself contain spaces/parens —
+    // skip past the LAST ')' so tokenising by space is unambiguous.
+    char *p = std::strrchr(buf, ')');
+    if (p == nullptr) return 0;
+    ++p;
+    // After ')' the tokens are field 3 (state) onward; starttime is field 22.
+    int field = 2;
+    while (*p != '\0') {
+        while (*p == ' ') ++p;
+        if (*p == '\0') break;
+        ++field;
+        if (field == 22) return std::strtoull(p, nullptr, 10);
+        while (*p != '\0' && *p != ' ') ++p;
+    }
+    return 0;
+#endif
+}
+
+inline std::uint64_t self_start_token() noexcept {
+    return start_token(self_pid());
+}
+
+// Is the process we recorded (pid + start token) still alive? `kill(pid, 0)` is
+// definitive for existence on POSIX and NEVER reports a live process as dead
+// (EPERM ⇒ exists); the token then rules out a recycled PID belonging to a
+// different process. Conservative: any "can't determine" answer errs toward
+// ALIVE, so a live-but-idle peer is never falsely reaped.
+inline bool is_process_alive(std::int32_t pid, std::uint64_t tok) noexcept {
+#if defined(LIBIPC_OS_WIN)
+    (void)pid;
+    (void)tok;
+    return true; // TODO: OpenProcess + creation-time compare
 #else
     if (pid <= 0) return false;
-    return (::kill(static_cast<pid_t>(pid), 0) == 0) || (errno != ESRCH);
+    bool exists = (::kill(static_cast<pid_t>(pid), 0) == 0) || (errno != ESRCH);
+    if (!exists) return false;     // definitely gone
+    if (tok == 0) return true;     // no recorded token → token-less fallback
+    std::uint64_t cur = start_token(pid);
+    if (cur == 0) return true;     // couldn't read current token → don't risk a false reap
+    return cur == tok;             // mismatch ⇒ PID was reused ⇒ our owner is gone
 #endif
+}
+
+// Token-less liveness (kept for callers without a recorded token).
+inline bool is_process_alive(std::int32_t pid) noexcept {
+    return is_process_alive(pid, 0);
 }
 
 // Record ownership of a freshly connected slot. Call *after* the cc_ bit is set,
@@ -91,7 +165,9 @@ inline bool is_process_alive(std::int32_t pid) noexcept {
 inline void liveness_set_owner(conn_liveness *lv, ipc::circ::cc_t bit) noexcept {
     if (lv == nullptr || bit == 0) return;
     int idx = slot_index(bit);
-    lv->slots[idx].start_tok.store(0, std::memory_order_relaxed);
+    // Store the token first, then the pid with release: a reader that observes
+    // our pid (acquire) is guaranteed to also see the matching token.
+    lv->slots[idx].start_tok.store(self_start_token(), std::memory_order_relaxed);
     lv->slots[idx].pid.store(self_pid(), std::memory_order_release);
 }
 
@@ -117,14 +193,21 @@ inline ipc::circ::cc_t reap_dead_receivers(conn_liveness *lv, ipc::circ::cc_t li
         ipc::circ::cc_t bit = m & static_cast<ipc::circ::cc_t>(~m + 1); // lowest set bit
         int idx = slot_index(bit);
         std::int32_t p = lv->slots[idx].pid.load(std::memory_order_acquire);
-        if (p == 0 || is_process_alive(p)) {
-            continue; // unknown owner (skip, never false-reap) or still alive
+        if (p == 0) {
+            continue; // unknown owner — skip, never false-reap
+        }
+        // The pid acquire-load synchronises with the owner's release-store, so the
+        // token we read belongs to the same incarnation as `p`.
+        std::uint64_t tok = lv->slots[idx].start_tok.load(std::memory_order_relaxed);
+        if (is_process_alive(p, tok)) {
+            continue; // still alive (and not a recycled PID)
         }
         std::int32_t expected = p;
         // Only reap if the owner is still the dead PID we saw — a slot reused by a
         // live newcomer would have overwritten it, so we leave the newcomer be.
         if (lv->slots[idx].pid.compare_exchange_strong(
                 expected, 0, std::memory_order_acq_rel)) {
+            lv->slots[idx].start_tok.store(0, std::memory_order_relaxed);
             disconnect_bit(bit);
             notify_clear(bit);
             reaped |= bit;

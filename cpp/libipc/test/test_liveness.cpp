@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #include "libipc/ipc.h"
+#include "libipc/liveness.h"
 
 namespace {
 
@@ -134,6 +135,29 @@ TEST(Liveness, ForcePushReapsDeadKeepsLive) {
     EXPECT_GT(received.load(), 0) << "live reader received nothing";
 
     ipc::route::clear_storage(name);
+}
+
+// Phase 3: a start token disambiguates PID reuse — a live PID whose recorded
+// token no longer matches (the PID was recycled for a different process) must be
+// treated as gone, while the same process with the same token stays alive.
+TEST(Liveness, StartTokenDetectsPidReuse) {
+    using namespace ipc::detail;
+    std::int32_t me = self_pid();
+    std::uint64_t tok = start_token(me);
+
+    // Our own process, with the token we recorded, is alive (token real or the
+    // token-less 0 fallback — both must report alive).
+    EXPECT_TRUE(is_process_alive(me, tok));
+
+    if (tok != 0) {
+        // Same live PID but a DIFFERENT token ⇒ this must look like a recycled PID
+        // (our recorded owner is gone), so reaping is allowed.
+        EXPECT_FALSE(is_process_alive(me, tok ^ 0x5eedULL))
+            << "PID reuse (token mismatch) was not detected";
+    }
+
+    // A clearly invalid PID is never alive.
+    EXPECT_FALSE(is_process_alive(-1, tok));
 }
 
 #endif // !_WIN32
