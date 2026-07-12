@@ -5,9 +5,10 @@ name: Cross-language ABI
 # an ipc::route channel and checking the payload round-trips byte-for-byte.
 # Same-language test suites do NOT catch ABI drift — this matrix does.
 
+# Push triggers disabled to conserve CI budget; run manually via the Actions tab
+# (workflow_dispatch) or on pull requests.
 on:
-  push:
-    branches: [ main, develop, xlang-* ]
+  workflow_dispatch:
   pull_request:
     branches: [ main, develop ]
 
