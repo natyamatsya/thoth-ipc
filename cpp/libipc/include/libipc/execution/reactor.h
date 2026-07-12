@@ -11,6 +11,7 @@
 // (pimpl), so it can sit in the public include tree.
 
 #include "libipc/imp/detect_plat.h"
+#include "libipc/ipc.h" // ipc::wait_handle_t (int fd on POSIX, HANDLE/void* on Windows)
 
 #if defined(LIBIPC_NOTIFY_FD)
 
@@ -41,14 +42,18 @@ protected:
 // it — e.g. a fake that captures the registered waiter and drives on_ready()
 // deterministically instead of running the real kqueue/epoll thread.
 //
-//   add(fd, w)    : register interest in `fd` becoming readable. Asynchronous.
-//   remove(fd, w) : unregister. SYNCHRONOUS — once it returns, on_ready() for
+//   add(h, w)     : register interest in `h` becoming ready. Asynchronous.
+//   remove(h, w)  : unregister. SYNCHRONOUS — once it returns, on_ready() for
 //                   `w` is guaranteed neither running nor about to start, so the
 //                   caller may destroy `w`. Never call it from within on_ready().
+//
+// `h` is an ipc::wait_handle_t: a readiness fd on POSIX (int), a waitable Event
+// HANDLE on Windows (void*). On POSIX the value is used directly as the epoll/
+// kqueue fd; on Windows it is registered with the thread-pool wait.
 template <class R>
-concept reactor_like = requires(R &r, int fd, reactor_waiter *w) {
-    r.add(fd, w);
-    r.remove(fd, w);
+concept reactor_like = requires(R &r, wait_handle_t h, reactor_waiter *w) {
+    r.add(h, w);
+    r.remove(h, w);
 };
 
 // Lazy, process-global fd multiplexer (kqueue/epoll thread). Models
@@ -57,8 +62,8 @@ class reactor {
 public:
     static reactor &instance();
 
-    void add(int fd, reactor_waiter *w);
-    void remove(int fd, reactor_waiter *w);
+    void add(wait_handle_t h, reactor_waiter *w);
+    void remove(wait_handle_t h, reactor_waiter *w);
 
     reactor(reactor const &) = delete;
     reactor &operator=(reactor const &) = delete;

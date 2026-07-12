@@ -56,11 +56,13 @@ struct fake_reactor {
     std::atomic<ipc::detail::reactor_waiter *> waiter{nullptr};
     std::atomic<int> adds{0};
     std::atomic<int> removes{0};
-    void add(int, ipc::detail::reactor_waiter *w) {
+    // wait_handle_t (int fd on POSIX, HANDLE/void* on Windows) — behaviour is
+    // identical here; only the type must match the reactor_like concept.
+    void add(ipc::wait_handle_t, ipc::detail::reactor_waiter *w) {
         waiter.store(w);
         adds.fetch_add(1);
     }
-    void remove(int, ipc::detail::reactor_waiter *w) {
+    void remove(ipc::wait_handle_t, ipc::detail::reactor_waiter *w) {
         if (waiter.load() == w) waiter.store(nullptr);
         removes.fetch_add(1);
     }

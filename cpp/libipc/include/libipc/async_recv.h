@@ -30,12 +30,11 @@
 #include <optional>
 #include <utility>
 
-#include <unistd.h>
-
 #include <stdexec/execution.hpp>
 
 #include "libipc/ipc.h"
 #include "libipc/execution/reactor.h"
+#include "libipc/execution/wait_drain.h"  // detail::drain_wait_handle (no <unistd.h> here)
 #include "libipc/execution/recv_result.h" // ipc::recv_errc / recv_result / recv_message
 
 namespace ipc {
@@ -50,7 +49,7 @@ struct recv_op : reactor_waiter {
     ipc::route       *ch_;
     R                *reactor_; // injected multiplexer (never null after ctor)
     Receiver          rcvr_;
-    int               fd_    = ipc::invalid_wait_handle;
+    ipc::wait_handle_t fd_   = ipc::invalid_wait_handle;
     bool              armed_ = false;
     std::atomic<bool> fired_{false}; // exactly one completion wins
 
@@ -85,9 +84,9 @@ struct recv_op : reactor_waiter {
         reactor_->add(fd_, this); // fd is level-triggered: fires if data raced in
     }
 
-    // Reactor thread. Drain the readiness fd, then read at most one message.
+    // Reactor thread. Drain the readiness handle, then read at most one message.
     disposition on_ready() noexcept override {
-        drain_fd();
+        detail::drain_wait_handle(fd_);
         return deliver_if_ready() ? disposition::remove : disposition::keep;
     }
 
@@ -120,11 +119,6 @@ struct recv_op : reactor_waiter {
         }
         stdexec::set_value(std::move(rcvr_), std::move(result));
         return true;
-    }
-
-    void drain_fd() noexcept {
-        char b[256];
-        while (::read(fd_, b, sizeof(b)) > 0) { /* discard readiness tokens */ }
     }
 };
 

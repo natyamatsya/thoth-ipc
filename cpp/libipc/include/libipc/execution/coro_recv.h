@@ -28,10 +28,9 @@
 #include <semaphore>
 #include <utility>
 
-#include <unistd.h>
-
 #include "libipc/ipc.h"
 #include "libipc/execution/reactor.h"
+#include "libipc/execution/wait_drain.h" // detail::drain_wait_handle (no <unistd.h> here)
 #include "libipc/execution/recv_result.h"
 
 namespace ipc {
@@ -42,7 +41,7 @@ namespace coro {
 class recv_awaitable : public detail::reactor_waiter {
     ipc::route     *ch_;
     detail::reactor *reactor_;
-    int              fd_    = ipc::invalid_wait_handle;
+    ipc::wait_handle_t fd_  = ipc::invalid_wait_handle;
     bool             armed_ = false;
     std::atomic<bool> done_{false}; // arbitrates on_ready vs destructor (cancel)
     std::coroutine_handle<> waiting_{};
@@ -82,7 +81,7 @@ public:
 
     // Reactor thread: drain the readiness fd, read one message, resume the coroutine.
     disposition on_ready() noexcept override {
-        drain_fd();
+        detail::drain_wait_handle(fd_);
         if (!try_deliver()) return disposition::keep; // spurious — stay parked
         armed_ = false;
         if (done_.exchange(true, std::memory_order_acq_rel)) {
@@ -107,11 +106,6 @@ private:
             result_ = std::unexpected(recv_errc::unknown);
         }
         return true;
-    }
-
-    void drain_fd() noexcept {
-        char b[256];
-        while (::read(fd_, b, sizeof(b)) > 0) { /* discard readiness tokens */ }
     }
 };
 

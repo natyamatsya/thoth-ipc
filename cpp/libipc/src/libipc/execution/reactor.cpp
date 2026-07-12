@@ -3,25 +3,151 @@
 #if defined(LIBIPC_NOTIFY_FD)
 
 #include <atomic>
-#include <condition_variable>
-#include <cstdint>
-#include <deque>
 #include <mutex>
-#include <thread>
 #include <unordered_map>
 #include <vector>
 
-#include <cerrno>
-#include <fcntl.h>
-#include <unistd.h>
-
-#if defined(LIBIPC_OS_APPLE)
-#  include <sys/event.h>
-#  include <sys/types.h>
+// Platform headers MUST be included at file scope (not inside namespace ipc),
+// or every Win32 / POSIX symbol lands in ipc::detail and `::Foo` fails to resolve.
+#if defined(LIBIPC_OS_WIN)
+#  include "libipc/imp/windows_preamble.h" // full <Windows.h> (thread-pool wait API)
 #else
-#  include <sys/epoll.h>
-#  include <sys/eventfd.h>
+#  include <condition_variable>
+#  include <cstdint>
+#  include <deque>
+#  include <thread>
+#  include <cerrno>
+#  include <fcntl.h>
+#  include <unistd.h>
+#  if defined(LIBIPC_OS_APPLE)
+#    include <sys/event.h>
+#    include <sys/types.h>
+#  else
+#    include <sys/epoll.h>
+#    include <sys/eventfd.h>
+#  endif
 #endif
+
+namespace ipc {
+namespace detail {
+
+#if defined(LIBIPC_OS_WIN)
+
+// =============================================================================
+// Windows reactor — a thin registry over the Win32 thread pool.
+//
+// Each waiter's readiness Event HANDLE is registered with
+// RegisterWaitForSingleObject (WT_EXECUTEONLYONCE); when it signals, a pool
+// thread runs on_ready() and — if the waiter says `keep` — re-registers a fresh
+// one-shot wait. There is no dedicated reactor thread; pool threads may run
+// distinct waiters' callbacks concurrently (each callback touches only its own
+// node/waiter, so this is safe, unlike POSIX's single-threaded serialisation).
+//
+// Synchronous remove() is satisfied by UnregisterWaitEx(INVALID_HANDLE_VALUE),
+// which blocks until any in-flight callback for that wait has returned — so once
+// remove() returns, on_ready() is neither running nor about to start.
+// =============================================================================
+
+namespace {
+
+struct win_wait_node {
+    std::mutex *mtx;                                         // == impl::mtx
+    std::unordered_map<reactor_waiter *, win_wait_node *> *reg; // == impl::reg
+    HANDLE event;   // the readiness Event (== wait_handle_t)
+    reactor_waiter *w;
+    HANDLE wait;    // out-param from RegisterWaitForSingleObject
+    bool removed;   // set under *mtx by remove(); blocks callback re-arm
+};
+
+VOID CALLBACK reactor_thunk(PVOID ctx, BOOLEAN /*timedOut*/) {
+    auto *node = static_cast<win_wait_node *>(ctx);
+    auto disp = node->w->on_ready(); // may complete + asynchronously destroy w
+    std::lock_guard<std::mutex> lk(*node->mtx);
+    if (node->removed) {
+        // remove() has claimed this node; it owns teardown/free after its
+        // UnregisterWaitEx returns. Do nothing (must not re-arm or free).
+        return;
+    }
+    if (disp == reactor_waiter::disposition::keep) {
+        // The one-shot wait was auto-consumed; register a fresh one.
+        ::RegisterWaitForSingleObject(&node->wait, node->event, &reactor_thunk,
+                                      node, INFINITE,
+                                      WT_EXECUTEONLYONCE | WT_EXECUTEDEFAULT);
+    } else {
+        node->reg->erase(node->w);
+        delete node;
+    }
+}
+
+} // namespace
+
+struct reactor::impl {
+    std::mutex mtx;
+    std::unordered_map<reactor_waiter *, win_wait_node *> reg; // keyed by waiter
+
+    impl() = default;
+
+    ~impl() {
+        std::vector<win_wait_node *> nodes;
+        {
+            std::lock_guard<std::mutex> lk(mtx);
+            for (auto &kv : reg) {
+                kv.second->removed = true;
+                nodes.push_back(kv.second);
+            }
+            reg.clear();
+        }
+        for (auto *n : nodes) {
+            ::UnregisterWaitEx(n->wait, INVALID_HANDLE_VALUE);
+            delete n;
+        }
+    }
+};
+
+reactor::reactor() : p_(new impl) {}
+reactor::~reactor() { delete p_; }
+
+reactor &reactor::instance() {
+    static reactor r;
+    return r;
+}
+
+void reactor::add(wait_handle_t h, reactor_waiter *w) {
+    auto *node = new win_wait_node{&p_->mtx, &p_->reg,
+                                   reinterpret_cast<HANDLE>(h), w, nullptr, false};
+    // Hold the lock across the initial registration so a callback that fires
+    // immediately (event already signaled) blocks on re-arm until node->wait is
+    // written — avoiding a clobber of the wait handle.
+    std::lock_guard<std::mutex> lk(p_->mtx);
+    p_->reg.emplace(w, node);
+    if (!::RegisterWaitForSingleObject(&node->wait, node->event, &reactor_thunk,
+                                       node, INFINITE,
+                                       WT_EXECUTEONLYONCE | WT_EXECUTEDEFAULT)) {
+        p_->reg.erase(w);
+        delete node;
+    }
+}
+
+void reactor::remove(wait_handle_t /*h*/, reactor_waiter *w) {
+    win_wait_node *node = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(p_->mtx);
+        auto it = p_->reg.find(w);
+        if (it == p_->reg.end()) {
+            return; // a completing callback already erased it
+        }
+        node = it->second;
+        node->removed = true;
+        p_->reg.erase(it);
+    }
+    // MUST be outside the lock: blocks until any in-flight callback returns, and
+    // that callback needs the lock to observe `removed`. INVALID_HANDLE_VALUE ⇒
+    // wait for pending callbacks (never called from within one — see reactor.h).
+    ::UnregisterWaitEx(node->wait, INVALID_HANDLE_VALUE);
+    delete node;
+}
+
+#else // ===================== POSIX (kqueue / epoll) =========================
 
 // A single reactor thread owns everything. add()/remove() from other threads
 // only touch a control queue (under ctl_mtx_) and wake the loop; the registry
@@ -35,9 +161,6 @@
 // that return `keep`. A waiter that completes (returns `remove`, and may then be
 // destroyed asynchronously once its scheduler hop fires) is therefore no longer
 // referenced by the reactor when on_ready() returns.
-
-namespace ipc {
-namespace detail {
 
 namespace {
 
@@ -280,7 +403,8 @@ reactor &reactor::instance() {
     return r;
 }
 
-void reactor::add(int fd, reactor_waiter *w) {
+void reactor::add(wait_handle_t h, reactor_waiter *w) {
+    int fd = static_cast<int>(h); // wait_handle_t == int on POSIX
     {
         std::lock_guard<std::mutex> lk(p_->ctl_mtx);
         p_->ctl.push_back(ctl_item{ctl_item::add, fd, w, nullptr});
@@ -288,7 +412,8 @@ void reactor::add(int fd, reactor_waiter *w) {
     p_->wake();
 }
 
-void reactor::remove(int fd, reactor_waiter *w) {
+void reactor::remove(wait_handle_t h, reactor_waiter *w) {
+    int fd = static_cast<int>(h);
     std::atomic<bool> done{false};
     {
         std::lock_guard<std::mutex> lk(p_->ctl_mtx);
@@ -298,6 +423,8 @@ void reactor::remove(int fd, reactor_waiter *w) {
     std::unique_lock<std::mutex> lk(p_->ack_mtx);
     p_->ack_cv.wait(lk, [&] { return done.load(std::memory_order_acquire); });
 }
+
+#endif // platform
 
 } // namespace detail
 } // namespace ipc
