@@ -11,7 +11,18 @@ The C++, Rust and Swift channel ports are **byte-exact** on the `ipc::route`
 wire ABI ([`context/xlang-channel-abi.md`](context/xlang-channel-abi.md)), and a
 CI matrix ([`tools/xlang_matrix.py`](tools/xlang_matrix.py)) runs every
 writer→reader language pairing on every push to prove a message sent by any
-language is received byte-for-byte by any other.
+language is received byte-for-byte by any other — including async wakeup and
+dead-connection reaping.
+
+**Dead-connection reaping.** A `SIGKILL`ed broadcast receiver used to leave a
+phantom `cc_` bit that stalled the ring, exhausted the 32 connection slots, and
+inflated `recv_count`. Each receiver now records `{pid, start_token}` in a
+per-channel `LV_CONN__` owner table, and any participant reaps slots whose owner
+process has died (PID-liveness + a start token that defeats PID reuse). The table
+and token formula are byte-exact across C++/Rust/Swift, so a reaper of any
+language reclaims a dead receiver of any other and never false-reaps a live one.
+See [`context/dead-connection-reaper-rfc.md`](context/dead-connection-reaper-rfc.md)
+and ABI [§9](context/xlang-channel-abi.md).
 
 > **Fork notice:** thoth-ipc is a fork of [cpp-ipc](https://github.com/mutouyun/cpp-ipc) by mutouyun,
 > branched at upstream v1.4.1. thoth-ipc versioning starts independently at 0.1.0.
