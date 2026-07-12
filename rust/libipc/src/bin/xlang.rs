@@ -102,6 +102,34 @@ fn do_arecv(name: &str, count: usize, size: usize) -> i32 {
     0
 }
 
+/// Async receive via the shipped `AsyncRoute::recv().await` on a tokio runtime.
+/// Validates the Layer-2 ergonomic API end-to-end. Requires `async-tokio`.
+#[cfg(all(unix, feature = "async-tokio"))]
+fn do_arecv_tokio(name: &str, count: usize, size: usize) -> i32 {
+    use libipc::async_recv::AsyncRoute;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .build()
+        .expect("tokio runtime");
+    rt.block_on(async move {
+        let mut r = match AsyncRoute::connect(name) {
+            Ok(r) => r,
+            Err(e) => { eprintln!("[rust-tokio] connect failed: {e}"); return 3; }
+        };
+        let want = pattern(size);
+        for i in 0..count {
+            let b = match r.recv().await {
+                Ok(b) => b,
+                Err(e) => { eprintln!("[rust-tokio] recv {i} error: {e}"); return 5; }
+            };
+            if b.len() != size { eprintln!("[rust-tokio] wrong size {}", b.len()); return 6; }
+            if b.data() != want.as_slice() { eprintln!("[rust-tokio] mismatch"); return 7; }
+        }
+        eprintln!("[rust-tokio] async-read {count} x {size}B on '{name}' OK");
+        0
+    })
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
@@ -124,6 +152,8 @@ fn main() {
         "read" => do_read(name, count, size),
         #[cfg(all(unix, feature = "notify"))]
         "arecv" => do_arecv(name, count, size),
+        #[cfg(all(unix, feature = "async-tokio"))]
+        "arecv-tokio" => do_arecv_tokio(name, count, size),
         other => { eprintln!("unknown verb '{other}'"); 1 }
     };
     exit(code);

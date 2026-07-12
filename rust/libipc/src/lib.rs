@@ -45,6 +45,9 @@ pub(crate) mod chunk_storage;
 #[cfg(feature = "notify")]
 pub mod notify;
 
+#[cfg(feature = "async-tokio")]
+pub mod async_recv;
+
 pub mod channel;
 pub use channel::{Channel, Mode, Route};
 

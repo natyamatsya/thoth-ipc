@@ -17,6 +17,10 @@ path = "src/lib.rs"
 notify = []
 # Force the portable POSIX FIFO notify backend even on macOS (default is libnotify).
 notify_fifo = ["notify"]
+# Layer 2: an ergonomic async `AsyncRoute::recv().await` on top of the readiness
+# fd, integrated with tokio's reactor via AsyncFd (no bespoke reactor thread).
+# Runtime-agnostic users can instead drive native_wait_handle() themselves.
+async-tokio = ["notify", "dep:tokio"]
 bump_alloc = ["dep:bumpalo"]
 slab_pool = ["dep:slab"]
 codec-protobuf = []
@@ -29,6 +33,7 @@ secure-crypto-openssl = ["secure-crypto-c"]
 flatbuffers = "=25.12.19"
 bumpalo = { version = "3", optional = true, features = ["collections"] }
 slab = { version = "0.4", optional = true }
+tokio = { version = "1", optional = true, default-features = false, features = ["net", "rt", "time"] }
 prost = { version = "0.14", optional = true, features = ["derive"] }
 
 [dev-dependencies]
