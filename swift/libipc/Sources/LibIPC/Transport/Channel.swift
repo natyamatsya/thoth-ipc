@@ -148,6 +148,7 @@ final class ChanInner: @unchecked Sendable {
     let mode: Mode
     let ringShm:  ShmHandle
     let ccIdShm:  ShmHandle
+    let livenessShm: ShmHandle   // LV_CONN__ owner table (dead-connection reaper)
     var chunkShms: [Int: ChunkShmEntry] = [:]
     var connId:     UInt32
     var ccId:       UInt32
@@ -164,6 +165,7 @@ final class ChanInner: @unchecked Sendable {
         let chunkPrefix = "\(fp)\(name)_"
         let ringShm  = try ShmHandle.acquire(name: ringName(prefix, name), size: ringShmSize(), mode: .createOrOpen)
         let ccIdShm  = try ShmHandle.acquire(name: ccIdName(prefix), size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
+        let livenessShm = try ShmHandle.acquire(name: livenessName(prefix, name), size: livenessShmSizeBytes, mode: .createOrOpen)
         let wtWaiter = try await Waiter.open(name: "\(fp)WT_CONN__\(name)")
         let rdWaiter = try await Waiter.open(name: "\(fp)RD_CONN__\(name)")
         let ccWaiter = try await Waiter.open(name: "\(fp)CC_CONN__\(name)")
@@ -186,6 +188,13 @@ final class ChanInner: @unchecked Sendable {
             _ = ua32(&hdr.pointee.senderCount).loadThenWrappingIncrement(by: 1, ordering: .relaxed)
 
         case .receiver:
+            // Reclaim slots held by dead peers before claiming one (byte-exact
+            // with C++/Rust reap-on-connect).
+            let lv = livenessShm.ptr
+            let liveMask = ua32(&hdr.pointee.connections).load(ordering: .acquiring)
+            reapDeadReceivers(lv, liveMask) { bit in
+                _ = ua32(&hdr.pointee.connections).loadThenBitwiseAnd(with: ~bit, ordering: .acquiringAndReleasing)
+            }
             var k: UInt32 = 0
             while true {
                 let curr = ua32(&hdr.pointee.connections).load(ordering: .acquiring)
@@ -196,12 +205,13 @@ final class ChanInner: @unchecked Sendable {
                 if exchanged { connId = next ^ curr; break }
                 await adaptiveYield(&k)
             }
+            livenessSetOwner(lv, connId)
             readCursor = ua32(&hdr.pointee.writeCursor).load(ordering: .acquiring)
             try? ccWaiter.broadcast()
         }
 
         return ChanInner(name: name, prefix: prefix, chunkPrefix: chunkPrefix, mode: mode,
-                         ringShm: ringShm, ccIdShm: ccIdShm,
+                         ringShm: ringShm, ccIdShm: ccIdShm, livenessShm: livenessShm,
                          connId: connId, ccId: ccId, readCursor: readCursor,
                          wtWaiter: wtWaiter, rdWaiter: rdWaiter, ccWaiter: ccWaiter)
     }
@@ -211,6 +221,7 @@ final class ChanInner: @unchecked Sendable {
         let chunkPrefix = "\(fp)\(name)_"
         let ringShm  = try ShmHandle.acquire(name: ringName(prefix, name), size: ringShmSize(), mode: .createOrOpen)
         let ccIdShm  = try ShmHandle.acquire(name: ccIdName(prefix), size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
+        let livenessShm = try ShmHandle.acquire(name: livenessName(prefix, name), size: livenessShmSizeBytes, mode: .createOrOpen)
         let wtWaiter = try Waiter.openSync(name: "\(fp)WT_CONN__\(name)")
         let rdWaiter = try Waiter.openSync(name: "\(fp)RD_CONN__\(name)")
         let ccWaiter = try Waiter.openSync(name: "\(fp)CC_CONN__\(name)")
@@ -231,6 +242,11 @@ final class ChanInner: @unchecked Sendable {
         case .sender:
             _ = ua32(&hdr.pointee.senderCount).loadThenWrappingIncrement(by: 1, ordering: .relaxed)
         case .receiver:
+            let lv = livenessShm.ptr
+            let liveMask = ua32(&hdr.pointee.connections).load(ordering: .acquiring)
+            reapDeadReceivers(lv, liveMask) { bit in
+                _ = ua32(&hdr.pointee.connections).loadThenBitwiseAnd(with: ~bit, ordering: .acquiringAndReleasing)
+            }
             var k: UInt32 = 0
             while true {
                 let curr = ua32(&hdr.pointee.connections).load(ordering: .acquiring)
@@ -243,22 +259,23 @@ final class ChanInner: @unchecked Sendable {
                     var ts = timespec(tv_sec: 0, tv_nsec: 1_000_000); nanosleep(&ts, nil)
                 }
             }
+            livenessSetOwner(lv, connId)
             readCursor = ua32(&hdr.pointee.writeCursor).load(ordering: .acquiring)
             try? ccWaiter.broadcast()
         }
 
         return ChanInner(name: name, prefix: prefix, chunkPrefix: chunkPrefix, mode: mode,
-                         ringShm: ringShm, ccIdShm: ccIdShm,
+                         ringShm: ringShm, ccIdShm: ccIdShm, livenessShm: livenessShm,
                          connId: connId, ccId: ccId, readCursor: readCursor,
                          wtWaiter: wtWaiter, rdWaiter: rdWaiter, ccWaiter: ccWaiter)
     }
 
     init(name: String, prefix: String, chunkPrefix: String, mode: Mode,
-         ringShm: consuming ShmHandle, ccIdShm: consuming ShmHandle,
+         ringShm: consuming ShmHandle, ccIdShm: consuming ShmHandle, livenessShm: consuming ShmHandle,
          connId: UInt32, ccId: UInt32, readCursor: UInt32,
          wtWaiter: consuming Waiter, rdWaiter: consuming Waiter, ccWaiter: consuming Waiter) {
         self.name = name; self.prefix = prefix; self.chunkPrefix = chunkPrefix; self.mode = mode
-        self.ringShm = ringShm; self.ccIdShm = ccIdShm
+        self.ringShm = ringShm; self.ccIdShm = ccIdShm; self.livenessShm = livenessShm
         self.connId = connId; self.ccId = ccId; self.readCursor = readCursor
         self.wtWaiter = wtWaiter; self.rdWaiter = rdWaiter; self.ccWaiter = ccWaiter
     }
@@ -287,6 +304,7 @@ final class ChanInner: @unchecked Sendable {
             _ = ua32(&hdrPtr.pointee.senderCount).loadThenWrappingDecrement(by: 1, ordering: .relaxed)
         case .receiver:
             _ = ua32(&hdrPtr.pointee.connections).loadThenBitwiseAnd(with: ~connId, ordering: .acquiringAndReleasing)
+            livenessClearOwner(livenessShm.ptr, connId)
             try? wtWaiter.broadcast()
         }
         disconnected = true

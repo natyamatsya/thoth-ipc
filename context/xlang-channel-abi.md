@@ -244,3 +244,38 @@ so divergent notify keys fail a pairing. Harnesses: C++ `xasync`
 (`LIBIPC_STDEXEC`), Rust `xlang aread` (`async-tokio`). CI runs the C++↔Rust
 async matrix on macOS (libnotify) and Linux (FIFO). A Rust unit test also pins
 `notify_hash` to the golden values above.
+
+## 9. Dead-connection reaper owner table (LV_CONN__)
+
+A SIGKILLed broadcast receiver never clears its `cc_` bit — a *phantom* that
+stalls ring reclamation, exhausts the 32-slot space, and inflates `recv_count`
+(RFC: [`dead-connection-reaper-rfc.md`](dead-connection-reaper-rfc.md)). Each
+receiver records `{ pid, start_token }` in a dedicated segment so **any**
+participant (any language) can reap a slot whose owner process has died. Because
+any language's reaper may check any language's owner, the table **and** the token
+formula are cross-language ABI.
+
+- **Segment** `make_prefix(prefix, "LV_CONN__", name)` =
+  `"{prefix}__IPC_SHM__LV_CONN__{name}"`, size **512 B**.
+- **`slot_owner`** (one per `cc_` bit, indexed by `ctz(bit)`), **16 B**:
+  `pid` (int32) `@0`, `start_tok` (uint64) `@8`. Array `slot_owner[32]`.
+- **`start_token(pid)`** — a stable id of *this* incarnation of a PID (defeats PID
+  reuse). 0 = "couldn't determine". macOS: `proc_pidinfo(PROC_PIDTBSDINFO)` packed
+  as `pbi_start_tvsec * 1'000'000 + pbi_start_tvusec` (`proc_bsdinfo` is 136 B,
+  `pbi_start_tvsec @120`, `pbi_start_tvusec @128`). Linux: `/proc/<pid>/stat`
+  field 22 (starttime jiffies). **This formula must be identical across ports** —
+  otherwise a reaper of language A would compute a different token than language B
+  stored and *false-reap a live B receiver*.
+- **Protocol.** On connect (broadcast receiver): reap dead peers, then claim a
+  `cc_` bit, then store `{ getpid(), start_token(getpid()) }` (token first, pid
+  with release). On disconnect: clear the slot. Reap = for each set `cc_` bit
+  whose owner is dead (`kill(pid,0)` gone, *or* a live PID whose token no longer
+  matches), CAS the owner `pid: p→0` and clear the bit. **Safe by default:** a
+  slot with `pid == 0` (an un-upgraded port, or mid-connect) is skipped — never a
+  false reap. C++ additionally reaps in `force_push` (route policy).
+- **Non-broadcast** channels do not use this table (`cc_` is a plain count).
+
+**Verification.** `xlang_matrix.py --reap-lang …` runs the reap matrix: every
+`{holder} × {reaper}` pairing, `dead` (holder SIGKILLed → reaper's `count` must be
+1) and `live` (holder alive → `count` must be 2, proving no false reap and thus a
+matching token). Harness verbs `hold` / `probe` / `count` in all three ports.

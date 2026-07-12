@@ -57,6 +57,25 @@ if args.count < 3 {
 }
 let verb = args[1], name = args[2]
 if verb == "clear" { Route.clearStorageBlocking(name: name); exit(0) }
+// Dead-connection reaper harness verbs (see tools/xlang_matrix.py --reap).
+if verb == "hold" {
+    // Connect a receiver and hold it (populating the owner table), so a test can
+    // SIGKILL this process and check a reaper reclaims the slot.
+    let secs = args.count > 3 ? (Int(args[3]) ?? 30) : 30
+    let r = Route.connectBlocking(name: name, mode: .receiver)
+    print("READY"); fflush(stdout)
+    Thread.sleep(forTimeInterval: TimeInterval(secs))
+    _ = r
+    exit(0)
+}
+if verb == "probe" {  // sender: observe recv count without reaping or claiming a slot
+    let r = Route.connectBlocking(name: name, mode: .sender)
+    print(r.recvCount); exit(0)
+}
+if verb == "count" {  // receiver: reap-on-connect runs, then report the count
+    let r = Route.connectBlocking(name: name, mode: .receiver)
+    print(r.recvCount); exit(0)
+}
 if args.count < 5 { FileHandle.standardError.write(Data("write/read need <count> <size>\n".utf8)); exit(1) }
 let count = Int(args[3]) ?? 0
 let size = Int(args[4]) ?? 0

@@ -39,7 +39,9 @@ jobs:
       run: |
         python3 tools/xlang_matrix.py \
           --lang cpp:cpp/libipc/bin/xlang_ipc \
-          --lang rust:rust/libipc/target/release/xlang
+          --lang rust:rust/libipc/target/release/xlang \
+          --reap-lang cpp:cpp/libipc/bin/xlang_ipc \
+          --reap-lang rust:rust/libipc/target/release/xlang
 
   # macOS runners have C++, Rust and Swift — the full 3x3 matrix.
   matrix-macos:
@@ -67,7 +69,10 @@ jobs:
         python3 tools/xlang_matrix.py \
           --lang cpp:cpp/libipc/bin/xlang_ipc \
           --lang rust:rust/libipc/target/release/xlang \
-          --lang swift:"$SWIFT_BIN"
+          --lang swift:"$SWIFT_BIN" \
+          --reap-lang cpp:cpp/libipc/bin/xlang_ipc \
+          --reap-lang rust:rust/libipc/target/release/xlang \
+          --reap-lang swift:"$SWIFT_BIN"
 
   # Async (Layer 1 notify + Layer 2) matrix: a writer's notify must wake an async
   # receiver on its readiness fd. C++ uses stdexec async_recv + libnotify (macOS)

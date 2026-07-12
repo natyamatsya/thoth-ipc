@@ -1,6 +1,7 @@
 # RFC: Dead-connection reaping for broadcast routes
 
-Status: **Phases 1–3 implemented (C++)** · Author: agent-control integration ·
+Status: **Phases 1–4 implemented (C++, Rust, Swift)** · Author: agent-control
+integration ·
 Revised after cross-language review (owner table is now an xlang ABI; notify
 cleanup added) and again to record the lock-free implementation ·
 Relates to [`macos_ipc_roadmap.md`](macos_ipc_roadmap.md) (reuses its PID-liveness
@@ -287,8 +288,12 @@ on) dead slots.
    disconnect. (No separate in-flight element sweep needed for `route` — §4.)
 3. **Start-token hardening (§5).** PID-reuse safety. *(done)*
 4. **Cross-language: Rust + Swift populate the owner table (§8) + xlang §9 + the
-   reaping matrix scenario.** Makes the fix apply to the bridge and any port peer,
-   with drift protection.
+   reaping matrix scenario.** *(done)* Rust (`liveness.rs`) and Swift
+   (`Liveness.swift`) mirror `liveness.h` byte-exact — same LV_CONN__ segment,
+   16-byte `slot_owner`, and start-token formula — and reap on connect. The
+   `xlang_matrix.py --reap-lang` scenario runs every holder×reaper×{dead,live}
+   pairing (18/18 across C++/Rust/Swift): each reaps the others' dead receivers
+   and never false-reaps a live one (which confirms the token formula matches).
 5. **Optional heartbeat** for hung-but-alive detection, opt-in.
 
 Phase 1 alone removes the observed breakage on C++-only channels; 2 makes it robust

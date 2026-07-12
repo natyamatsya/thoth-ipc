@@ -92,6 +92,58 @@ def run_pair(w_lang, w_bin, r_lang, r_bin, size, idx, read_verb="read"):
     return ok, detail
 
 
+def run_reap_pair(h_lang, h_bin, r_lang, r_bin, kind, idx):
+    """A holder connects a receiver; a reaper of another language then connects
+    (reap-on-connect). `dead`: kill the holder first — the reaper must reclaim its
+    slot (count == 1). `live`: holder stays up — the reaper must NOT reap it
+    (count == 2), which also proves the start-token formula matches cross-language.
+    """
+    name = f"xr_{h_lang}_{r_lang}_{kind}_{os.getpid()}_{idx}"
+    clear(r_bin, name)
+    clear(h_bin, name)
+    holder = subprocess.Popen([h_bin, "hold", name, "20"],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    ready = bool(holder.stdout and "READY" in (holder.stdout.readline() or ""))
+    if not ready:
+        holder.kill(); holder.wait()
+        return False, "holder never became READY"
+    if kind == "dead":
+        holder.kill(); holder.wait()
+    try:
+        got = subprocess.run([r_bin, "count", name], stdout=subprocess.PIPE,
+                             text=True, timeout=15).stdout.strip()
+    except subprocess.TimeoutExpired:
+        got = "<timeout>"
+    if kind == "live":
+        holder.kill(); holder.wait()
+    clear(r_bin, name)
+    exp = "2" if kind == "live" else "1"
+    return got == exp, f"count={got} exp={exp}"
+
+
+def run_reap_matrix(langs, idx_start):
+    """Every holder x reaper x {live, dead} dead-connection reaping pairing."""
+    names = sorted(langs)
+    print(f"reap matrix (dead-connection): languages={names}\n")
+    failures = []
+    idx = idx_start
+    total = 0
+    for h in names:
+        for r in names:
+            for kind in ("dead", "live"):
+                idx += 1
+                total += 1
+                ok, detail = run_reap_pair(h, langs[h], r, langs[r], kind, idx)
+                status = "PASS" if ok else "FAIL"
+                line = f"  [{status}] {h:>5} hold -> {r:<5} reap  {kind:<4}"
+                if not ok:
+                    line += f"   {detail}"
+                    failures.append((h, r, kind, detail))
+                print(line)
+    print(f"\n  {total - len(failures)}/{total} reap-matrix pairings passed.\n")
+    return failures, total, idx
+
+
 def parse_langs(specs, flag):
     langs = {}
     for spec in specs:
@@ -136,13 +188,18 @@ def main():
                     dest="async_lang",
                     help="a language whose harness `write` posts a notify and `aread` "
                          "does an async (readiness-fd-driven) receive (repeatable)")
+    ap.add_argument("--reap-lang", action="append", default=[], metavar="NAME:BIN",
+                    dest="reap_lang",
+                    help="a language whose harness supports hold/count for the "
+                         "dead-connection reaping matrix (repeatable)")
     args = ap.parse_args()
 
     sync = parse_langs(args.lang, "--lang")
     asyncl = parse_langs(args.async_lang, "--async-lang")
-    if sync is None or asyncl is None:
+    reapl = parse_langs(args.reap_lang, "--reap-lang")
+    if sync is None or asyncl is None or reapl is None:
         return 2
-    if not sync and not asyncl:
+    if not sync and not asyncl and not reapl:
         print("error: no languages provided", file=sys.stderr)
         return 2
 
@@ -156,6 +213,12 @@ def main():
         # Async matrix: a writer's notify must wake an async receiver on the
         # readiness fd. Divergent notify keys (name or hash) fail the pairing.
         f, t, idx = run_matrix(asyncl, "aread", "async matrix (notify wakeup)", idx)
+        failures += f; total += t
+    if reapl:
+        # Reap matrix: a reaper of one language must reclaim a dead receiver of
+        # another (byte-exact owner table) and never reap a live one (byte-exact
+        # start token).
+        f, t, idx = run_reap_matrix(reapl, idx)
         failures += f; total += t
 
     print(f"TOTAL: {total - len(failures)}/{total} pairings passed.")
