@@ -161,6 +161,14 @@ fn route_reconnect_then_send_recv() {
     let name = unique_name("rr_sr");
     Route::clear_storage(&name);
 
+    // Connect AND reconnect the receiver before the sender can push. Otherwise
+    // this races: the sender only waits for *a* receiver, so it could send to the
+    // original connection and the reconnected endpoint — whose read cursor starts
+    // at the current write cursor — would begin past that message and never see it.
+    let mut r = Route::connect(&name, Mode::Receiver).expect("receiver");
+    // Reconnect as receiver (same mode) — should still work.
+    r.reconnect(Mode::Receiver).expect("reconnect");
+
     let name2 = name.clone();
     let sender = thread::spawn(move || {
         let mut s = Route::connect(&name2, Mode::Sender).expect("sender");
@@ -168,11 +176,7 @@ fn route_reconnect_then_send_recv() {
         s.send(b"hello", 2000).expect("send")
     });
 
-    let mut r = Route::connect(&name, Mode::Receiver).expect("receiver");
-    // Reconnect as receiver (same mode) — should still work.
-    r.reconnect(Mode::Receiver).expect("reconnect");
     let buf = r.recv(Some(3000)).expect("recv");
-
     sender.join().unwrap();
     assert_eq!(buf.data(), b"hello");
     Route::clear_storage(&name);
