@@ -104,7 +104,7 @@ fn do_arecv(name: &str, count: usize, size: usize) -> i32 {
 
 /// Async receive via the shipped `AsyncRoute::recv().await` on a tokio runtime.
 /// Validates the Layer-2 ergonomic API end-to-end. Requires `async-tokio`.
-#[cfg(all(unix, feature = "async-tokio"))]
+#[cfg(feature = "async-tokio")]
 fn do_arecv_tokio(name: &str, count: usize, size: usize) -> i32 {
     use libipc::async_recv::AsyncRoute;
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -187,7 +187,7 @@ fn main() {
         #[cfg(all(unix, feature = "notify"))]
         "arecv" => do_arecv(name, count, size),
         // Canonical async receiver = the shipped AsyncRoute::recv().await.
-        #[cfg(all(unix, feature = "async-tokio"))]
+        #[cfg(feature = "async-tokio")]
         "aread" => do_arecv_tokio(name, count, size),
         other => { eprintln!("unknown verb '{other}'"); 1 }
     };
