@@ -1,0 +1,70 @@
+name: Cross-language ABI
+
+# Proves the C++, Rust and Swift ports share one byte-exact wire ABI
+# (context/xlang-channel-abi.md) by running every writer->reader pairing over
+# an ipc::route channel and checking the payload round-trips byte-for-byte.
+# Same-language test suites do NOT catch ABI drift — this matrix does.
+
+on:
+  push:
+    branches: [ main, develop, xlang-* ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  # Linux runners have no Swift toolchain in this project, so the Linux matrix
+  # covers the C++ <-> Rust pairings.
+  matrix-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    - name: Install GCC 14
+      run: sudo apt-get update && sudo apt-get install -y g++-14
+    - name: Build C++ harness
+      run: |
+        cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON .
+        make xlang_ipc -j
+      working-directory: cpp/libipc
+      env:
+        CC: gcc-14
+        CXX: g++-14
+    - name: Build Rust harness
+      run: cargo build --release --bin xlang
+      working-directory: rust/libipc
+    - name: Run cross-language matrix (cpp, rust)
+      run: |
+        python3 tools/xlang_matrix.py \
+          --lang cpp:cpp/libipc/bin/xlang_ipc \
+          --lang rust:rust/libipc/target/release/xlang
+
+  # macOS runners have C++, Rust and Swift — the full 3x3 matrix.
+  matrix-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    - name: Build C++ harness
+      run: |
+        cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON .
+        make xlang_ipc -j
+      working-directory: cpp/libipc
+    - name: Build Rust harness
+      run: cargo build --release --bin xlang
+      working-directory: rust/libipc
+    - name: Build Swift harness
+      run: swift build -c release --product xlang-harness
+      working-directory: swift/libipc
+    - name: Run cross-language matrix (cpp, rust, swift)
+      run: |
+        SWIFT_BIN="$(cd swift/libipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
+        python3 tools/xlang_matrix.py \
+          --lang cpp:cpp/libipc/bin/xlang_ipc \
+          --lang rust:rust/libipc/target/release/xlang \
+          --lang swift:"$SWIFT_BIN"

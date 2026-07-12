@@ -2,9 +2,16 @@
 
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Build Status](https://github.com/natyamatsya/thoth-ipc/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/natyamatsya/thoth-ipc/actions)
+[![Cross-language ABI](https://github.com/natyamatsya/thoth-ipc/actions/workflows/xlang.yml/badge.svg)](https://github.com/natyamatsya/thoth-ipc/actions/workflows/xlang.yml)
 
 A high-performance inter-process communication library using shared memory on Linux/Windows/macOS/FreeBSD.
 Binary-compatible primitives implemented in multiple languages — all sharing the same wire format and shm layout.
+
+The C++, Rust and Swift channel ports are **byte-exact** on the `ipc::route`
+wire ABI ([`context/xlang-channel-abi.md`](context/xlang-channel-abi.md)), and a
+CI matrix ([`tools/xlang_matrix.py`](tools/xlang_matrix.py)) runs every
+writer→reader language pairing on every push to prove a message sent by any
+language is received byte-for-byte by any other.
 
 > **Fork notice:** thoth-ipc is a fork of [cpp-ipc](https://github.com/mutouyun/cpp-ipc) by mutouyun,
 > branched at upstream v1.4.1. thoth-ipc versioning starts independently at 0.1.0.
@@ -18,7 +25,7 @@ Binary-compatible primitives implemented in multiple languages — all sharing t
 ```
 cpp/libipc/    — C++ library (upstream core, extended)
 rust/libipc/   — Pure Rust port (feature-complete, 242 tests)
-swift/libipc/  — Swift package (work in progress)
+swift/libipc/  — Swift package (channel transport byte-exact with C++/Rust)
 ```
 
 ## Language implementations

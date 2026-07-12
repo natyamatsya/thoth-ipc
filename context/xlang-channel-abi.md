@@ -188,7 +188,23 @@ and must be realigned.
 
 ## 7. Verification
 
-Every port change is validated by a C++-writer ↔ port-reader round-trip
-(message payload + `recv_count`), added as a standing regression test so any future
-drift in names **or** layout fails CI. Same-language suites do **not** catch ABI
-drift and never have.
+Every port change is validated by a writer ↔ reader round-trip (message payload
++ `recv_count`). Same-language suites do **not** catch ABI drift and never have,
+so this is a standing, automated regression test.
+
+**Standing matrix test.** Each language ships a small harness binary with a
+uniform CLI (`<bin> write|read|clear <name> <count> <size>`):
+
+| language | harness | built by |
+|---|---|---|
+| C++ | `xlang_ipc` | `cpp/libipc/test/xlang/xlang.cpp` (CMake, `LIBIPC_BUILD_TESTS`) |
+| Rust | `xlang` | `rust/libipc/src/bin/xlang.rs` (`cargo build --bin xlang`) |
+| Swift | `xlang-harness` | `swift/libipc/Sources/XlangHarness` (SwiftPM) |
+
+`tools/xlang_matrix.py` runs **every writer→reader pairing** (the full N×N
+matrix) over an `ipc::route` channel at payload sizes `{40, 65, 200, 3000}` —
+covering single-fragment (≤64), just-over-64, and chunk-storage paths — and
+checks the reader receives exactly what the writer sent, byte-for-byte (payload
+pattern `byte[i] = 'A' + (i%26)`). Any drift in names **or** layout fails a
+pairing. `.github/workflows/xlang.yml` runs the C++↔Rust matrix on Linux and the
+full C++/Rust/Swift 3×3 on macOS.

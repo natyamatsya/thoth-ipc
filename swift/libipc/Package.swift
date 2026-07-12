@@ -17,6 +17,7 @@ let package = Package(
         .executable(name: "demo-chat",      targets: ["DemoChat"]),
         .executable(name: "demo-msg-que",   targets: ["DemoMsgQue"]),
         .executable(name: "bench-ipc",        targets: ["BenchIpc"]),
+        .executable(name: "xlang-harness",    targets: ["XlangHarness"]),
     ],
     dependencies: [
         .package(path: "vendor/swift-atomics"),
@@ -68,6 +69,11 @@ let package = Package(
             name: "DemoSendRecv",
             dependencies: ["LibIPC"],
             path: "Sources/Demos/DemoSendRecv"
+        ),
+        .executableTarget(
+            name: "XlangHarness",
+            dependencies: ["LibIPC"],
+            path: "Sources/XlangHarness"
         ),
         .executableTarget(
             name: "DemoChat",

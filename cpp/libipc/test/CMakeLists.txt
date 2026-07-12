@@ -38,4 +38,13 @@ add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEAD_FILES})
 
 link_directories(${LIBIPC_PROJECT_DIR}/3rdparty/gperftools)
 target_link_libraries(${PROJECT_NAME} gtest gtest_main ipc)
+
+# Cross-language round-trip harness (C++ endpoint). Uniform CLI shared with the
+# Rust and Swift harnesses; driven by tools/xlang_matrix.py. See
+# context/xlang-channel-abi.md.
+add_executable(xlang_ipc ${LIBIPC_PROJECT_DIR}/test/xlang/xlang.cpp)
+target_include_directories(xlang_ipc PRIVATE ${LIBIPC_PROJECT_DIR}/include)
+target_link_libraries(xlang_ipc ipc)
+set_target_properties(xlang_ipc PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 #target_link_libraries(${PROJECT_NAME} tcmalloc_minimal)
