@@ -13,3 +13,4 @@
 [submodule "swift/libipc/vendor/swift-protobuf"]
 	path = swift/libipc/vendor/swift-protobuf
 	url = https://github.com/apple/swift-protobuf.git
+	ignore = untracked
