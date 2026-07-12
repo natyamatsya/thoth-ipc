@@ -32,6 +32,15 @@ option(LIBIPC_SECURE_OPENSSL
 option(LIBIPC_APPLE_APP_STORE_SAFE
     "Use only public Mach APIs instead of private __ulock_wait/__ulock_wake (App Store safe, slightly higher latency)."
     OFF)
+option(LIBIPC_NOTIFY_FD
+    "Opt-in Layer 1: expose a per-receiver readiness handle (native_wait_handle) signalled on enqueue, so channels can be multiplexed on a reactor (epoll/kqueue) instead of one blocking thread each. Zero cost when OFF. macOS uses libnotify; other POSIX uses named FIFOs."
+    OFF)
+option(LIBIPC_NOTIFY_FIFO
+    "Force the portable POSIX FIFO notify backend even on macOS (default there is libnotify). No effect off Apple."
+    OFF)
+option(LIBIPC_STDEXEC
+    "Opt-in Layer 2: ipc::async_recv() senders/receivers (P2300) receive API + a process-global reactor. Requires C++23 and stdexec (provided via find_package, else fetched). Implies LIBIPC_NOTIFY_FD."
+    OFF)
 
 if(LIBIPC_SECURE_OPENSSL)
     set(SECURE_CRYPTO_C_OPENSSL ON CACHE BOOL
@@ -89,6 +98,32 @@ set(LIBIPC_PROJECT_DIR     ${PROJECT_SOURCE_DIR})
 
 # Unicode Support
 add_definitions(-DUNICODE -D_UNICODE)
+
+# Layer 2 (ipc::async_recv) needs Layer 1's readiness fd and the stdexec library.
+# Dependency is injectable: an ambient stdexec (e.g. from vcpkg/Conan/a parent
+# build) is used if find_package locates it; otherwise it is fetched at the ref
+# Sourcetrail pins. Either way the consumer never has to hard-vendor it.
+if(LIBIPC_STDEXEC)
+    if(NOT LIBIPC_NOTIFY_FD)
+        message(STATUS "LIBIPC_STDEXEC: enabling LIBIPC_NOTIFY_FD (Layer 2 builds on Layer 1).")
+        set(LIBIPC_NOTIFY_FD ON CACHE BOOL "" FORCE)
+    endif()
+    find_package(stdexec CONFIG QUIET)
+    if(stdexec_FOUND)
+        message(STATUS "LIBIPC_STDEXEC: using stdexec found via find_package.")
+    else()
+        message(STATUS "LIBIPC_STDEXEC: stdexec not found; fetching NVIDIA/stdexec.")
+        include(FetchContent)
+        set(STDEXEC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(STDEXEC_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        FetchContent_Declare(
+            stdexec
+            GIT_REPOSITORY https://github.com/NVIDIA/stdexec.git
+            GIT_TAG 8cfc3f1983d3521b341864074123281011f998c1 # keep in sync with the vcpkg overlay port
+        )
+        FetchContent_MakeAvailable(stdexec)
+    endif()
+endif()
 
 add_subdirectory(src)
 

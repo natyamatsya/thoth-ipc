@@ -3,6 +3,7 @@
 #include <string>
 
 #include "libipc/imp/export.h"
+#include "libipc/imp/detect_plat.h"
 #include "libipc/def.h"
 #include "libipc/buffer.h"
 #include "libipc/shm.h"
@@ -11,6 +12,25 @@ namespace ipc {
 
 using handle_t = void*;
 using buff_t   = buffer;
+
+/**
+ * \brief Native waitable handle for a channel's readiness (opt-in Layer 1).
+ *
+ * When libipc is built with LIBIPC_NOTIFY_FD, a receiver channel exposes a
+ * kernel object, signalled whenever a message is enqueued for it, that a
+ * consumer can register with its own reactor (epoll / kqueue / Qt
+ * QSocketNotifier / WaitForMultipleObjects) instead of dedicating a blocking
+ * thread to recv(). On POSIX this is a file descriptor; on Windows a HANDLE.
+ *
+ * See context/stdexec-async-recv-rfc.md.
+ */
+#if defined(LIBIPC_OS_WIN)
+using wait_handle_t = void*; // HANDLE
+inline wait_handle_t const invalid_wait_handle = nullptr;
+#else
+using wait_handle_t = int;   // file descriptor
+inline constexpr wait_handle_t invalid_wait_handle = -1;
+#endif
 
 enum : unsigned {
     sender,
@@ -45,6 +65,11 @@ struct LIBIPC_EXPORT chan_impl {
 
     static bool   try_send(ipc::handle_t h, void const * data, std::size_t size, std::uint64_t tm);
     static buff_t try_recv(ipc::handle_t h);
+
+    // Opt-in Layer 1: readiness handle for this (receiver) channel. Returns
+    // ipc::invalid_wait_handle unless libipc was built with LIBIPC_NOTIFY_FD and
+    // the handle is connected as a receiver.
+    static wait_handle_t native_wait_handle(ipc::handle_t h) noexcept;
 };
 
 template <typename Flag>
@@ -202,6 +227,20 @@ public:
 
     buff_t try_recv() {
         return detail_t::try_recv(h_);
+    }
+
+    /**
+     * \brief Native readiness handle for this receiver channel (opt-in Layer 1).
+     *
+     * Signalled whenever a message is enqueued for this channel; register it
+     * with a reactor (epoll / kqueue / QSocketNotifier / WaitForMultipleObjects)
+     * to multiplex many channels on one thread instead of blocking in recv().
+     * Returns ipc::invalid_wait_handle unless built with LIBIPC_NOTIFY_FD and
+     * connected as a receiver. The handle is owned by this channel and stays
+     * valid until disconnect/destruction — do not close it.
+     */
+    wait_handle_t native_wait_handle() const noexcept {
+        return detail_t::native_wait_handle(h_);
     }
 };
 

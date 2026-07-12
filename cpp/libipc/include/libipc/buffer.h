@@ -28,7 +28,7 @@ public:
     }
     explicit buffer(char & c);
 
-    buffer(buffer&& rhs);
+    buffer(buffer&& rhs) noexcept;
     ~buffer();
 
     void swap(buffer& rhs);

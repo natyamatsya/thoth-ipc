@@ -50,13 +50,18 @@ buffer::buffer(char & c)
     : buffer(&c, 1) {
 }
 
-buffer::buffer(buffer&& rhs)
-    : buffer() {
-    swap(rhs);
+// Steal the pimpl and leave rhs empty (p_ == nullptr). This makes the move
+// non-allocating and therefore noexcept — required so ipc::buffer can flow
+// through senders/receivers value completions (which must be noexcept) and
+// noexcept-move std containers. The moved-from buffer is valid: it destroys
+// cleanly and queries as empty (guards below).
+buffer::buffer(buffer&& rhs) noexcept
+    : p_(rhs.p_) {
+    rhs.p_ = nullptr;
 }
 
 buffer::~buffer() {
-    p_->clear();
+    if (p_ != nullptr) p_->clear();
 }
 
 void buffer::swap(buffer& rhs) {
@@ -69,19 +74,19 @@ buffer& buffer::operator=(buffer rhs) {
 }
 
 bool buffer::empty() const noexcept {
-    return (impl(p_)->p_ == nullptr) || (impl(p_)->s_ == 0);
+    return (p_ == nullptr) || (impl(p_)->p_ == nullptr) || (impl(p_)->s_ == 0);
 }
 
 void* buffer::data() noexcept {
-    return impl(p_)->p_;
+    return (p_ == nullptr) ? nullptr : impl(p_)->p_;
 }
 
 void const * buffer::data() const noexcept {
-    return impl(p_)->p_;
+    return (p_ == nullptr) ? nullptr : impl(p_)->p_;
 }
 
 std::size_t buffer::size() const noexcept {
-    return impl(p_)->s_;
+    return (p_ == nullptr) ? 0 : impl(p_)->s_;
 }
 
 } // namespace ipc

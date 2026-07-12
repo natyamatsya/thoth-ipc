@@ -7,6 +7,8 @@ aux_source_directory(${LIBIPC_PROJECT_DIR}/src/libipc/sync SRC_FILES)
 aux_source_directory(${LIBIPC_PROJECT_DIR}/src/libipc/platform SRC_FILES)
 aux_source_directory(${LIBIPC_PROJECT_DIR}/src/libipc/imp SRC_FILES)
 aux_source_directory(${LIBIPC_PROJECT_DIR}/src/libipc/mem SRC_FILES)
+# execution/reactor.cpp compiles to an empty TU unless LIBIPC_STDEXEC is set.
+aux_source_directory(${LIBIPC_PROJECT_DIR}/src/libipc/execution SRC_FILES)
 
 file(GLOB HEAD_FILES
   ${LIBIPC_PROJECT_DIR}/include/libipc/*.h
@@ -66,6 +68,30 @@ endif()
 
 if(APPLE AND LIBIPC_APPLE_APP_STORE_SAFE)
   target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_APPLE_APP_STORE_SAFE)
+endif()
+
+# Opt-in Layer 1 readiness handle (see notify.h). The public ABI
+# (native_wait_handle) is stable regardless; the macro is PUBLIC so downstream
+# TUs can feature-test it (#if defined(LIBIPC_NOTIFY_FD)) before relying on a
+# functional handle. When OFF, native_wait_handle returns ipc::invalid_wait_handle.
+if(LIBIPC_NOTIFY_FD)
+  if(WIN32)
+    message(FATAL_ERROR "LIBIPC_NOTIFY_FD: the Windows backend is not implemented yet; build with LIBIPC_NOTIFY_FD=OFF on Windows.")
+  endif()
+  target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_NOTIFY_FD)
+  # macOS default backend is libnotify (part of libSystem, no extra link).
+  # LIBIPC_NOTIFY_FIFO forces the portable FIFO backend instead.
+  if(LIBIPC_NOTIFY_FIFO)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_NOTIFY_FIFO)
+  endif()
+endif()
+
+# Opt-in Layer 2: ipc::async_recv() + reactor. PUBLIC (the templated sender API
+# lives in the public header async_recv.h, so consumers compile against stdexec
+# and the LIBIPC_STDEXEC switch).
+if(LIBIPC_STDEXEC)
+  target_link_libraries(${PROJECT_NAME} PUBLIC STDEXEC::stdexec)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_STDEXEC)
 endif()
 
 target_link_libraries(${PROJECT_NAME} PUBLIC libipc_secure_crypto_c)

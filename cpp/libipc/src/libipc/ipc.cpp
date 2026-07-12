@@ -16,6 +16,7 @@
 #include "libipc/policy.h"
 #include "libipc/rw_lock.h"
 #include "libipc/waiter.h"
+#include "libipc/notify.h"
 
 #include "libipc/imp/log.h"
 #include "libipc/utility/id_pool.h"
@@ -115,6 +116,36 @@ struct conn_info_head {
     ipc::detail::waiter cc_waiter_, wt_waiter_, rd_waiter_;
     ipc::shm::handle acc_h_;
 
+#if defined(LIBIPC_NOTIFY_FD)
+    // Opt-in Layer 1 (RFC context/stdexec-async-recv-rfc.md). notify_sink_ owns
+    // this receiver's per-slot FIFO; notify_source_ pokes connected readers on
+    // enqueue. Both are inert (no fds, no syscalls) until actually opened.
+    ipc::detail::notify_sink   notify_sink_;
+    ipc::detail::notify_source notify_source_;
+
+    void notify_open_sink(ipc::circ::cc_t slot_bit) {
+        // slot_bit selects the reader slot for the FIFO backend; the libnotify
+        // backend ignores it (one multicast name per channel).
+        notify_sink_.open(prefix_, name_, slot_bit);
+    }
+    void notify_close_sink() noexcept {
+        notify_sink_.close();
+    }
+    ipc::wait_handle_t notify_wait_handle() const noexcept {
+        return notify_sink_.valid() ? notify_sink_.native_handle()
+                                    : ipc::invalid_wait_handle;
+    }
+    // Signal every connected reader (bitmap from the queue), skipping our own
+    // receiver slot so a bidirectional handle never wakes itself.
+    template <typename Q>
+    void notify_signal(Q *que) noexcept {
+        auto *elems = que->elems();
+        if (elems == nullptr) return;
+        notify_source_.signal(prefix_, name_,
+                              elems->connections(), que->connected_id());
+    }
+#endif
+
     conn_info_head(char const * prefix, char const * name)
         : prefix_{ipc::make_string(prefix)}
         , name_  {ipc::make_string(name)}
@@ -154,6 +185,9 @@ struct conn_info_head {
         ipc::detail::waiter::clear_storage(ipc::make_prefix(p, "WT_CONN__", n).c_str());
         ipc::detail::waiter::clear_storage(ipc::make_prefix(p, "RD_CONN__", n).c_str());
         ipc::shm::handle::clear_storage(ipc::make_prefix(p, "AC_CONN__", n).c_str());
+#if defined(LIBIPC_NOTIFY_FD)
+        ipc::detail::notify_clear_storage(p, n);
+#endif
     }
 
     void quit_waiting() {
@@ -431,6 +465,9 @@ struct queue_generator {
             this->quit_waiting();
             if (dis) {
                 this->recv_cache().clear();
+#if defined(LIBIPC_NOTIFY_FD)
+                this->notify_close_sink();
+#endif
             }
         }
     };
@@ -488,6 +525,10 @@ static bool reconnect(ipc::handle_t * ph, bool start_to_recv) {
         que->shut_sending();
         if (que->connect()) { // wouldn't connect twice
             info_of(*ph)->cc_waiter_.broadcast();
+#if defined(LIBIPC_NOTIFY_FD)
+            // Now that we own a reader slot, create its readiness FIFO.
+            info_of(*ph)->notify_open_sink(que->connected_id());
+#endif
             return true;
         }
         return false;
@@ -603,6 +644,9 @@ static bool send(ipc::handle_t h, void const * data, std::size_t size, std::uint
                 }
             }
             info->rd_waiter_.broadcast();
+#if defined(LIBIPC_NOTIFY_FD)
+            info->notify_signal(que);
+#endif
             return true;
         };
     }, h, data, size);
@@ -619,6 +663,9 @@ static bool try_send(ipc::handle_t h, void const * data, std::size_t size, std::
                 return false;
             }
             info->rd_waiter_.broadcast();
+#if defined(LIBIPC_NOTIFY_FD)
+            info->notify_signal(que);
+#endif
             return true;
         };
     }, h, data, size);
@@ -738,6 +785,15 @@ static ipc::buff_t try_recv(ipc::handle_t h) {
     return recv(h, 0);
 }
 
+static ipc::wait_handle_t native_wait_handle(ipc::handle_t h) noexcept {
+    auto *inf = info_of(h);
+#if defined(LIBIPC_NOTIFY_FD)
+    if (inf != nullptr) return inf->notify_wait_handle();
+#endif
+    (void)inf;
+    return ipc::invalid_wait_handle;
+}
+
 }; // detail_impl<Policy>
 
 template <typename Flag>
@@ -839,6 +895,11 @@ bool chan_impl<Flag>::try_send(ipc::handle_t h, void const * data, std::size_t s
 template <typename Flag>
 buff_t chan_impl<Flag>::try_recv(ipc::handle_t h) {
     return detail_impl<policy_t<Flag>>::try_recv(h);
+}
+
+template <typename Flag>
+wait_handle_t chan_impl<Flag>::native_wait_handle(ipc::handle_t h) noexcept {
+    return detail_impl<policy_t<Flag>>::native_wait_handle(h);
 }
 
 template struct chan_impl<ipc::wr<relat::single, relat::single, trans::unicast  >>;
