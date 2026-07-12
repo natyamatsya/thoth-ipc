@@ -60,9 +60,8 @@ func clearStorageImplSync(prefix: String, name: String) {
     ShmHandle.clearStorage(name: "\(fp)RD_CONN__\(name)_WAITER_LOCK_")
     ShmHandle.clearStorage(name: "\(fp)CC_CONN__\(name)_WAITER_COND_")
     ShmHandle.clearStorage(name: "\(fp)CC_CONN__\(name)_WAITER_LOCK_")
-    let cp = "\(fp)\(name)_"
     for ps in [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 65536] {
-        clearChunkShm(prefix: cp, chunkSize: calcChunkSize(ps))
+        clearChunkShm(prefix: prefix, chunkSize: calcChunkSize(ps))
     }
 }
 
@@ -72,9 +71,8 @@ func clearStorageImpl(prefix: String, name: String) async {
     await Waiter.clearStorage(name: "\(fp)WT_CONN__\(name)")
     await Waiter.clearStorage(name: "\(fp)RD_CONN__\(name)")
     await Waiter.clearStorage(name: "\(fp)CC_CONN__\(name)")
-    let cp = "\(fp)\(name)_"
     for ps in [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 65536] {
-        clearChunkShm(prefix: cp, chunkSize: calcChunkSize(ps))
+        clearChunkShm(prefix: prefix, chunkSize: calcChunkSize(ps))
     }
 }
 

@@ -32,31 +32,37 @@ private func ua64(_ field: inout UInt64.AtomicRepresentation) -> UnsafeAtomic<UI
 
 let dataLength: Int  = 64
 let ringSize: Int    = 256
-let sizeLast: UInt32    = 0x8000_0000
-let sizeStorage: UInt32 = 0x4000_0000
-let sizeMask: UInt32    = 0x3FFF_FFFF
 let epMask: UInt64 = 0x0000_0000_FFFF_FFFF
 let epIncr: UInt64 = 0x0000_0001_0000_0000
 private let spinCount: UInt32 = 32
 
-// MARK: - Ring layout (binary-compatible with C++ / Rust)
+// MARK: - Ring slot (byte-exact with C++ broadcast elem_t<80,8>)
+//
+// { data_[80]; rc_ } = 88 bytes. `data_` holds a msg_t<64,8>:
+//   cc_id_@0 (u32), id_@4 (u32), remain_@8 (i32), storage_@12 (u8), payload@16 (64).
+// Accessed via raw offsets (Swift struct layout is not guaranteed C-compatible).
+let offBlock   = 192   // C++ block_ offset (after conn_head_base + head_)
+let elemStride = 88    // sizeof(elem_t)
+let elemRcOff  = 80    // rc_ within a slot
+let msgCcId = 0, msgId = 4, msgRemain = 8, msgStorage = 12, msgPayload = 16
 
-@_alignment(8)
-struct RingSlot {
-    var data: (
-        UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
-        UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
-        UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
-        UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
-        UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
-        UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
-        UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
-        UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8
-    ) = (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
-    var size: UInt32.AtomicRepresentation = .init(0)
-    var ccId: UInt32.AtomicRepresentation = .init(0)
-    var rc:   UInt64.AtomicRepresentation = .init(0)
+@inline(__always) func slotBase(_ ringBase: UnsafeMutableRawPointer, _ idx: UInt8) -> UnsafeMutableRawPointer {
+    ringBase.advanced(by: offBlock + Int(idx) * elemStride)
+}
+@inline(__always) func slotRc(_ sb: UnsafeMutableRawPointer) -> UnsafeAtomic<UInt64> {
+    UnsafeAtomic(at: sb.advanced(by: elemRcOff).assumingMemoryBound(to: UnsafeAtomic<UInt64>.Storage.self))
+}
+@inline(__always) func writeMsgHeader(_ sb: UnsafeMutableRawPointer, ccId: UInt32, id: UInt32, remain: Int32, storage: Bool) {
+    sb.storeBytes(of: ccId,   toByteOffset: msgCcId,   as: UInt32.self)
+    sb.storeBytes(of: id,     toByteOffset: msgId,     as: UInt32.self)
+    sb.storeBytes(of: remain, toByteOffset: msgRemain, as: Int32.self)
+    sb.storeBytes(of: UInt8(storage ? 1 : 0), toByteOffset: msgStorage, as: UInt8.self)
+}
+@inline(__always) func readMsgHeader(_ sb: UnsafeMutableRawPointer) -> (ccId: UInt32, id: UInt32, remain: Int32, storage: Bool) {
+    (sb.loadUnaligned(fromByteOffset: msgCcId,   as: UInt32.self),
+     sb.loadUnaligned(fromByteOffset: msgId,     as: UInt32.self),
+     sb.loadUnaligned(fromByteOffset: msgRemain, as: Int32.self),
+     sb.loadUnaligned(fromByteOffset: msgStorage, as: UInt8.self) != 0)
 }
 
 // Ring header — byte-exact with the C++ elem_array head (conn_head_base + the
@@ -83,7 +89,6 @@ struct RingHeader {
 }
 
 let ringHeaderSize = MemoryLayout<RingHeader>.size
-let ringSlotSize   = MemoryLayout<RingSlot>.size
 let ringShmSizeBytes = 22784  // sizeof(C++ elem_array<broadcast,80,8>) on Apple arm64
 func ringShmSize() -> Int { ringShmSizeBytes }
 
@@ -147,6 +152,8 @@ final class ChanInner: @unchecked Sendable {
     var connId:     UInt32
     var ccId:       UInt32
     var readCursor: UInt32
+    var sendSeq: UInt32 = 0                        // per-sender msg_t.id_ counter
+    var recvCache: [UInt32: (Int, [UInt8])] = [:]  // id_ -> (fill offset, buffer)
     let wtWaiter: Waiter
     let rdWaiter: Waiter
     let ccWaiter: Waiter
@@ -259,16 +266,13 @@ final class ChanInner: @unchecked Sendable {
     var hdrPtr: UnsafeMutablePointer<RingHeader> {
         ringShm.ptr.assumingMemoryBound(to: RingHeader.self)
     }
-    func slotPtr(_ idx: UInt8) -> UnsafeMutablePointer<RingSlot> {
-        ringShm.ptr.advanced(by: ringHeaderSize).assumingMemoryBound(to: RingSlot.self).advanced(by: Int(idx))
-    }
     var recvCount: Int {
         Int(ua32(&hdrPtr.pointee.connections).load(ordering: .acquiring).nonzeroBitCount)
     }
 
     func withChunkShm<R>(chunkSize: Int, _ body: (borrowing ShmHandle) -> R) -> R? {
         if chunkShms[chunkSize] == nil {
-            guard let shm = try? openChunkShm(prefix: chunkPrefix, chunkSize: chunkSize) else { return nil }
+            guard let shm = try? openChunkShm(prefix: prefix, chunkSize: chunkSize) else { return nil }
             chunkShms[chunkSize] = ChunkShmEntry(shm: shm)
         }
         guard let entry = chunkShms[chunkSize] else { return nil }
@@ -311,154 +315,89 @@ func waitFor(waiter: borrowing Waiter, pred: () -> Bool, timeout: Duration?) thr
     return true
 }
 
-// MARK: - Send
+// MARK: - Send / Recv (byte-exact msg_t framing, mirroring the Rust port)
 
 extension ChanInner {
 
+    /// Send `data`; fragment into msg_t records (C++ ipc.cpp send()): each carries
+    /// remain_ = size - offset - dataLength (<=0 on the last). No chunk-storage
+    /// send path — Rust/C++ receivers reassemble fragments, so >64B still crosses.
     func send(data: [UInt8], timeout: Duration) throws(IpcError) -> Bool {
         guard !data.isEmpty else { return false }
         guard mode == .sender else { throw .osError(EPERM) }
-        if data.count > dataLength {
-            if let r = try sendLarge(data: data, timeout: timeout) { return r }
-        }
-        let hdr = hdrPtr
+        guard ua32(&hdrPtr.pointee.connections).load(ordering: .relaxed) != 0 else { return false }
+        let size = data.count
+        let msgId = sendSeq; sendSeq &+= 1
+        let full = size / dataLength
         var offset = 0
-        while offset < data.count {
-            let chunkLen = min(dataLength, data.count - offset)
-            let isLast   = (offset + chunkLen) >= data.count
-            var claimedWt: UInt32 = 0
-            claimLoop: while true {
-                let cc = UInt64(ua32(&hdr.pointee.connections).load(ordering: .relaxed))
-                guard cc != 0 else { return false }
-                let epoch = ua64(&hdr.pointee.epoch).load(ordering: .relaxed)
-                let wt    = ua32(&hdr.pointee.writeCursor).load(ordering: .relaxed)
-                let slot  = ringShm.ptr.advanced(by: ringHeaderSize)
-                    .assumingMemoryBound(to: RingSlot.self).advanced(by: Int(wt & 0xFF))
-                let curRc = ua64(&slot.pointee.rc).load(ordering: .acquiring)
-                let remCc = curRc & epMask
-                if (cc & remCc) != 0 && (curRc & ~epMask) == epoch {
-                    let rb = ringShm.ptr
-                    let ok = try waitFor(waiter: wtWaiter, pred: {
-                        let s = rb.advanced(by: ringHeaderSize)
-                            .assumingMemoryBound(to: RingSlot.self).advanced(by: Int(wt & 0xFF))
-                        let rc = ua64(&s.pointee.rc).load(ordering: .acquiring)
-                        let ep = ua64(&hdr.pointee.epoch).load(ordering: .relaxed)
-                        return (cc & (rc & epMask)) != 0 && (rc & ~epMask) == ep
-                    }, timeout: timeout)
-                    if ok { continue claimLoop }
-                    _ = ua64(&hdr.pointee.epoch).loadThenWrappingIncrement(by: epIncr, ordering: .acquiringAndReleasing)
-                    let remCc2 = ua64(&slot.pointee.rc).load(ordering: .acquiring) & epMask
-                    if remCc2 != 0 {
-                        let newCc = ua32(&hdr.pointee.connections)
-                            .loadThenBitwiseAnd(with: ~UInt32(remCc2), ordering: .acquiringAndReleasing) & ~UInt32(remCc2)
-                        if newCc == 0 { return false }
-                        _ = ua64(&slot.pointee.rc).loadThenBitwiseAnd(with: ~remCc2, ordering: .acquiringAndReleasing)
-                    }
-                    continue claimLoop
-                }
-                let (ok, _) = ua64(&slot.pointee.rc).weakCompareExchange(
-                    expected: curRc, desired: epoch | cc, successOrdering: .releasing, failureOrdering: .relaxed)
-                if ok { claimedWt = wt; break claimLoop }
-                sched_yield()
-            }
-            let slot = slotPtr(UInt8(claimedWt & 0xFF))
-            ua32(&slot.pointee.ccId).store(ccId, ordering: .relaxed)
-            withUnsafeMutableBytes(of: &slot.pointee.data) { dst in
-                data.withUnsafeBytes { src in
-                    dst.baseAddress!.copyMemory(from: src.baseAddress!.advanced(by: offset), byteCount: chunkLen)
-                }
-            }
-            ua32(&slot.pointee.size).store(isLast ? (sizeLast | UInt32(chunkLen)) : UInt32(chunkLen), ordering: .relaxed)
-            _ = ua32(&hdr.pointee.writeCursor).loadThenWrappingIncrement(by: 1, ordering: .releasing)
-            offset += chunkLen
-            try? rdWaiter.broadcast()
+        for _ in 0..<full {
+            let remain = Int32(size) - Int32(offset) - Int32(dataLength)
+            if !(try pushFragment(msgId: msgId, remain: remain, payload: Array(data[offset..<offset + dataLength]), timeout: timeout)) { return false }
+            offset += dataLength
+        }
+        let tail = size - offset
+        if tail > 0 {
+            let remain = Int32(tail) - Int32(dataLength)
+            if !(try pushFragment(msgId: msgId, remain: remain, payload: Array(data[offset...]), timeout: timeout)) { return false }
         }
         return true
     }
 
-    private func sendLarge(data: [UInt8], timeout: Duration) throws(IpcError) -> Bool? {
-        let chunkSize = calcChunkSize(data.count)
-        let hdr   = hdrPtr
-        let conns = ua32(&hdr.pointee.connections).load(ordering: .relaxed)
-        guard let storage = withChunkShm(chunkSize: chunkSize, {
-            acquireStorage(shm: $0, chunkSize: chunkSize, conns: conns)
-        }),
-        let (storageId, payloadPtr) = storage
-        else { return nil }
-        data.withUnsafeBytes { payloadPtr.copyMemory(from: $0.baseAddress!, byteCount: data.count) }
+    /// Claim the next ring slot (C++ prod_cons broadcast push/force_push) and write
+    /// one msg_t fragment, then advance wt_ and wake receivers.
+    func pushFragment(msgId: UInt32, remain: Int32, payload: [UInt8], timeout: Duration) throws(IpcError) -> Bool {
+        let hdr = hdrPtr
+        let ringBase = ringShm.ptr
         var claimedWt: UInt32 = 0
+        var yk: UInt32 = 0
         claimLoop: while true {
             let cc = UInt64(ua32(&hdr.pointee.connections).load(ordering: .relaxed))
-            if cc == 0 {
-                _ = withChunkShm(chunkSize: chunkSize) {
-                    recycleStorage(shm: $0, chunkSize: chunkSize, id: storageId, connId: ~0)
-                }
-                return false
-            }
+            guard cc != 0 else { return false }
             let epoch = ua64(&hdr.pointee.epoch).load(ordering: .relaxed)
-            let wt    = ua32(&hdr.pointee.writeCursor).load(ordering: .relaxed)
-            let slot  = ringShm.ptr.advanced(by: ringHeaderSize)
-                .assumingMemoryBound(to: RingSlot.self).advanced(by: Int(wt & 0xFF))
-            let curRc = ua64(&slot.pointee.rc).load(ordering: .acquiring)
+            let wt = ua32(&hdr.pointee.writeCursor).load(ordering: .relaxed)
+            let sb = slotBase(ringBase, UInt8(wt & 0xFF))
+            let curRc = slotRc(sb).load(ordering: .acquiring)
             let remCc = curRc & epMask
             if (cc & remCc) != 0 && (curRc & ~epMask) == epoch {
-                let rb = ringShm.ptr
                 let ok = try waitFor(waiter: wtWaiter, pred: {
-                    let s = rb.advanced(by: ringHeaderSize)
-                        .assumingMemoryBound(to: RingSlot.self).advanced(by: Int(wt & 0xFF))
-                    let rc = ua64(&s.pointee.rc).load(ordering: .acquiring)
+                    let s = slotBase(ringBase, UInt8(wt & 0xFF))
+                    let rc = slotRc(s).load(ordering: .acquiring)
                     let ep = ua64(&hdr.pointee.epoch).load(ordering: .relaxed)
                     return (cc & (rc & epMask)) != 0 && (rc & ~epMask) == ep
                 }, timeout: timeout)
                 if ok { continue claimLoop }
                 _ = ua64(&hdr.pointee.epoch).loadThenWrappingIncrement(by: epIncr, ordering: .acquiringAndReleasing)
-                let remCc2 = ua64(&slot.pointee.rc).load(ordering: .acquiring) & epMask
-                if remCc2 != 0 {
-                    let newCc = ua32(&hdr.pointee.connections)
-                        .loadThenBitwiseAnd(with: ~UInt32(remCc2), ordering: .acquiringAndReleasing) & ~UInt32(remCc2)
-                    if newCc == 0 {
-                        _ = withChunkShm(chunkSize: chunkSize) {
-                            recycleStorage(shm: $0, chunkSize: chunkSize, id: storageId, connId: ~0)
-                        }
-                        return false
-                    }
-                    _ = ua64(&slot.pointee.rc).loadThenBitwiseAnd(with: ~remCc2, ordering: .acquiringAndReleasing)
+                let rem2 = slotRc(sb).load(ordering: .acquiring) & epMask
+                if rem2 != 0 {
+                    let mask = ~UInt32(truncatingIfNeeded: rem2)
+                    let newCc = ua32(&hdr.pointee.connections).loadThenBitwiseAnd(with: mask, ordering: .acquiringAndReleasing) & mask
+                    if newCc == 0 { return false }
+                    _ = slotRc(sb).loadThenBitwiseAnd(with: ~rem2, ordering: .acquiringAndReleasing)
                 }
                 continue claimLoop
             }
-            let (ok, _) = ua64(&slot.pointee.rc).weakCompareExchange(
-                expected: curRc, desired: epoch | cc, successOrdering: .releasing, failureOrdering: .relaxed)
+            let (ok, _) = slotRc(sb).weakCompareExchange(expected: curRc, desired: epoch | cc, successOrdering: .releasing, failureOrdering: .relaxed)
             if ok { claimedWt = wt; break claimLoop }
-            sched_yield()
+            adaptiveYieldSync(&yk)
         }
-        let slot = slotPtr(UInt8(claimedWt & 0xFF))
-        ua32(&slot.pointee.ccId).store(ccId, ordering: .relaxed)
-        withUnsafeMutableBytes(of: &slot.pointee.data) { dst in
-            var sid = storageId; var psz = UInt32(data.count)
-            withUnsafeBytes(of: &sid) { dst.baseAddress!.copyMemory(from: $0.baseAddress!, byteCount: 4) }
-            withUnsafeBytes(of: &psz) { dst.baseAddress!.advanced(by: 4).copyMemory(from: $0.baseAddress!, byteCount: 4) }
-        }
-        ua32(&slot.pointee.size).store(sizeLast | sizeStorage | 8, ordering: .relaxed)
-        _ = ua32(&hdrPtr.pointee.writeCursor).loadThenWrappingIncrement(by: 1, ordering: .releasing)
+        let sb = slotBase(ringBase, UInt8(claimedWt & 0xFF))
+        writeMsgHeader(sb, ccId: ccId, id: msgId, remain: remain, storage: false)
+        let dst = sb.advanced(by: msgPayload)
+        payload.withUnsafeBytes { dst.copyMemory(from: $0.baseAddress!, byteCount: payload.count) }
+        _ = ua32(&hdr.pointee.writeCursor).loadThenWrappingIncrement(by: 1, ordering: .releasing)
         try? rdWaiter.broadcast()
         return true
     }
-}
 
-// MARK: - Recv
-
-extension ChanInner {
-
+    /// Receive one message; reassemble msg_t fragments by id_ (C++ ipc.cpp recv()).
+    /// Large (storage_) messages are read from chunk shm and recycled.
     func recv(timeout: Duration?) throws(IpcError) -> IpcBuffer {
         guard mode == .receiver else { throw .osError(EPERM) }
-        let deadline  = timeout.map { ContinuousClock.now + $0 }
-        var assembled = [UInt8]()
-        let connMask  = UInt64(connId)
-        let ringBase  = ringShm.ptr
-
+        let deadline = timeout.map { ContinuousClock.now + $0 }
+        let ringBase = ringShm.ptr
         while true {
             let hdr = hdrPtr
-            let wc  = ua32(&hdr.pointee.writeCursor).load(ordering: .acquiring)
+            let wc = ua32(&hdr.pointee.writeCursor).load(ordering: .acquiring)
             if wc == readCursor {
                 let cur = readCursor
                 let remaining = deadline.map { $0 - ContinuousClock.now }
@@ -471,53 +410,65 @@ extension ChanInner {
                 continue
             }
 
-            let idx  = UInt8(readCursor & 0xFF)
-            let slot = ringBase.advanced(by: ringHeaderSize)
-                .assumingMemoryBound(to: RingSlot.self).advanced(by: Int(idx))
-            let sizeVal   = ua32(&slot.pointee.size).load(ordering: .relaxed)
-            let chunkLen  = Int(sizeVal & sizeMask)
-            let isLast    = (sizeVal & sizeLast) != 0
-            let isStorage = (sizeVal & sizeStorage) != 0
-            let isOwn     = ua32(&slot.pointee.ccId).load(ordering: .relaxed) == ccId
+            let idx = UInt8(readCursor & 0xFF)
+            let sb = slotBase(ringBase, idx)
+            let (ccIdVal, id, remain, storage) = readMsgHeader(sb)
+            let isSelf = ccIdVal == ccId
+            let rSize = Int32(dataLength) + remain
+            let keep = !isSelf && rSize > 0
 
-            if !isOwn {
-                if isStorage {
-                    var idBytes = [UInt8](repeating: 0, count: 4)
-                    var szBytes = [UInt8](repeating: 0, count: 4)
-                    withUnsafeBytes(of: slot.pointee.data) { src in
-                        idBytes.withUnsafeMutableBytes { $0.baseAddress!.copyMemory(from: src.baseAddress!, byteCount: 4) }
-                        szBytes.withUnsafeMutableBytes { $0.baseAddress!.copyMemory(from: src.baseAddress!.advanced(by: 4), byteCount: 4) }
-                    }
-                    let storageId   = idBytes.withUnsafeBytes { $0.load(as: StorageId.self) }
-                    let payloadSize = Int(szBytes.withUnsafeBytes { $0.load(as: UInt32.self) })
-                    let chunkSize   = calcChunkSize(payloadSize)
-                    if let chunkBytes = withChunkShm(chunkSize: chunkSize, { shm -> [UInt8] in
-                        defer { recycleStorage(shm: shm, chunkSize: chunkSize, id: storageId, connId: connId) }
-                        guard let ptr = findStorage(shm: shm, chunkSize: chunkSize, id: storageId) else { return [] }
-                        return Array(UnsafeRawBufferPointer(start: ptr, count: payloadSize))
-                    }) {
-                        assembled.append(contentsOf: chunkBytes)
-                    }
+            // Read out of the slot BEFORE releasing it.
+            var storageId: Int32? = nil
+            var frag: [UInt8]? = nil
+            if keep {
+                if storage {
+                    storageId = sb.loadUnaligned(fromByteOffset: msgPayload, as: Int32.self)
                 } else {
-                    withUnsafeBytes(of: slot.pointee.data) { assembled.append(contentsOf: $0.prefix(chunkLen)) }
+                    let n = remain <= 0 ? Int(rSize) : dataLength
+                    frag = Array(UnsafeRawBufferPointer(start: sb.advanced(by: msgPayload), count: n))
                 }
             }
 
+            // Release our rc_ bit (preserve epoch), advance, wake senders — always.
             var k: UInt32 = 0
             while true {
-                let cur = ua64(&slot.pointee.rc).load(ordering: .acquiring)
-                let (ok, _) = ua64(&slot.pointee.rc).weakCompareExchange(
-                    expected: cur, desired: cur & ~connMask, successOrdering: .releasing, failureOrdering: .relaxed)
+                let curRc = slotRc(sb).load(ordering: .acquiring)
+                if (curRc & epMask) == 0 { break }
+                let (ok, _) = slotRc(sb).weakCompareExchange(expected: curRc, desired: curRc & ~UInt64(connId), successOrdering: .releasing, failureOrdering: .relaxed)
                 if ok { break }
                 adaptiveYieldSync(&k)
             }
-
             try? wtWaiter.broadcast()
             readCursor = readCursor &+ 1
 
-            if isLast {
-                if isOwn { assembled.removeAll(keepingCapacity: false); return IpcBuffer() }
-                return IpcBuffer(bytes: assembled)
+            if !keep { continue }
+
+            // Large message via chunk storage (single msg_t — no reassembly).
+            if let sid = storageId {
+                let msgSize = Int(rSize)
+                let chunkSize = calcChunkSize(msgSize)
+                let out = withChunkShm(chunkSize: chunkSize) { shm -> [UInt8] in
+                    defer { recycleStorage(shm: shm, chunkSize: chunkSize, id: sid, connId: connId) }
+                    guard let ptr = findStorage(shm: shm, chunkSize: chunkSize, id: sid) else { return [] }
+                    return Array(UnsafeRawBufferPointer(start: ptr, count: msgSize))
+                }
+                if let b = out, !b.isEmpty { return IpcBuffer(bytes: b) }
+                continue
+            }
+
+            // Inline fragment reassembly by id_.
+            let f = frag!
+            if var entry = recvCache[id] {
+                recvCache[id] = nil
+                entry.1.replaceSubrange(entry.0 ..< entry.0 + f.count, with: f)
+                if remain <= 0 { return IpcBuffer(bytes: entry.1) }
+                recvCache[id] = (entry.0 + f.count, entry.1)
+            } else if remain <= 0 {
+                return IpcBuffer(bytes: f)
+            } else {
+                var buf = [UInt8](repeating: 0, count: Int(rSize))
+                buf.replaceSubrange(0 ..< f.count, with: f)
+                recvCache[id] = (f.count, buf)
             }
         }
     }

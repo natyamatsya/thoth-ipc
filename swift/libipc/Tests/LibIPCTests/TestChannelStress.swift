@@ -157,6 +157,8 @@ struct TestChannelStress {
 
             nonisolated(unsafe) var totalSent     = 0
             nonisolated(unsafe) var totalReceived = 0
+            nonisolated(unsafe) var mu = pthread_mutex_t()
+            pthread_mutex_init(&mu, nil)
 
             let recvThread = spawnPthread {
                 for _ in 0..<totalMsgs {
@@ -171,7 +173,9 @@ struct TestChannelStress {
                     for j in 0..<msgPerSender {
                         let msg = Array("S\(s)M\(j)".utf8)
                         if (try? ch.send(data: msg, timeout: .seconds(5))) == true {
-                            totalSent += 1
+                            // Multiple sender threads share this counter — guard the
+                            // non-atomic increment (see sibling multi-sender test).
+                            pthread_mutex_lock(&mu); totalSent += 1; pthread_mutex_unlock(&mu)
                         }
                     }
                     ch.disconnect()

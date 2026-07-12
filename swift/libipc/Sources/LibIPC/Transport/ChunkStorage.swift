@@ -1,130 +1,62 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
 //
-// Port of cpp-ipc/src/libipc/ipc.cpp: chunk_info_t / acquire_storage /
-// find_storage / recycle_storage / id_pool.
+// Port of cpp-ipc/src/libipc/ipc.cpp: chunk_info_t / id_pool / find_storage /
+// recycle_storage. **Byte-exact with the C++ chunk storage** so a C++ sender's
+// large (>64B) messages can be read by a Swift receiver — see
+// context/xlang-channel-abi.md §6c.
 //
-// Large messages (> DATA_LENGTH bytes) are stored in a separate named shm
-// segment instead of being fragmented across multiple ring slots. Only a
-// 4-byte `storageId` is placed in the ring slot's data field.
-//
-// Shared-memory layout for a given `chunkSize`:
-//
-//   [ ChunkInfo header ]
-//   [ chunkSize bytes ] × MAX_COUNT   ← chunk data array
-//
-// ChunkInfo header (at offset 0):
-//   lock    : UInt32   (spin-lock: 0=free, 1=held)
-//   cursor  : UInt8    (head of the free-list)
-//   next    : [UInt8; MAX_COUNT]  (free-list links)
-//
-// Each chunk (chunkSize bytes):
-//   conns   : UInt32   (broadcast connection bitmask — ref-count per receiver)
-//   payload : [UInt8; chunkSize - CHUNK_HEADER]
+// Chunk shm layout for a given `chunkSize` (name __IPC_SHM__CHUNK_INFO__<size>):
+//   [ chunk_info_t (40B) ] [ chunk of chunkSize bytes ] × chunkMaxCount
+// chunk_info_t: id_pool { next_[32]@0; cursor_@32; prepared_@33 } + os_unfair_lock@36.
+// chunk: conns (UInt32) @0, payload @ make_align(8,4)=8.
 
 import Darwin.POSIX
 import Atomics
 
 // MARK: - Constants
 
-/// Maximum number of large-message slots per chunk size (matches C++ `large_msg_cache = 32`).
+/// Max large-message slots per chunk size (C++ large_msg_cache = 32).
 let chunkMaxCount: Int = 32
-
-/// Alignment for chunk sizes (matches C++ `large_msg_align = 1024`).
+/// Chunk-size alignment (C++ large_msg_align = 1024).
 let chunkAlign: Int = 1024
+/// Per-chunk header = make_align(alignof(max_align_t)=8, sizeof(atomic<cc_t>)=4) = 8.
+let chunkHeaderSize: Int = 8
 
-/// Bytes consumed by the per-chunk connection bitmask at the start of each chunk.
-let chunkHeaderSize: Int = MemoryLayout<UInt32>.size  // 4
-
-/// A storage slot identifier; -1 means invalid / not allocated.
+/// A storage slot identifier (C++ storage_id_t = int32); < 0 means invalid.
 typealias StorageId = Int32
 
-// MARK: - Chunk-size calculation
+// MARK: - Chunk-size calculation (byte-exact with C++ calc_chunk_size)
 
-/// Round `payloadSize` up to the next multiple of `chunkAlign`, add the per-chunk
-/// header, then align the total to 16 bytes.
-/// Mirrors C++ `calc_chunk_size` / Rust `calc_chunk_size`.
-func calcChunkSize(_ payloadSize: Int) -> Int {
-    let aligned = ((payloadSize + chunkAlign - 1) / chunkAlign) * chunkAlign
-    let total = MemoryLayout<UInt32>.size + aligned
-    let align = 16  // MemoryLayout<(UInt64, UInt64)>.alignment
-    return (total + align - 1) / align * align
+/// ceil((chunkHeaderSize + size) / chunkAlign) * chunkAlign. `size` is the message
+/// size; the chunk-shm name embeds this, so it must match C++.
+func calcChunkSize(_ size: Int) -> Int {
+    let x = chunkHeaderSize + size
+    return (x + chunkAlign - 1) / chunkAlign * chunkAlign
 }
 
-// MARK: - ChunkInfo layout helpers
+// MARK: - chunk_info_t layout (byte-exact: id_pool + os_unfair_lock)
 
-/// Offset of the spin-lock field within ChunkInfo.
-private let ciLockOffset = 0
-/// Offset of the cursor field within ChunkInfo.
-private let ciCursorOffset = MemoryLayout<UInt32>.size  // 4
-/// Offset of the next[] array within ChunkInfo.
-private let ciNextOffset = ciCursorOffset + 1  // 5
-/// Total size of the ChunkInfo header.
-let chunkInfoSize: Int = ciNextOffset + chunkMaxCount  // 5 + 32 = 37, but we round up
+private let ciNextOffset     = 0   // next_[32]
+private let ciCursorOffset   = 32  // cursor_ (u8)
+private let ciPreparedOffset = 33  // prepared_ (bool)
+private let ciLockOffset     = 36  // os_unfair_lock
+/// sizeof(chunk_info_t) = 40; the chunk array starts here (C++ `this + 1`).
+let chunkInfoSize: Int = 40
 
-// We store ChunkInfo as a flat byte region; use helpers to access fields.
-
-private func ciLockPtr(_ base: UnsafeMutableRawPointer) -> UnsafeMutablePointer<UInt32> {
-    base.advanced(by: ciLockOffset).assumingMemoryBound(to: UInt32.self)
-}
-
-private func ciCursorPtr(_ base: UnsafeMutableRawPointer) -> UnsafeMutablePointer<UInt8> {
-    base.advanced(by: ciCursorOffset).assumingMemoryBound(to: UInt8.self)
-}
+func chunkShmSize(_ chunkSize: Int) -> Int { chunkInfoSize + chunkMaxCount * chunkSize }
 
 private func ciNextPtr(_ base: UnsafeMutableRawPointer) -> UnsafeMutablePointer<UInt8> {
     base.advanced(by: ciNextOffset).assumingMemoryBound(to: UInt8.self)
 }
-
-/// Actual header size rounded up to 16-byte alignment so chunk array starts aligned.
-let chunkInfoAlignedSize: Int = (ciNextOffset + chunkMaxCount + 15) / 16 * 16  // = 48
-
-/// Total shm size for a chunk-storage segment with `chunkSize`-byte chunks.
-func chunkShmSize(_ chunkSize: Int) -> Int {
-    chunkInfoAlignedSize + chunkMaxCount * chunkSize
+private func ciCursorPtr(_ base: UnsafeMutableRawPointer) -> UnsafeMutablePointer<UInt8> {
+    base.advanced(by: ciCursorOffset).assumingMemoryBound(to: UInt8.self)
+}
+private func ciLockPtr(_ base: UnsafeMutableRawPointer) -> UnsafeMutablePointer<os_unfair_lock> {
+    base.advanced(by: ciLockOffset).assumingMemoryBound(to: os_unfair_lock.self)
 }
 
-// MARK: - Spin-lock helpers (raw UInt32 in shm)
-
-private func rawSpinLock(_ ptr: UnsafeMutablePointer<UInt32>) {
-    var k: UInt32 = 0
-    ptr.withMemoryRebound(to: UInt32.AtomicRepresentation.self, capacity: 1) { rep in
-        while true {
-            var expected: UInt32 = 0
-            let (exchanged, _) = UInt32.AtomicRepresentation.atomicWeakCompareExchange(
-                expected: expected,
-                desired: 1,
-                at: rep,
-                successOrdering: .acquiring,
-                failureOrdering: .relaxed
-            )
-            _ = expected  // suppress unused warning
-            if exchanged { return }
-            adaptiveYieldSync(&k)
-        }
-    }
-}
-
-private func rawSpinUnlock(_ ptr: UnsafeMutablePointer<UInt32>) {
-    ptr.withMemoryRebound(to: UInt32.AtomicRepresentation.self, capacity: 1) { rep in
-        UInt32.AtomicRepresentation.atomicStore(0, at: rep, ordering: .releasing)
-    }
-}
-
-// MARK: - Free-list init / acquire / release
-
-/// Initialise the free-list if the pool looks uninitialised (all-zero = fresh shm).
-/// Must be called while the spin-lock is held.
-private func ensureInit(_ base: UnsafeMutableRawPointer) {
-    let cursor = ciCursorPtr(base).pointee
-    let next0 = ciNextPtr(base).pointee
-    guard cursor == 0 && next0 == 0 else { return }
-    let nextArr = ciNextPtr(base)
-    for i in 0..<chunkMaxCount {
-        nextArr.advanced(by: i).pointee = UInt8(i + 1)
-    }
-    // cursor stays 0 — first free slot is index 0
-}
+// MARK: - id_pool acquire / release (byte-exact with C++ id_pool)
 
 private func chunkAcquire(_ base: UnsafeMutableRawPointer) -> StorageId {
     let cursor = ciCursorPtr(base).pointee
@@ -133,7 +65,6 @@ private func chunkAcquire(_ base: UnsafeMutableRawPointer) -> StorageId {
     ciCursorPtr(base).pointee = ciNextPtr(base).advanced(by: Int(id)).pointee
     return id
 }
-
 private func chunkRelease(_ base: UnsafeMutableRawPointer, id: StorageId) {
     guard id >= 0 && id < StorageId(chunkMaxCount) else { return }
     ciNextPtr(base).advanced(by: Int(id)).pointee = ciCursorPtr(base).pointee
@@ -142,111 +73,82 @@ private func chunkRelease(_ base: UnsafeMutableRawPointer, id: StorageId) {
 
 // MARK: - Chunk pointer helpers
 
-/// Pointer to the `UInt32` connection bitmask at the start of chunk `id`.
-func chunkConnsPtr(
-    _ base: UnsafeMutableRawPointer,
-    chunkSize: Int,
-    id: StorageId
-) -> UnsafeMutablePointer<UInt32> {
-    base.advanced(by: chunkInfoAlignedSize + chunkSize * Int(id))
-        .assumingMemoryBound(to: UInt32.self)
+func chunkConnsPtr(_ base: UnsafeMutableRawPointer, chunkSize: Int, id: StorageId) -> UnsafeMutablePointer<UInt32> {
+    base.advanced(by: chunkInfoSize + chunkSize * Int(id)).assumingMemoryBound(to: UInt32.self)
 }
-
-/// Pointer to the payload bytes of chunk `id` (after the 4-byte conn header).
-func chunkPayloadPtr(
-    _ base: UnsafeMutableRawPointer,
-    chunkSize: Int,
-    id: StorageId
-) -> UnsafeMutableRawPointer {
-    base.advanced(by: chunkInfoAlignedSize + chunkSize * Int(id) + chunkHeaderSize)
+func chunkPayloadPtr(_ base: UnsafeMutableRawPointer, chunkSize: Int, id: StorageId) -> UnsafeMutableRawPointer {
+    base.advanced(by: chunkInfoSize + chunkSize * Int(id) + chunkHeaderSize)
 }
 
 // MARK: - Public API
 
-/// Open (or create) the chunk-storage shm segment for `chunkSize`-byte chunks.
+/// Byte-exact chunk-shm name (C++ make_prefix(prefix, "CHUNK_INFO__", chunkSize)):
+/// prefix-global (no channel name).
+func chunkShmName(prefix: String, chunkSize: Int) -> String {
+    "\(fullPrefix(prefix))CHUNK_INFO__\(chunkSize)"
+}
+
+/// Open (or create) the chunk-storage shm for `chunkSize`-byte chunks. `prefix` is
+/// the channel prefix; the name is prefix-global.
 func openChunkShm(prefix: String, chunkSize: Int) throws(IpcError) -> ShmHandle {
-    let name = "\(prefix)CH_CONN__\(chunkSize)"
-    return try ShmHandle.acquire(name: name, size: chunkShmSize(chunkSize), mode: .createOrOpen)
+    try ShmHandle.acquire(name: chunkShmName(prefix: prefix, chunkSize: chunkSize),
+                          size: chunkShmSize(chunkSize), mode: .createOrOpen)
 }
 
-/// Acquire a free slot from the chunk-storage shm.
-///
-/// Returns `(storageId, payloadPointer)` on success, or `nil` if the pool is exhausted.
-/// Mirrors C++ `acquire_storage` / Rust `acquire_storage`.
-func acquireStorage(
-    shm: borrowing ShmHandle,
-    chunkSize: Int,
-    conns: UInt32
-) -> (StorageId, UnsafeMutableRawPointer)? {
-    let base = shm.ptr
-    let lockPtr = ciLockPtr(base)
-    rawSpinLock(lockPtr)
-    ensureInit(base)
-    let id = chunkAcquire(base)
-    rawSpinUnlock(lockPtr)
-    guard id >= 0 else { return nil }
-    let payload = chunkPayloadPtr(base, chunkSize: chunkSize, id: id)
-    // Store the connection bitmask in the per-chunk header.
-    chunkConnsPtr(base, chunkSize: chunkSize, id: id).withMemoryRebound(
-        to: UInt32.AtomicRepresentation.self, capacity: 1
-    ) { rep in
-        UInt32.AtomicRepresentation.atomicStore(conns, at: rep, ordering: .relaxed)
-    }
-    return (id, payload)
-}
-
-/// Return a pointer to the payload of chunk `id`.
-/// Mirrors C++ `chunk_info_t::at(chunk_size, id)->data()` / Rust `find_storage`.
-func findStorage(
-    shm: borrowing ShmHandle,
-    chunkSize: Int,
-    id: StorageId
-) -> UnsafeMutableRawPointer? {
+/// C++ find_storage: pointer to the payload of chunk `id` (offset chunkHeaderSize).
+func findStorage(shm: borrowing ShmHandle, chunkSize: Int, id: StorageId) -> UnsafeMutableRawPointer? {
     guard id >= 0 && id < StorageId(chunkMaxCount) else { return nil }
     return chunkPayloadPtr(shm.ptr, chunkSize: chunkSize, id: id)
 }
 
-/// Clear the receiver's bit from the chunk's connection bitmask.
-/// When the bitmask reaches zero (last reader), release the slot back to the pool.
-/// Mirrors C++ `recycle_storage` / Rust `recycle_storage`.
-func recycleStorage(
-    shm: borrowing ShmHandle,
-    chunkSize: Int,
-    id: StorageId,
-    connId: UInt32
-) {
+/// C++ recycle_storage / sub_rc<broadcast>: clear this receiver's bit from the
+/// chunk conns; when it reaches 0 (last reader), release the id under lock_.
+func recycleStorage(shm: borrowing ShmHandle, chunkSize: Int, id: StorageId, connId: UInt32) {
     guard id >= 0 && id < StorageId(chunkMaxCount) else { return }
     let base = shm.ptr
     let connsRaw = chunkConnsPtr(base, chunkSize: chunkSize, id: id)
     var k: UInt32 = 0
     var isLast = false
-    connsRaw.withMemoryRebound(
-        to: UInt32.AtomicRepresentation.self, capacity: 1
-    ) { rep in
+    connsRaw.withMemoryRebound(to: UInt32.AtomicRepresentation.self, capacity: 1) { rep in
         while true {
             let cur = UInt32.AtomicRepresentation.atomicLoad(at: rep, ordering: .acquiring)
             let nxt = cur & ~connId
             let (didExchange, _) = UInt32.AtomicRepresentation.atomicWeakCompareExchange(
-                expected: cur,
-                desired: nxt,
-                at: rep,
-                successOrdering: .releasing,
-                failureOrdering: .relaxed
-            )
+                expected: cur, desired: nxt, at: rep, successOrdering: .releasing, failureOrdering: .relaxed)
             if didExchange { isLast = (nxt == 0); return }
             adaptiveYieldSync(&k)
         }
     }
     if isLast {
-        let lockPtr = ciLockPtr(base)
-        rawSpinLock(lockPtr)
+        let lock = ciLockPtr(base)
+        os_unfair_lock_lock(lock)
         chunkRelease(base, id: id)
-        rawSpinUnlock(lockPtr)
+        os_unfair_lock_unlock(lock)
     }
+}
+
+/// C++ acquire_storage: allocate a chunk id, stamp its conns, return the payload.
+/// (Unused by the fragmenting send path; kept for symmetry.)
+func acquireStorage(shm: borrowing ShmHandle, chunkSize: Int, conns: UInt32) -> (StorageId, UnsafeMutableRawPointer)? {
+    let base = shm.ptr
+    let lock = ciLockPtr(base)
+    os_unfair_lock_lock(lock)
+    // prepare(): a fresh (zeroed) pool is invalid → build the free list.
+    let prepared = base.advanced(by: ciPreparedOffset).assumingMemoryBound(to: UInt8.self)
+    if prepared.pointee == 0 && ciCursorPtr(base).pointee == 0 && ciNextPtr(base).pointee == 0 {
+        for i in 0..<chunkMaxCount { ciNextPtr(base).advanced(by: i).pointee = UInt8(i + 1) }
+    }
+    prepared.pointee = 1
+    let id = chunkAcquire(base)
+    os_unfair_lock_unlock(lock)
+    guard id >= 0 else { return nil }
+    chunkConnsPtr(base, chunkSize: chunkSize, id: id).withMemoryRebound(to: UInt32.AtomicRepresentation.self, capacity: 1) { rep in
+        UInt32.AtomicRepresentation.atomicStore(conns, at: rep, ordering: .relaxed)
+    }
+    return (id, chunkPayloadPtr(base, chunkSize: chunkSize, id: id))
 }
 
 /// Remove the chunk-storage shm segment for `chunkSize`.
 func clearChunkShm(prefix: String, chunkSize: Int) {
-    let name = "\(prefix)CH_CONN__\(chunkSize)"
-    ShmHandle.clearStorage(name: name)
+    ShmHandle.clearStorage(name: chunkShmName(prefix: prefix, chunkSize: chunkSize))
 }
