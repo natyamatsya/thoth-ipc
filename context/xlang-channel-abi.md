@@ -55,8 +55,12 @@ offset  size  field
 ```
 
 - `conn_head_base` = `{ cc_(u32), lc_(spin_lock), constructed_(atomic bool) }`,
-  size 12, align 4. **`lc_` is platform-specific**: Apple `os_unfair_lock` (u32);
-  Linux uses the fork's `spin_lock` (check `platform/*/spin_lock.h` for size).
+  size 12, align 4. **`lc_` is a 4-byte, platform-specific lock**: Apple
+  `os_unfair_lock`; elsewhere C++'s generic `spin_lock` (`rw_lock.h`) = an
+  `atomic<u32>` test-and-set spin (1 = locked, 0 = free). The ports match per
+  target — Rust uses `libc::os_unfair_lock` on Apple and an `AtomicU32` TAS-spin
+  on other targets, so the DCLP init critical section (§5) serialises identically
+  with a C++ peer on both. Swift is macOS-only.
 - `head_` (`prod_cons_impl<…,broadcast>`) = `{ alignas(64) wt_(atomic u32);
   alignas(64) epoch_(u64); }`, size 128, align 64.
 

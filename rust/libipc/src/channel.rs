@@ -136,7 +136,7 @@ struct RingHeader {
     #[cfg(target_vendor = "apple")]
     lc: libc::os_unfair_lock,      // @4 (C++ spin_lock = os_unfair_lock on Apple)
     #[cfg(not(target_vendor = "apple"))]
-    lc: [u8; 4],                   // @4 (TODO(xlang): byte-exact Linux spin_lock)
+    lc: AtomicU32,                 // @4 (C++ generic spin_lock = atomic<u32> TAS-spin)
     constructed: AtomicU8,         // @8
     _pad_a: [u8; 55],              // @9..64
     write_cursor: AtomicU32,       // @64
@@ -190,11 +190,20 @@ unsafe fn init_header(hdr: &RingHeader) {
         }
         libc::os_unfair_lock_unlock(lc);
     }
-    // TODO(xlang): byte-exact DCLP via the Linux C++ spin_lock. Best-effort for now
-    // (Linux byte-exactness is not yet implemented; Rust↔Rust is unaffected).
+    // Non-Apple: DCLP under C++'s generic spin_lock (rw_lock.h) — an atomic<u32>
+    // test-and-set spin (1 = locked, 0 = free), byte-exact at lc_ @4 so a C++ peer
+    // and this port serialise the first-init critical section identically.
     #[cfg(not(target_vendor = "apple"))]
     {
-        hdr.constructed.store(1, Ordering::Release);
+        let mut k = 0u32;
+        while hdr.lc.swap(1, Ordering::Acquire) != 0 {
+            crate::spin_lock::adaptive_yield_pub(&mut k);
+        }
+        if hdr.constructed.load(Ordering::Relaxed) == 0 {
+            hdr.connections.store(0, Ordering::Relaxed);
+            hdr.constructed.store(1, Ordering::Release);
+        }
+        hdr.lc.store(0, Ordering::Release);
     }
 }
 

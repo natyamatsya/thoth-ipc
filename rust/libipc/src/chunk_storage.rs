@@ -52,7 +52,7 @@ struct ChunkInfo {
     #[cfg(target_vendor = "apple")]
     lock_: libc::os_unfair_lock, // @36 (C++ spin_lock)
     #[cfg(not(target_vendor = "apple"))]
-    lock_: [u8; 4], // @36 (TODO(xlang): byte-exact Linux spin_lock)
+    lock_: AtomicU32, // @36 (C++ generic spin_lock = atomic<u32> TAS-spin)
 }
 
 const _: () = {
@@ -100,7 +100,9 @@ impl ChunkInfo {
     }
 }
 
-/// Lock the chunk_info_t spin_lock (C++ os_unfair_lock on Apple).
+/// Lock the chunk_info_t spin_lock: os_unfair_lock on Apple; on other targets the
+/// C++ generic spin_lock — an atomic<u32> test-and-set spin (1 = locked, 0 = free),
+/// byte-exact at lock_ @36 so a C++ peer and this port serialise pool access.
 unsafe fn chunk_lock(info: &ChunkInfo) {
     #[cfg(target_vendor = "apple")]
     {
@@ -108,7 +110,10 @@ unsafe fn chunk_lock(info: &ChunkInfo) {
     }
     #[cfg(not(target_vendor = "apple"))]
     {
-        let _ = info; // TODO(xlang): Linux spin_lock; chunk storage is Apple-only for now
+        let mut k = 0u32;
+        while info.lock_.swap(1, Ordering::Acquire) != 0 {
+            crate::spin_lock::adaptive_yield_pub(&mut k);
+        }
     }
 }
 
@@ -119,7 +124,7 @@ unsafe fn chunk_unlock(info: &ChunkInfo) {
     }
     #[cfg(not(target_vendor = "apple"))]
     {
-        let _ = info;
+        info.lock_.store(0, Ordering::Release);
     }
 }
 

@@ -15,9 +15,9 @@ Legend: ✅ done + CI-verified · 🟡 works but not byte-exact / not verified �
 | Capability | macOS | Linux | Windows |
 |---|---|---|---|
 | Wire ABI ring/msg_t (C++↔C++) | ✅ | ✅ | ✅ |
-| Wire ABI **byte-exact** C++↔Rust (ring offsets + message interop) | ✅ | 🟡¹ | ❌² |
-| Byte-exact **spin_lock** (`lc_`@4) / chunk `lock_`@36 in the ports | ✅ | 🟡¹ | ❌² |
-| Chunk storage (>64B) C++↔Rust | ✅ | 🟡¹ | ❌² |
+| Wire ABI **byte-exact** C++↔Rust (ring offsets + message interop) | ✅ | ✅¹ | ❌² |
+| Byte-exact **spin_lock** (`lc_`@4) / chunk `lock_`@36 in the ports | ✅ | ✅¹ | ❌² |
+| Chunk storage (>64B) C++↔Rust | ✅ | ✅¹ | ❌² |
 | Layer-1 notify (source+sink) — C++ | ✅ libnotify | ✅ FIFO | ❌³ |
 | Layer-1 notify — Rust | ✅ | ✅ FIFO | ❌⁴ |
 | Layer-1 notify — Swift | ✅ | — | — |
@@ -29,16 +29,14 @@ Legend: ✅ done + CI-verified · 🟡 works but not byte-exact / not verified �
 | xlang CI matrix (sync / async / reap) | ✅ full 3-lang + coro | ✅ C++↔Rust | ❌ none |
 
 Footnotes / code pointers:
-1. **Linux ports:** ring offsets already match (the `lc_`@4 and chunk `lock_`@36
-   are both 4-byte on every target), so **message interop works** and is run in
-   CI (`matrix-linux`). But Rust replaces the platform lock with a `[u8; 4]`
-   placeholder that does **not** run C++'s init/spin protocol
-   (`rust/libipc/src/channel.rs:139`, `chunk_storage.rs:55`;
-   `init_header`/`chunk_lock` are Apple-gated). C++'s Linux `spin_lock` is a
-   trivial `std::atomic<uint32_t>` exchange-spin (`rw_lock.h:117`), so this is a
-   **small** fix, not a redesign. Until then the DCLP first-init critical section
-   isn't mutually exclusive cross-language (a narrow, benign-in-practice race
-   guarded by `constructed_`), and chunk storage is Apple-only in Rust.
+1. **Linux ports: done.** The Rust ring `lc_`@4 and chunk `lock_`@36 are now an
+   `AtomicU32` running C++'s generic `spin_lock` protocol (an `atomic<u32>`
+   test-and-set spin, `rw_lock.h:117`) on non-Apple targets, so the DCLP first-init
+   and chunk-pool critical sections serialise byte-for-byte with a C++ peer. The
+   layout is proven at compile time (the `offset_of!`/`size` asserts run for the
+   Linux target) and message + chunk-storage interop runs in CI (`matrix-linux`,
+   sizes incl. 200/3000 B). Also fixed a latent bug that made the Linux FIFO
+   notify backend fail to compile (`sigtimedwait` takes `*mut siginfo_t`).
 2. **Windows ports:** the C++ Windows `spin_lock` differs again and the ports are
    not aligned; Windows is not in the xlang matrix at all.
 3. C++ notify is a hard `#error` on Windows (`notify.h:36`).
@@ -53,18 +51,16 @@ Footnotes / code pointers:
 
 ## How to reestablish parity
 
-### Linux — small, do first
-1. **Byte-exact spin locks.** Replace the Rust `[u8; 4]` placeholders at
-   `RingHeader.lc`@4 and `ChunkInfo.lock_`@36 with an `AtomicU32` and run the same
-   exchange-spin as C++'s generic `spin_lock` (`lock: while swap(1)!=0 spin;
-   unlock: store(0)`) in `init_header` and the chunk lock on non-Apple. Purely
-   mechanical (C++'s Linux lock is already a plain atomic-u32 spin).
-2. **Prove it.** The message matrix already runs on Linux; add a Linux job (or
-   assertion) that exercises **chunk storage** (>64B) C++↔Rust and a concurrent
-   first-init stress, so the `lc_`/`lock_` bytes are verified, not just assumed.
-   After this, Linux C++↔Rust is fully byte-exact; notify (FIFO), async (epoll +
-   tokio `AsyncFd`), and the reaper (`kill(pid,0)` + `/proc/<pid>/stat`) already
-   work and are CI-covered.
+### Linux — DONE
+Byte-exact spin locks landed: `RingHeader.lc`@4 and `ChunkInfo.lock_`@36 are now
+an `AtomicU32` running C++'s `atomic<u32>` test-and-set spin on non-Apple targets
+(`while swap(1)!=0 { yield }` / `store(0)`), so the DCLP first-init and chunk-pool
+critical sections serialise byte-for-byte with a C++ peer. Verified by the Linux
+compile-time layout asserts + the `matrix-linux` CI (message + chunk-storage
+interop). Also fixed the Linux FIFO notify compile bug (`sigtimedwait`).
+Notify (FIFO), async (epoll + tokio `AsyncFd`), and the reaper (`kill(pid,0)` +
+`/proc/<pid>/stat`) already worked and are CI-covered. **Linux C++↔Rust is now at
+full parity.** (Swift remains macOS-only.)
 
 ### Windows — the real gap, in three layers
 1. **Liveness (reaper) — smallest, highest safety value.** Implement
@@ -95,8 +91,8 @@ names/`AlignSize` need per-target checks. Validate by adding the target to the
 byte-exact asserts + a CI run before claiming parity.
 
 ## Suggested order
-1. **Linux spin_lock byte-exactness** (small; makes Linux C++↔Rust fully
-   byte-exact incl. chunk storage).
+1. ~~**Linux spin_lock byte-exactness**~~ — **done.** Linux C++↔Rust is fully
+   byte-exact incl. chunk storage.
 2. **Windows liveness** (small–medium; the reaper becomes functional on Windows —
    currently safe but inert).
 3. **Windows notify + reactor + async** (large; the substantive Windows work).

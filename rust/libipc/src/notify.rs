@@ -263,9 +263,9 @@ mod backend {
                     let mut only: libc::sigset_t = std::mem::zeroed();
                     libc::sigemptyset(&mut only);
                     libc::sigaddset(&mut only, libc::SIGPIPE);
-                    let mut sig = 0;
+                    let mut info: libc::siginfo_t = std::mem::zeroed();
                     let zero = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-                    libc::sigtimedwait(&only, &mut sig, &zero);
+                    libc::sigtimedwait(&only, &mut info, &zero);
                 }
                 if self.blocked {
                     libc::pthread_sigmask(libc::SIG_SETMASK, &self.old, std::ptr::null_mut());
