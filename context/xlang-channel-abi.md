@@ -151,12 +151,40 @@ sequential.
 ## 6c. Large messages (>`large_msg_limit` = 64) — chunk storage
 
 C++ does **not** fragment messages >64 B by default: it stores the payload in a
-separate chunk shm and pushes a single `msg_t` with `storage_ = true` and a
-`storage_id` in `data_`. Fragmentation is only the fallback when storage
-acquisition fails. **Cross-language interop for >64 B therefore requires the
-chunk-storage sub-ABI** (`CHUNK_INFO__`/`CHUNK_DATA__` naming + layout +
-`storage_id` allocation/recycle) — its own spec, deferred. Ports that only
-implement fragmentation interop for ≤64 B (single fragment) with C++.
+separate chunk shm and pushes a single `msg_t` with `storage_ = true` and the
+`storage_id` (i32) in `data_[0..4]`; `remain_ = size - data_length` still carries
+the total. Fragmentation is only the fallback when storage acquisition fails.
+
+**Asymmetry that helps:** C++ `recv` reassembles fragments too, so a port
+*sender* may keep fragmenting >64 B (C++ reassembles). Only a port *receiver*
+must decode C++'s storage messages. For the agent bridge (app sends >64 B JSON
+events; bridge receives), the **read path is the one that matters.**
+
+Byte-exact chunk-storage layout (Apple arm64):
+
+- **`calc_chunk_size(size)`** = `ceil((8 + size) / 1024) * 1024`
+  (= `make_align(8, align_chunk_size(make_align(8, sizeof(atomic<cc_t>)=4) + size))`,
+  `large_msg_align = 1024`). The chunk-shm name embeds this, so it must match.
+- **shm name** `__IPC_SHM__CHUNK_INFO__<chunk_size>` — **per (prefix, chunk_size)**,
+  NOT per channel. Size = `sizeof(chunk_info_t) + max_count·chunk_size`.
+- **`chunk_info_t`** = `{ id_pool pool_; spin_lock lock_; }`:
+  `pool_` = `{ next_[max_count] (u8 each); cursor_ (u8); prepared_ (bool) }`
+  (`max_count = large_msg_cache = 32`; 34 B), then `lock_` (os_unfair_lock) at
+  offset 36 → `sizeof = 40`. Chunks start at offset 40 (`this + 1`).
+- **`id_pool`** free-list: `init` sets `next_[i] = i+1`; `acquire` → `id = cursor_;
+  cursor_ = next_[id]`; `release(id)` → `next_[id] = cursor_; cursor_ = id`.
+  `prepare()` runs `init` once when the pool is all-zero (`invalid()` = memcmp
+  vs a zeroed pool). A cross-language *receiver* only needs `release` (recycle);
+  the C++ sender already `prepare`d + `acquire`d.
+- **`chunk_t`** at `chunks_mem + chunk_size·id`: `conns` (AtomicU32) `@0`, payload
+  `data()` `@ make_align(8, 4) = 8`.
+- **read (`find_storage`)**: `chunk(id).data()` (offset 8), read `r_size` bytes.
+- **recycle (`recycle_storage`)**: clear this receiver's bit from `chunk.conns`
+  (broadcast `sub_rc`); when it reaches 0, `lock_`; `pool_.release(id)`; unlock.
+
+`storage_id_t = i32`. Rust's current `chunk_storage` diverges on all of the above
+(tag `CH_CONN__` vs `CHUNK_INFO__`, header 4 vs 8, `calc_chunk_size`, field order)
+and must be realigned.
 
 ## 7. Verification
 
