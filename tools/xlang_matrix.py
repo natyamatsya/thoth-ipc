@@ -4,6 +4,11 @@
 #
 # Cross-language round-trip matrix driver.
 #
+# DEPRECATED: superseded by tools/xlang-runner (Rust), which adds declarative
+# config, capability negotiation, parallel execution, secure (AEAD) scenarios
+# and JUnit/JSON reporting. CI uses the runner; this script is kept for
+# quick ad-hoc runs and will be removed once the runner has fully bedded in.
+#
 # thoth-ipc's C++, Rust and Swift ports share one byte-exact wire ABI
 # (context/xlang-channel-abi.md). This driver proves it by running every
 # (writer-language x reader-language) pairing over an ipc::route channel and

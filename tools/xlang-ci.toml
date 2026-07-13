@@ -1,0 +1,116 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+#
+# Cross-language ABI matrix configuration for tools/xlang-runner.
+#
+# One config serves every OS/CI job: binary paths reference environment
+# variables, and a language whose variable is unset (e.g. Swift on Linux,
+# async C++ in the sync job) is simply absent on that host. Use the runner's
+# --require flag in CI so the pairings a job exists to prove cannot be
+# skipped silently.
+
+[run]
+# Every case runs on its own uniquely named channel, so parallel cases never
+# share shm segments.
+jobs = 4
+retries = 0
+pair_timeout_secs = 30
+reader_warmup_ms = 400
+# Known cross-language gaps, discovered by this matrix (matched as substrings
+# of "scenario:case id"; such cases run as expected-fail and are flagged when
+# they start passing). Remove entries as the ports close the gaps.
+#  - C++ <-> port semaphores don't interop (different backing objects/ABI).
+#  - Mutual exclusion is broken while a RUST process holds the mutex: probers
+#    of every language (rust included) can acquire it — rust mutex init
+#    appears to re-initialize live state (flaky same-language, so all three
+#    prober directions are listed).
+xfail = [
+    "primitives:cpp posts 3 -> rust",
+    "primitives:cpp posts 3 -> swift",
+    "primitives:rust posts 3 -> cpp",
+    "primitives:swift posts 3 -> cpp",
+    "primitives:rust holds mutex ->",
+]
+
+[languages.cpp]
+bin = "${XLANG_CPP_BIN}"
+modes = ["sync", "channel", "reap", "primitives", "typed", "secure"]
+
+[languages.rust]
+bin = "${XLANG_RUST_BIN}"
+modes = ["sync", "channel", "reap", "primitives", "typed", "secure"]
+
+[languages.swift]
+bin = "${XLANG_SWIFT_BIN}"
+modes = ["sync", "channel", "reap", "primitives", "typed", "secure"]
+
+# Async endpoints are separate binaries for C++ (xasync: stdexec sender,
+# xcoro: C++ coroutines); Rust/Swift reuse their main harness via `aread`.
+[languages.cpp-async]
+bin = "${XLANG_CPP_ASYNC_BIN}"
+modes = ["async"]
+
+[languages.cpp-coro]
+bin = "${XLANG_CPP_CORO_BIN}"
+modes = ["async"]
+
+[languages.rust-async]
+bin = "${XLANG_RUST_ASYNC_BIN}"
+modes = ["async"]
+
+[languages.swift-async]
+bin = "${XLANG_SWIFT_ASYNC_BIN}"
+modes = ["async"]
+
+# Payload sizes exercise the single-fragment (<=64B), multi-fragment and
+# chunk-storage paths of the ipc::route wire — including the exact
+# data_length boundary (63/64/65) and a large chunk-storage payload.
+[scenarios.sync]
+sizes = [40, 63, 64, 65, 200, 3000, 65536]
+count = 5
+
+# Async sizes are capped well below ring capacity (256 slots x 64B = 16384B).
+# Two boundary findings from this matrix, pending library fixes:
+#  - >16384B deadlocks: a fragmenting (port) sender posts the Layer-1 notify
+#    only after ALL fragments, so a message needing more than 256 slots stalls
+#    against a parked async receiver (found at 65536B).
+#  - =16384B is racy INTO the C++ async receiver (xasync): a Swift sender's
+#    fragments intermittently reassemble short (e.g. got 3328B want 16384B);
+#    port->port pairings at 16384B pass.
+[scenarios.async]
+sizes = [40, 63, 64, 65, 200, 3000]
+count = 5
+
+# Broadcast fan-out: one writer, all participating languages reading the same
+# channel concurrently; each receiver must get every message.
+[scenarios.fanout]
+sizes = [65, 3000]
+count = 5
+
+# Multi-writer ipc::channel: two concurrent senders of different languages
+# into one reader (count is per writer; the reader expects 2 x count).
+[scenarios.channel]
+sizes = [40, 65, 3000]
+count = 10
+
+[scenarios.reap]
+
+# Cross-language sync primitives: mutex contention + robust dead-holder
+# recovery, semaphore count exactness, condition wakeup.
+[scenarios.primitives]
+
+# Typed protocol layer: the codec-wrapped route with a canonical hand-rolled
+# wire message, verified field-by-field (no codec library dependence).
+[scenarios.typed]
+sizes = [40, 200, 3000]
+count = 5
+codecs = ["protobuf"]
+
+# AEAD envelope round-trips: writer seals with the shared xlang test key,
+# reader opens and verifies the plaintext pattern. secure-badkey pairs each
+# writer with a reader keyed differently, which must reject every message.
+[scenarios.secure]
+sizes = [40, 64, 200, 3000]
+count = 5
+algorithms = ["aes256gcm", "chacha20poly1305"]
+badkey_size = 200

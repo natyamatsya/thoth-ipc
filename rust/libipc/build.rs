@@ -66,7 +66,14 @@ fn compile_secure_crypto_c() {
             compile_cmd.arg(format!("-I{prefix}/include"));
         }
         println!("cargo:rustc-link-search=native={prefix}/lib");
-        println!("cargo:rustc-link-lib=crypto");
+        if compiler.is_like_msvc() {
+            // Win64 OpenSSL 3 ships import libs as libcrypto.lib, in either
+            // lib/ or lib/VC/x64/MD depending on the installer.
+            println!("cargo:rustc-link-search=native={prefix}/lib/VC/x64/MD");
+            println!("cargo:rustc-link-lib=libcrypto");
+        } else {
+            println!("cargo:rustc-link-lib=crypto");
+        }
     }
 
     let compile_status = compile_cmd

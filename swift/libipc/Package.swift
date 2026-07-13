@@ -72,7 +72,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "XlangHarness",
-            dependencies: ["LibIPC"],
+            dependencies: ["LibIPC", "LibIPCSecureCrypto"],
             path: "Sources/XlangHarness"
         ),
         .executableTarget(

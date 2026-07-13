@@ -4,6 +4,14 @@ name: Cross-language ABI
 # (context/xlang-channel-abi.md) by running every writer->reader pairing over
 # an ipc::route channel and checking the payload round-trips byte-for-byte.
 # Same-language test suites do NOT catch ABI drift — this matrix does.
+#
+# The matrix is planned and executed by tools/xlang-runner (config:
+# tools/xlang-ci.toml). Scenarios: sync, fanout (1 writer -> N mixed-language
+# readers), channel (multi-writer, expected-fail: known ABI gap), reap
+# (dead-connection reaping + probe/traffic edges), primitives (mutex/
+# semaphore/condition, with known gaps expected-fail), typed (codec layer),
+# async (notify wakeup), and secure + secure-badkey + secure-negative (AEAD
+# envelope interop, fail-closed on wrong key/key id/tamper/algorithm).
 
 # Push triggers disabled to conserve CI budget; run manually via the Actions tab
 # (workflow_dispatch) or on pull requests.
@@ -14,7 +22,7 @@ on:
 
 jobs:
   # Linux runners have no Swift toolchain in this project, so the Linux matrix
-  # covers the C++ <-> Rust pairings.
+  # covers the C++ <-> Rust pairings (sync + reap + secure).
   matrix-linux:
     runs-on: ubuntu-latest
     steps:
@@ -23,28 +31,42 @@ jobs:
         submodules: recursive
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
-    - name: Install GCC 14
-      run: sudo apt-get update && sudo apt-get install -y g++-14
-    - name: Build C++ harness
+    - name: Install GCC 14 and OpenSSL headers
+      run: sudo apt-get update && sudo apt-get install -y g++-14 libssl-dev
+    - name: Build C++ harness (secure codec enabled)
       run: |
-        cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON .
+        cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_SECURE_OPENSSL=ON .
         make xlang_ipc -j
       working-directory: cpp/libipc
       env:
         CC: gcc-14
         CXX: g++-14
-    - name: Build Rust harness
-      run: cargo build --release --bin xlang
+    - name: Build Rust harness (secure + typed codecs enabled)
+      run: cargo build --release --bin xlang --features secure-crypto-openssl,codec-protobuf
       working-directory: rust/libipc
+      env:
+        LIBIPC_OPENSSL_PREFIX: /usr
+    - name: Build matrix runner
+      run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
+    # No --scenario filter: every scenario with participants runs (async has
+    # none in this job; its endpoints are built in the async jobs).
     - name: Run cross-language matrix (cpp, rust)
       run: |
-        python3 tools/xlang_matrix.py \
-          --lang cpp:cpp/libipc/bin/xlang_ipc \
-          --lang rust:rust/libipc/target/release/xlang \
-          --reap-lang cpp:cpp/libipc/bin/xlang_ipc \
-          --reap-lang rust:rust/libipc/target/release/xlang
+        tools/xlang-runner/target/release/xlang-runner \
+          --config tools/xlang-ci.toml \
+          --require cpp,rust --strict-caps \
+          --junit xlang-results.xml
+      env:
+        XLANG_CPP_BIN: cpp/libipc/bin/xlang_ipc
+        XLANG_RUST_BIN: rust/libipc/target/release/xlang
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: xlang-results-linux
+        path: xlang-results.xml
 
-  # macOS runners have C++, Rust and Swift — the full 3x3 matrix.
+  # macOS runners have C++, Rust and Swift — the full 3x3 matrix
+  # (sync + reap + secure).
   matrix-macos:
     runs-on: macos-latest
     steps:
@@ -53,30 +75,45 @@ jobs:
         submodules: recursive
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
-    - name: Build C++ harness
+    - name: Build C++ harness (secure codec enabled)
       run: |
-        cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON .
+        cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON \
+              -DLIBIPC_SECURE_OPENSSL=ON \
+              -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" .
         make xlang_ipc -j
       working-directory: cpp/libipc
-    - name: Build Rust harness
-      run: cargo build --release --bin xlang
+    - name: Build Rust harness (secure + typed codecs enabled)
+      run: cargo build --release --bin xlang --features secure-crypto-openssl,codec-protobuf
       working-directory: rust/libipc
-    - name: Build Swift harness
+      env:
+        LIBIPC_OPENSSL_PREFIX: /opt/homebrew/opt/openssl@3
+    - name: Build Swift harness (secure codec enabled)
       run: swift build -c release --product xlang-harness
       working-directory: swift/libipc
+      env:
+        LIBIPC_SECURE_OPENSSL: "1"
+        LIBIPC_OPENSSL_PREFIX: /opt/homebrew/opt/openssl@3
+    - name: Build matrix runner
+      run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
+    # No --scenario filter: every scenario with participants runs.
     - name: Run cross-language matrix (cpp, rust, swift)
       run: |
-        SWIFT_BIN="$(cd swift/libipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
-        python3 tools/xlang_matrix.py \
-          --lang cpp:cpp/libipc/bin/xlang_ipc \
-          --lang rust:rust/libipc/target/release/xlang \
-          --lang swift:"$SWIFT_BIN" \
-          --reap-lang cpp:cpp/libipc/bin/xlang_ipc \
-          --reap-lang rust:rust/libipc/target/release/xlang \
-          --reap-lang swift:"$SWIFT_BIN"
+        export XLANG_SWIFT_BIN="$(cd swift/libipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
+        tools/xlang-runner/target/release/xlang-runner \
+          --config tools/xlang-ci.toml \
+          --require cpp,rust,swift --strict-caps \
+          --junit xlang-results.xml
+      env:
+        XLANG_CPP_BIN: cpp/libipc/bin/xlang_ipc
+        XLANG_RUST_BIN: rust/libipc/target/release/xlang
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: xlang-results-macos
+        path: xlang-results.xml
 
   # Async (Layer 1 notify + Layer 2) matrix: a writer's notify must wake an async
-  # receiver on its readiness fd. C++ uses stdexec async_recv + libnotify (macOS)
+  # receiver on the readiness fd. C++ uses stdexec async_recv + libnotify (macOS)
   # / FIFO (Linux); Rust uses AsyncRoute + the same backends. Divergent notify
   # keys fail a pairing. The C++ async endpoint needs stdexec (fetched) + C++23.
   async-matrix-linux:
@@ -100,12 +137,24 @@ jobs:
     - name: Build Rust async harness
       run: cargo build --release --bin xlang --features async-tokio
       working-directory: rust/libipc
+    - name: Build matrix runner
+      run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
     - name: Run async matrix (cpp, rust)
       run: |
-        python3 tools/xlang_matrix.py \
-          --async-lang cpp:cpp/libipc/bin/xasync \
-          --async-lang rust:rust/libipc/target/release/xlang \
-          --async-lang coro:cpp/libipc/bin/xcoro
+        tools/xlang-runner/target/release/xlang-runner \
+          --config tools/xlang-ci.toml \
+          --scenario async \
+          --require cpp-async,cpp-coro,rust-async --strict-caps \
+          --junit xlang-results.xml
+      env:
+        XLANG_CPP_ASYNC_BIN: cpp/libipc/bin/xasync
+        XLANG_CPP_CORO_BIN: cpp/libipc/bin/xcoro
+        XLANG_RUST_ASYNC_BIN: rust/libipc/target/release/xlang
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: xlang-results-async-linux
+        path: xlang-results.xml
 
   async-matrix-macos:
     runs-on: macos-latest
@@ -126,14 +175,25 @@ jobs:
     - name: Build Swift harness (Layer 1 notify + AsyncRoute)
       run: swift build -c release --product xlang-harness
       working-directory: swift/libipc
+    - name: Build matrix runner
+      run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
     - name: Run async matrix (cpp, rust, swift)
       run: |
-        SWIFT_BIN="$(cd swift/libipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
-        python3 tools/xlang_matrix.py \
-          --async-lang cpp:cpp/libipc/bin/xasync \
-          --async-lang rust:rust/libipc/target/release/xlang \
-          --async-lang swift:"$SWIFT_BIN" \
-          --async-lang coro:cpp/libipc/bin/xcoro
+        export XLANG_SWIFT_ASYNC_BIN="$(cd swift/libipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
+        tools/xlang-runner/target/release/xlang-runner \
+          --config tools/xlang-ci.toml \
+          --scenario async \
+          --require cpp-async,cpp-coro,rust-async,swift-async --strict-caps \
+          --junit xlang-results.xml
+      env:
+        XLANG_CPP_ASYNC_BIN: cpp/libipc/bin/xasync
+        XLANG_CPP_CORO_BIN: cpp/libipc/bin/xcoro
+        XLANG_RUST_ASYNC_BIN: rust/libipc/target/release/xlang
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: xlang-results-async-macos
+        path: xlang-results.xml
 
   # Windows runners have C++ (MSVC) and Rust (Swift is a macOS-only SwiftPM
   # package). Covers the byte-exact wire ABI (named auto-reset condition var,
@@ -151,21 +211,38 @@ jobs:
         submodules: recursive
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
-    - name: Build C++ harness (MSVC)
+    - name: Install OpenSSL (Win64, for the secure scenarios)
+      run: choco install openssl --no-progress -y
+    - name: Build C++ harness (MSVC, secure codec enabled)
       run: |
-        cmake -B build -DLIBIPC_BUILD_TESTS=ON
+        cmake -B build -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_SECURE_OPENSSL=ON \
+              -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL-Win64"
         cmake --build build --config Release --target xlang_ipc
       working-directory: cpp/libipc
-    - name: Build Rust harness
-      run: cargo build --release --bin xlang
+    - name: Build Rust harness (secure + typed codecs enabled)
+      run: cargo build --release --bin xlang --features secure-crypto-openssl,codec-protobuf
       working-directory: rust/libipc
+      env:
+        LIBIPC_OPENSSL_PREFIX: C:/Program Files/OpenSSL-Win64
+    - name: Build matrix runner
+      run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
+    # No --scenario filter: every scenario with participants runs.
     - name: Run cross-language matrix (cpp, rust)
       run: |
-        python tools/xlang_matrix.py \
-          --lang cpp:cpp/libipc/build/bin/Release/xlang_ipc.exe \
-          --lang rust:rust/libipc/target/release/xlang.exe \
-          --reap-lang cpp:cpp/libipc/build/bin/Release/xlang_ipc.exe \
-          --reap-lang rust:rust/libipc/target/release/xlang.exe
+        # OpenSSL's libcrypto-3-x64.dll must be on PATH at run time.
+        export PATH="/c/Program Files/OpenSSL-Win64/bin:$PATH"
+        tools/xlang-runner/target/release/xlang-runner \
+          --config tools/xlang-ci.toml \
+          --require cpp,rust --strict-caps \
+          --junit xlang-results.xml
+      env:
+        XLANG_CPP_BIN: cpp/libipc/build/bin/Release/xlang_ipc.exe
+        XLANG_RUST_BIN: rust/libipc/target/release/xlang.exe
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: xlang-results-windows
+        path: xlang-results.xml
 
   # Async (Layer 1 notify + Layer 2) matrix on Windows: a sender's SetEvent must
   # wake an async receiver. C++ uses stdexec async_recv + coroutines over the
@@ -190,9 +267,21 @@ jobs:
     - name: Build Rust async harness
       run: cargo build --release --bin xlang --features async-tokio
       working-directory: rust/libipc
+    - name: Build matrix runner
+      run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
     - name: Run async matrix (cpp, rust, coro)
       run: |
-        python tools/xlang_matrix.py \
-          --async-lang cpp:cpp/libipc/build/bin/Release/xasync.exe \
-          --async-lang rust:rust/libipc/target/release/xlang.exe \
-          --async-lang coro:cpp/libipc/build/bin/Release/xcoro.exe
+        tools/xlang-runner/target/release/xlang-runner \
+          --config tools/xlang-ci.toml \
+          --scenario async \
+          --require cpp-async,cpp-coro,rust-async --strict-caps \
+          --junit xlang-results.xml
+      env:
+        XLANG_CPP_ASYNC_BIN: cpp/libipc/build/bin/Release/xasync.exe
+        XLANG_CPP_CORO_BIN: cpp/libipc/build/bin/Release/xcoro.exe
+        XLANG_RUST_ASYNC_BIN: rust/libipc/target/release/xlang.exe
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: xlang-results-async-windows
+        path: xlang-results.xml
