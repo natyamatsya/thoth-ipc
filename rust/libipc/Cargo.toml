@@ -1,6 +1,6 @@
 [package]
 name = "thoth-ipc"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Cross-language IPC library (thoth-ipc) — Pure Rust port of the cpp-ipc transport core with typed protocol, secure codec, and multi-language ABI parity"
 license = "MIT"
@@ -27,6 +27,9 @@ async-tokio = ["notify", "dep:tokio"]
 win-global = []
 bump_alloc = ["dep:bumpalo"]
 slab_pool = ["dep:slab"]
+# FlatBuffers audio service demos (demo_audio_host / demo_audio_service);
+# needs `flatc` at build time to generate the schema code (FLATC env or PATH).
+audio-demos = []
 codec-protobuf = []
 codec-protobuf-prost = ["codec-protobuf", "dep:prost"]
 codec-capnp = []
@@ -64,10 +67,12 @@ path = "src/bin/demo_msg_que.rs"
 [[bin]]
 name = "demo_audio_service"
 path = "src/bin/demo_audio_service.rs"
+required-features = ["audio-demos"]
 
 [[bin]]
 name = "demo_audio_host"
 path = "src/bin/demo_audio_host.rs"
+required-features = ["audio-demos"]
 
 [[bin]]
 name = "demo_rt_audio_service"

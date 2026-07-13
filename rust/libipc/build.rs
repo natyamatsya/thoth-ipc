@@ -146,6 +146,13 @@ fn find_flatc() -> Option<PathBuf> {
 fn main() {
     compile_secure_crypto_c();
 
+    // The FlatBuffers codegen is only needed by the audio demo bins, which
+    // are gated behind the `audio-demos` feature (required-features), so a
+    // feature-less `cargo build --bins` never touches flatc.
+    if std::env::var_os("CARGO_FEATURE_AUDIO_DEMOS").is_none() {
+        return;
+    }
+
     let schema = Path::new("src/bin/audio_protocol.fbs");
     println!("cargo:rerun-if-changed={}", schema.display());
     println!("cargo:rerun-if-env-changed=FLATC");
@@ -155,16 +162,12 @@ fn main() {
     let flatc = match find_flatc() {
         Some(p) => p,
         None => {
-            // flatc not available — emit a placeholder that produces a
-            // compile error only if a demo binary that needs it is built.
-            let placeholder = out_dir.join("audio_protocol_generated.rs");
-            std::fs::write(
-                &placeholder,
-                "compile_error!(\"flatc not found. Install flatbuffers or set the FLATC env var.\");\n",
-            )
-            .unwrap();
-            println!("cargo:warning=flatc not found; audio_service demo will not compile");
-            return;
+            // The feature was requested explicitly, so a missing flatc is a
+            // hard, immediately-actionable error.
+            panic!(
+                "feature `audio-demos` needs the FlatBuffers compiler: \
+                 install flatbuffers or set the FLATC env var"
+            );
         }
     };
 
