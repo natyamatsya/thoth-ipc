@@ -40,7 +40,7 @@ link_directories(${LIBIPC_PROJECT_DIR}/3rdparty/gperftools)
 target_link_libraries(${PROJECT_NAME} gtest gtest_main ipc)
 
 # Cross-language round-trip harness (C++ endpoint). Uniform CLI shared with the
-# Rust and Swift harnesses; driven by tools/xlang_matrix.py. See
+# Rust and Swift harnesses; driven by tools/xlang-runner. See
 # context/xlang-channel-abi.md.
 add_executable(xlang_ipc ${LIBIPC_PROJECT_DIR}/test/xlang/xlang.cpp)
 target_include_directories(xlang_ipc PRIVATE ${LIBIPC_PROJECT_DIR}/include)

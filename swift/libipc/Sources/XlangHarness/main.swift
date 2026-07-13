@@ -529,7 +529,7 @@ if verb == "caps" {
     }
     print(caps.joined(separator: " ")); exit(0)
 }
-// Dead-connection reaper harness verbs (see tools/xlang_matrix.py --reap).
+// Dead-connection reaper harness verbs (see tools/xlang-runner, scenario: reap).
 if verb == "hold" {
     // Connect a receiver and hold it (populating the owner table), so a test can
     // SIGKILL this process and check a reaper reclaims the slot.

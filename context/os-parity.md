@@ -3,7 +3,7 @@
 **C++↔Rust are now at full parity on macOS, Linux, and Windows** — the byte-exact
 wire ABI, Layer-1 notify, Layer-2 async (C++ stdexec **and** coroutines; Rust
 `AsyncRoute`), and the dead-connection reaper are implemented and **matrix-verified**
-on all three via `xlang_matrix.py` in CI. Swift adds a third language on macOS
+on all three via `tools/xlang-runner` in CI. Swift adds a third language on macOS
 (it is a macOS-only SwiftPM package — out of scope on Linux/Windows). FreeBSD /
 other POSIX remain untested. Only that last row is still open.
 

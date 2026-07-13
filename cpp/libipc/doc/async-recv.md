@@ -197,7 +197,7 @@ The awaiter parks the readiness fd on the reactor and resumes the coroutine
 **on the reactor thread** (hop to your executor after if needed). Single‑consumer;
 destroying the coroutine while a `co_await` is suspended is safe (the awaiter
 unregisters synchronously in its destructor). Verified cross-process by the
-`xlang_matrix.py` async matrix (harness `xcoro`, no stdexec).
+`tools/xlang-runner` async matrix (harness `xcoro`, no stdexec).
 
 ## Semantics & caveats
 
@@ -230,7 +230,7 @@ port (`rust/libipc`, features `notify` / `async-tokio`) implements a byte-exact
 [`context/xlang-channel-abi.md`](../../../context/xlang-channel-abi.md) §8), so a
 Rust `send()` wakes a C++ `async_recv` and a C++ `send()` wakes a Rust
 `AsyncRoute::recv().await`. This is verified by the async matrix
-(`tools/xlang_matrix.py --async-lang …`, CI: `.github/workflows/xlang.yml`).
+(`tools/xlang-runner --scenario async`, CI: `.github/workflows/xlang.yml`).
 Swift too: the notify source/sink are byte-exact (`Notify.swift`) and
 `AsyncRoute.recv() async` (over the readiness fd via `DispatchSource`) is woken by
 a C++/Rust/Swift sender — verified by the full 3-language async matrix.
