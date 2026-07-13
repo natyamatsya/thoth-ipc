@@ -153,6 +153,9 @@ if (LIBIPC_BUILD_DEMOS)
     add_subdirectory(demo/chat)
     add_subdirectory(demo/msg_que)
     add_subdirectory(demo/send_recv)
+    # Secure codec demo (PCI-style card pipeline); the AEAD backend needs
+    # -DLIBIPC_SECURE_OPENSSL=ON, checked at runtime.
+    add_subdirectory(demo/secure_pos)
     if (MSVC)
         add_subdirectory(demo/win_service/service)
         add_subdirectory(demo/win_service/client)

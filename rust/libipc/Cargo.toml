@@ -82,6 +82,16 @@ name = "bench_ipc"
 path = "src/bin/bench_ipc.rs"
 
 [[bin]]
+name = "demo_secure_pos"
+path = "src/bin/demo_secure_pos.rs"
+required-features = ["secure-crypto-openssl", "codec-protobuf"]
+
+[[bin]]
+name = "demo_async_gateway"
+path = "src/bin/demo_async_gateway.rs"
+required-features = ["async-tokio"]
+
+[[bin]]
 name = "xlang"
 path = "src/bin/xlang.rs"
 
