@@ -18,13 +18,18 @@ private let quit = "q"
 
 // MARK: - Unique ID via SHM atomic counter
 
+// Like the C++ demo's `static` handle, the counter segment must stay mapped
+// for the process lifetime, or it is unlinked on release and the next
+// instance restarts numbering at 0. (Non-optional like the C++ original —
+// a failed acquire aborts the demo.)
+private let idCounterShm = try! ShmHandle.acquire(
+    name: "__CHAT_ACC_STORAGE__",
+    size: MemoryLayout<UInt64.AtomicRepresentation>.size,
+    mode: .createOrOpen
+)
+
 private func calcUniqueId() -> UInt64 {
-    guard let shm = try? ShmHandle.acquire(
-        name: "__CHAT_ACC_STORAGE__",
-        size: MemoryLayout<UInt64.AtomicRepresentation>.size,
-        mode: .createOrOpen
-    ) else { return 0 }
-    let ptr = shm.ptr.assumingMemoryBound(to: UInt64.AtomicRepresentation.self)
+    let ptr = idCounterShm.ptr.assumingMemoryBound(to: UInt64.AtomicRepresentation.self)
     let atomic = UnsafeAtomic<UInt64>(at: ptr.withMemoryRebound(
         to: UnsafeAtomic<UInt64>.Storage.self, capacity: 1) { $0 })
     return atomic.loadThenWrappingIncrement(ordering: .relaxed)
@@ -65,12 +70,11 @@ while true {
     fflush(stdout)
     guard let line = readLine(strippingNewline: true), !line.isEmpty else { break }
     if line == quit { break }
-    let msg = "\(id)> \(line)\0"
-    _ = try? sender.send(data: Array(msg.utf8))
+    // send(string:) appends the null terminator a C++ receiver expects.
+    _ = try? sender.send(string: "\(id)> \(line)")
 }
 
-let quitMsg = "\(id)> \(quit)\0"
-_ = try? sender.send(data: Array(quitMsg.utf8))
+_ = try? sender.send(string: "\(id)> \(quit)")
 sender.disconnect()
 
 await recvTask.value

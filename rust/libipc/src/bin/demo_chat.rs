@@ -19,7 +19,10 @@ use libipc::{ShmHandle, ShmOpenMode};
 const CHANNEL_NAME: &str = "ipc-chat";
 const QUIT: &str = "q";
 
-fn calc_unique_id() -> u64 {
+/// Returns the id AND the shm handle: like the C++ demo's `static` handle, it
+/// must stay alive for the process lifetime, or the counter segment is
+/// unlinked on drop and the next instance restarts numbering at 0.
+fn calc_unique_id() -> (u64, ShmHandle) {
     let shm = ShmHandle::acquire(
         "__CHAT_ACC_STORAGE__",
         std::mem::size_of::<AtomicU64>(),
@@ -27,11 +30,13 @@ fn calc_unique_id() -> u64 {
     )
     .expect("shm acquire");
     let counter = unsafe { &*(shm.get() as *const AtomicU64) };
-    counter.fetch_add(1, Ordering::Relaxed)
+    let id = counter.fetch_add(1, Ordering::Relaxed);
+    (id, shm)
 }
 
 fn main() {
-    let id = format!("c{}", calc_unique_id());
+    let (unique, _shm_guard) = calc_unique_id();
+    let id = format!("c{unique}");
 
     let mut sender = Channel::connect(CHANNEL_NAME, Mode::Sender).expect("sender");
     let mut receiver = Channel::connect(CHANNEL_NAME, Mode::Receiver).expect("receiver");
@@ -74,13 +79,12 @@ fn main() {
         if trimmed == QUIT {
             break;
         }
-        let msg = format!("{id}> {trimmed}\0");
-        sender.send(msg.as_bytes(), 0).expect("send");
+        // send_str appends the null terminator a C++ receiver expects.
+        sender.send_str(&format!("{id}> {trimmed}"), 0).expect("send");
     }
 
     // Send quit marker so the recv thread exits.
-    let quit_msg = format!("{id}> {QUIT}\0");
-    sender.send(quit_msg.as_bytes(), 0).expect("send quit");
+    sender.send_str(&format!("{id}> {QUIT}"), 0).expect("send quit");
     sender.disconnect();
 
     recv_thread.join().unwrap();
