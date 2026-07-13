@@ -205,13 +205,23 @@ uniform CLI (`<bin> write|read|clear <name> <count> <size>`):
 | Rust | `xlang` | `rust/libipc/src/bin/xlang.rs` (`cargo build --bin xlang`) |
 | Swift | `xlang-harness` | `swift/libipc/Sources/XlangHarness` (SwiftPM) |
 
-`tools/xlang_matrix.py` runs **every writer→reader pairing** (the full N×N
+`tools/xlang-runner` (Rust; config `tools/xlang-ci.toml`; formerly
+`tools/xlang_matrix.py`) runs **every writer→reader pairing** (the full N×N
 matrix) over an `ipc::route` channel at payload sizes `{40, 65, 200, 3000}` —
 covering single-fragment (≤64), just-over-64, and chunk-storage paths — and
 checks the reader receives exactly what the writer sent, byte-for-byte (payload
 pattern `byte[i] = 'A' + (i%26)`). Any drift in names **or** layout fails a
 pairing. `.github/workflows/xlang.yml` runs the C++↔Rust matrix on Linux and the
 full C++/Rust/Swift 3×3 on macOS.
+
+**Secure matrix.** The same harnesses also pair the secure codec cross-language
+(verbs `swrite`/`sread`, per algorithm `aes256gcm`/`chacha20poly1305`): an AEAD
+envelope v1 (`SIPC`, doc/adr/0004) sealed by any language must open in every
+other under the shared xlang test key, with the plaintext byte-exact; and a
+reader keyed differently must reject **every** message (`sread-badkey`,
+fail-closed). Harnesses advertise crypto support via their `caps` verb
+(`secure secure:aes256gcm secure:chacha20poly1305`), gated at runtime on
+`libipc_secure_crypto_available()`.
 
 ## 8. Layer 1 — notify readiness (optional async receive)
 
@@ -247,7 +257,7 @@ notify identity must be byte-exact.
 (`DispatchSource` on the fd). All three sit on the same byte-exact notify key, so
 a `send()` in any language wakes an async receiver in any other.
 
-**Verification.** `xlang_matrix.py --async-lang …` runs the async matrix: a
+**Verification.** the runner's `async` scenario (formerly `xlang_matrix.py --async-lang`) runs the async matrix: a
 writer's notify must wake an async receiver (verb `aread`) on its readiness fd —
 so divergent notify keys fail a pairing. Harnesses: C++ `xasync`
 (`LIBIPC_STDEXEC`), Rust `xlang aread` (`async-tokio`), Swift `xlang-harness
@@ -285,7 +295,7 @@ formula are cross-language ABI.
   false reap. C++ additionally reaps in `force_push` (route policy).
 - **Non-broadcast** channels do not use this table (`cc_` is a plain count).
 
-**Verification.** `xlang_matrix.py --reap-lang …` runs the reap matrix: every
+**Verification.** the runner's `reap` scenario (formerly `xlang_matrix.py --reap-lang`) runs the reap matrix: every
 `{holder} × {reaper}` pairing, `dead` (holder SIGKILLed → reaper's `count` must be
 1) and `live` (holder alive → `count` must be 2, proving no false reap and thus a
 matching token). Harness verbs `hold` / `probe` / `count` in all three ports.

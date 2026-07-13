@@ -9,10 +9,17 @@ Binary-compatible primitives implemented in multiple languages — all sharing t
 
 The C++, Rust and Swift channel ports are **byte-exact** on the `ipc::route`
 wire ABI ([`context/xlang-channel-abi.md`](context/xlang-channel-abi.md)), and a
-CI matrix ([`tools/xlang_matrix.py`](tools/xlang_matrix.py)) runs every
-writer→reader language pairing on every push to prove a message sent by any
-language is received byte-for-byte by any other — including async wakeup and
-dead-connection reaping.
+CI matrix framework ([`tools/xlang-runner`](tools/xlang-runner)) runs every
+writer→reader language pairing to prove a message sent by any language is
+received byte-for-byte by any other — including async wakeup, broadcast
+fan-out to mixed-language readers, dead-connection reaping, sync primitives
+(mutex/semaphore/condition), the typed codec layer, and **encrypted
+channels**: AEAD envelopes (AES-256-GCM, ChaCha20-Poly1305) sealed by one
+language open in every other, and tampered, wrong-key, wrong-key-id or
+algorithm-mismatched envelopes are rejected fail-closed. Known parity gaps the
+matrix has uncovered (multi-writer `ipc::channel`, C++↔port semaphores,
+Rust-held mutexes) run as tracked expected-failures — see
+[`tools/xlang-runner/README.md`](tools/xlang-runner/README.md#known-gaps-expected-fail).
 
 **Dead-connection reaping.** A `SIGKILL`ed broadcast receiver used to leave a
 phantom `cc_` bit that stalled the ring, exhausted the 32 connection slots, and
@@ -136,9 +143,23 @@ while true {
 
 **Stable** — wire format and shared memory layout are fixed; binary-compatible across all three languages:
 
-- Core transport: `ipc::route`, `ipc::channel`, shared memory primitives
-- Sync ABI: mutex, condition, semaphore (apple ulock backend, backend_id=2)
+- Core transport: `ipc::route` (single-writer broadcast), shared memory primitives
+- Sync ABI: mutex, condition (apple ulock backend, backend_id=2)
 - Secure codec envelope v1 framing (AEAD-only, fail-closed)
+
+**Known cross-language parity gaps** — discovered by the test matrix (below) and
+tracked as expected-failures in [`tools/xlang-ci.toml`](tools/xlang-ci.toml)
+until the ports close them:
+
+- `ipc::channel` (multi-writer): the C++ multi-producer broadcast queue uses a
+  different slot layout (96B + commit flag) than the ports, and port senders
+  draw message ids from a process-local counter instead of the shared
+  `AC_CONN` counter — not interoperable, and port↔port multi-writer collides.
+- Semaphore: C++ ↔ port semaphores don't interop in either direction.
+- Mutex: mutual exclusion is broken while a Rust process holds the lock
+  (probers of any language can acquire it).
+- Async receive: messages above ring capacity (16KB) deadlock a parked async
+  receiver; at exactly 16KB the C++ async receiver can mis-assemble.
 
 **Prototype** — unreleased, under active development, APIs and data layouts may change:
 
@@ -146,6 +167,42 @@ while true {
 - `cpp/libipc/demo/audio_service/` — FlatBuffers audio service demo with orchestration
 - `cpp/libipc/demo/audio_realtime/` — real-time audio demo with lock-free ring buffer and warm standby failover
 - `rust/libipc/src/bin/demo_rt_audio_*` — Rust 2024 edition RT audio service via C FFI / bindgen
+
+## Cross-language testing
+
+Same-language test suites cannot catch ABI drift between the ports — every bug
+in the list above shipped with green per-language suites. The repo therefore
+treats **cross-language pairings as the primary test axis**, driven by a
+dedicated framework: [`tools/xlang-runner`](tools/xlang-runner) (Rust).
+
+The architecture has two halves:
+
+1. **One harness binary per language** (`cpp/libipc/test/xlang/xlang.cpp`,
+   `rust/libipc/src/bin/xlang.rs`, `swift/libipc/Sources/XlangHarness`) with a
+   uniform verb CLI (`write`/`read`, `cwrite`/`cread`, `twrite`/`tread`,
+   `swrite`/`sread`, `hold`/`count`/`probe`, `mhold`/`mtry`/`mlock`, …). Each
+   harness reports its build/runtime features via a `caps` verb.
+2. **A declarative matrix runner** that expands scenarios into every
+   writer→reader language pairing, negotiates capabilities (a harness lacking
+   a feature is skipped with a note, or fails fast under `--strict-caps`),
+   executes cases in parallel with hard deadlines, and reports console +
+   JUnit + JSON. One TOML config ([`tools/xlang-ci.toml`](tools/xlang-ci.toml))
+   serves every OS/CI job via `${ENV_VAR}` binary paths.
+
+Scenarios: `sync` (byte-exact round-trips incl. fragment/chunk boundaries),
+`fanout` (1 writer → N mixed-language readers), `channel` (multi-writer),
+`reap` (dead-connection reaping + traffic-after-reap), `primitives`
+(mutex/semaphore/condition), `typed` (codec layer), `async` (notify wakeup),
+and `secure`/`secure-badkey`/`secure-negative` (AEAD envelope interop:
+sealed by any language, opened by every other; tampered, wrong-key,
+wrong-key-id and algorithm-mismatched envelopes rejected fail-closed).
+
+Known gaps run as **expected-failures**: documented in every run, non-fatal,
+and flagged `UNEXPECTED-pass` the moment a fix lands so the expectation gets
+flipped — the matrix is simultaneously the regression suite and the live
+ledger of remaining parity work. See
+[`tools/xlang-runner/README.md`](tools/xlang-runner/README.md) for scenario
+details, local usage, and how to add a language or scenario.
 
 ## Usage
 
@@ -217,6 +274,8 @@ Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [
 
 ## Documentation
 
+- **[Cross-Language Test Framework](tools/xlang-runner/README.md)** — the xlang matrix runner: scenarios, capability negotiation, expected-failure tracking, adding languages/scenarios
+- **[Cross-Language Channel ABI](context/xlang-channel-abi.md)** — the byte-exact wire spec the matrix verifies (ring layout, framing, notify, reaper)
 - **[macOS Technical Notes](doc/macos-technical-notes.md)** — platform-specific implementation details for macOS (semaphores, mutexes, shared memory)
 - **[Windows Technical Notes](doc/windows-technical-notes.md)** — platform-specific implementation details for Windows (MSVC conformance, process management, thread priority)
 - **[macOS Deployment & Distribution](doc/macos-deployment.md)** — code signing, notarization, sandbox restrictions, and XPC alternatives for production shipping
