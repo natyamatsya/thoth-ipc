@@ -173,6 +173,22 @@ fn release_mutex_shm(logical_name: &str) {
     }
 }
 
+/// Ref-count-aware `clear_storage`: forcibly drop the by-name cache entry so a
+/// subsequent `open(name)` creates a fresh segment, while any live handle keeps
+/// its mapping alive via its own `Arc<CachedShm>` (POSIX-unlink semantics).
+///
+/// Unlike `release_mutex_shm`, this does **not** decrement `ref_count` — clearing
+/// the global name is not a handle close. Using `release_mutex_shm` here would
+/// (a) corrupt `ref_count` and (b) with two or more live handles leave the stale,
+/// already-unlinked entry in the cache, so a same-process re-open would join the
+/// dead segment while other processes get a fresh one (split-brain). Mirrors
+/// posix.rs `cached_shm_purge` and the C++ ref-count-aware clear_storage.
+/// See context/refcount-aware-clear-storage-rfc.md.
+fn purge_mutex_shm(logical_name: &str) {
+    let mut cache = mutex_cache().lock().unwrap();
+    cache.map.remove(logical_name);
+}
+
 // ---------------------------------------------------------------------------
 // Helper accessors into the 8-byte SHM block.
 // ---------------------------------------------------------------------------
@@ -429,7 +445,7 @@ impl PlatformMutex {
     }
 
     pub fn clear_storage(name: &str) {
-        release_mutex_shm(name);
+        purge_mutex_shm(name);
         let posix_name = shm_name::make_shm_name(name);
         if let Ok(c_name) = std::ffi::CString::new(posix_name.as_bytes()) {
             unsafe { libc::shm_unlink(c_name.as_ptr()) };

@@ -56,6 +56,81 @@ fn clear_storage() {
     drop(mtx2);
 }
 
+// Parity with C++ MutexTest.ClearStorageOrphansLiveHandle.
+// Clearing a name while a handle is still open in-process must *orphan* (not
+// corrupt) the segment: the live handle stays usable, and a fresh open(name)
+// is an independent segment. See context/refcount-aware-clear-storage-rfc.md.
+#[test]
+fn clear_storage_orphans_live_handle() {
+    let name = unique_name("clear_orphan");
+    IpcMutex::clear_storage(&name);
+
+    let a = IpcMutex::open(&name).expect("open A");
+    assert!(a.try_lock().expect("A try_lock")); // A holds the lock
+
+    // Clear while A is live -> A must be orphaned, not corrupted.
+    IpcMutex::clear_storage(&name);
+
+    // A's orphaned segment stays usable.
+    a.unlock().expect("A unlock");
+    assert!(a.try_lock().expect("A try_lock 2"));
+
+    // Fresh open -> independent segment: B can lock even though A holds its lock.
+    let b = IpcMutex::open(&name).expect("open B");
+    assert!(b.try_lock().expect("B try_lock")); // independent of A
+    b.unlock().expect("B unlock");
+    a.unlock().expect("A unlock 2");
+
+    drop(a);
+    drop(b);
+    IpcMutex::clear_storage(&name);
+}
+
+// Parity with C++ MutexTest.ClearStorageOrphansSharedNode.
+// Two in-process handles share one cache node; clear_storage must keep both
+// usable, a fresh open must NOT join the stale (unlinked) segment, and dropping
+// an orphaned handle must not corrupt the newer same-name entry (RFC point 3:
+// release by node identity, not by name).
+#[test]
+fn clear_storage_orphans_shared_node() {
+    let name = unique_name("clear_orphan_shared");
+    IpcMutex::clear_storage(&name);
+
+    let d = IpcMutex::open(&name).expect("open D");
+    let e = IpcMutex::open(&name).expect("open E"); // shares D's node (ref==2)
+
+    // D and E share one segment: D locking blocks E.
+    assert!(d.try_lock().expect("D try_lock"));
+    assert!(!e.try_lock().expect("E try_lock contended")); // same segment
+    d.unlock().expect("D unlock");
+
+    IpcMutex::clear_storage(&name); // ref==2 -> orphaned (entry purged)
+
+    // Both still usable on the orphaned segment.
+    assert!(d.try_lock().expect("D try_lock 2"));
+    d.unlock().expect("D unlock 2");
+
+    // Fresh open -> independent segment (must NOT join the stale one).
+    let f = IpcMutex::open(&name).expect("open F");
+    assert!(d.try_lock().expect("D lock orphan")); // D holds orphan
+    assert!(f.try_lock().expect("F lock fresh")); // F independent -> succeeds
+    d.unlock().expect("D unlock 3");
+
+    // Dropping the orphaned sibling E must not corrupt F's (newer) entry.
+    drop(e);
+    let g = IpcMutex::open(&name).expect("open G"); // must share F's segment
+    // F holds the lock -> G contended proves G joined F, not a third segment.
+    f.unlock().expect("F unlock before shared check");
+    assert!(f.try_lock().expect("F relock"));
+    assert!(!g.try_lock().expect("G try_lock contended")); // G shares F
+    f.unlock().expect("F unlock");
+
+    drop(d);
+    drop(f);
+    drop(g);
+    IpcMutex::clear_storage(&name);
+}
+
 // Port of MutexTest.LockUnlock
 #[test]
 fn lock_unlock() {

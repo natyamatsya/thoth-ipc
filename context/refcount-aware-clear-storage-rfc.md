@@ -1,12 +1,24 @@
 # RFC: Ref-count-aware `clear_storage` for named sync objects
 
-Status: **Proposed** · Author: Sourcetrail fan-out integration ·
-Motivated by a memory-corruption incident root-caused in Sourcetrail-TS
-(`IpcSharedMemory`, 2026-07-14); relates to
+Status: **Implemented (C++ core, mutex-only)** · Author: Sourcetrail fan-out
+integration · Motivated by a memory-corruption incident root-caused in
+Sourcetrail-TS (`IpcSharedMemory`, 2026-07-14); relates to
 [`dead-connection-reaper-rfc.md`](dead-connection-reaper-rfc.md) (same
 "global cleanup vs. live users" tension) and the central-allocator
 immortalization fix (`852937e`), which is what makes the current failure
 mode *recycled-heap* garbage rather than a clean crash.
+
+> **Implementation note (2026-07-14).** Tracing the code during
+> implementation showed the hazard is **mutex-only**, not shared across all
+> named sync objects as this RFC's first draft assumed. `condition` and
+> `semaphore` hold an `ipc::shm::handle` **by value** and their
+> `clear_storage` is already a pure `shm_unlink` (POSIX-unlink semantics; no
+> in-process node to dangle), and the Windows mutex `clear_storage` is a
+> no-op. Only the **mutex** carries the vulnerable per-process
+> `curr_prog::mutex_handles` node cache. The fix therefore landed on
+> `platform/{apple,posix,linux}/mutex.h` only; the cond/sem/win sections
+> below are retained for the record but require no code change. See
+> **Implementation status** at the end.
 
 ## Problem
 
@@ -102,9 +114,12 @@ void close() noexcept {
 }
 ```
 
-The same treatment applies to `condition` and `semaphore`, which share the
-`curr_prog` cache pattern, and to the aggregate `waiter::clear_storage`
-(which fans out to cond/mutex/sem).
+~~The same treatment applies to `condition` and `semaphore`, which share the
+`curr_prog` cache pattern~~ — **struck: they do not.** `condition` and
+`semaphore` hold `ipc::shm::handle` by value and are already unlink-safe (see
+the implementation note above); no change was needed. The aggregate
+`waiter::clear_storage` fans out to `condition::clear_storage` +
+`mutex::clear_storage`, so it inherits the mutex fix automatically.
 
 ### Resulting semantics
 
@@ -158,19 +173,91 @@ dereferences freed memory.
 
 ## Cross-language parity
 
-The Rust implementation (`rust/libipc/src/mutex.rs`, `condition.rs`,
-`semaphore.rs`, `waiter.rs`) exposes the same `clear_storage` entry points
-and needs the equivalent audit: whatever per-process caching it does must
-either already be orphan-safe or adopt the same orphan-list treatment.
-Swift consumes libipc through the C++ core, so it inherits the fix. Add the
-double-owner scenario to the existing cross-language parity test matrix
-(`os-parity.md`).
+**Rust audit (2026-07-14) — done.** The Rust side is structurally more robust
+than the pre-fix C++: its process-local cache is a
+`HashMap<String, Arc<CachedShm>>` and each handle owns an `Arc<CachedShm>`, so
+`Arc` refcounting *is* the orphan-list — a live handle keeps its mapping alive
+regardless of the cache, and `Drop for CachedShm` (munmap) runs only when the
+last `Arc` goes away. The C++ use-after-free class of bug therefore cannot
+occur in Rust. Findings:
+
+- **`platform/posix.rs` mutex — already correct.** `clear_storage` calls
+  `cached_shm_purge` (unconditional `map.remove`), the exact orphan-by-removal
+  the C++ fix adopts. Live handles keep their `Arc`; a fresh `open` misses the
+  cache and creates a new segment.
+- **`platform/apple.rs` mutex — was divergent; fixed.** `clear_storage` called
+  `release_mutex_shm` (decrement `ref_count` + remove *only* when it hit 0).
+  With two live handles that left the stale, already-unlinked entry cached, so
+  a same-process re-open rejoined the dead segment while other processes got a
+  fresh one (cross-process split-brain), and it corrupted `ref_count`. Replaced
+  with a `purge_mutex_shm` (unconditional removal) mirroring posix.rs. No
+  memory-safety impact (Arc), but a real semantic divergence now closed.
+- **`condition.rs` (posix + apple) — already correct** (both use
+  `cached_shm_purge`). **`semaphore.rs` — n/a** (POSIX named semaphores;
+  `sem_unlink`, no cache). **`windows.rs` mutex `clear_storage` — no-op**
+  (named kernel object), matching C++.
+- **Known wart (not a bug, left as-is):** `Drop`/release is keyed by *name*,
+  not `Arc` identity. After an orphan+reopen, a dropping old handle can remove
+  a *newer* same-name cache entry — but the SHM *name* is authoritative, so the
+  reopened handle still shares the same physical segment (verified by
+  `clear_storage_orphans_shared_node`). The only cost is a redundant re-mmap and
+  `ref_count` desync, never split-brain or UAF. Tightening to `Arc::ptr_eq`
+  identity release (the Rust analogue of C++ RFC point 3) is possible but has no
+  functional payoff; deferred. Present equally in posix.rs.
+
+Tests added (`rust/libipc/tests/test_mutex.rs`):
+`clear_storage_orphans_live_handle`, `clear_storage_orphans_shared_node` —
+parity with the C++ gtests; full Rust suite green.
+
+**Swift audit (2026-07-14) — already correct, no change.** ~~Swift consumes
+libipc through the C++ core, so it inherits the fix.~~ **Struck: it does
+not.** Swift is a native reimplementation over a thin C shm shim
+(`Sources/LibIPCShim`), not a C++-core wrapper — so it needed its own audit.
+It turns out to already match the fixed behavior: `CachedShm` is a
+reference-counted `final class` (ARC is the orphan-list), `ShmHandle` is
+`~Copyable` and munmaps only in `deinit` (so a live handle keeps its mapping),
+and `IpcMutex.clearStorage` / `IpcCondition.clearStorage` already call
+`ShmCache.purge` (unconditional `map.removeValue`) — the same
+orphan-by-removal as posix.rs and the C++ fix. `IpcSemaphore` uses
+`sem_unlink` (no cache). It carries the same benign by-name `release`-on-deinit
+wart as Rust. A parity test was added (`Tests/LibIPCTests/TestMutex.swift`:
+`clearStorageOrphansLiveHandle`); the Swift mutex suite passes (15 tests).
+
+Remaining: add the double-owner scenario to the cross-language parity test
+matrix (`os-parity.md`).
+
+## Implementation status
+
+- **C++ mutex — done** (`platform/{apple,posix,linux}/mutex.h`). Each node
+  is now heap-allocated and stored as `ipc::map<std::string, shm_data*>`
+  plus a `std::vector<shm_data*> orphans`. `clear_storage` orphans (logs a
+  warning + moves the node) when its in-process `ref > 0`, else erases; it
+  always unlinks the global name. `close()`/`clear()` were re-keyed from
+  by-name lookup to **node identity** (a new `node_` member) and free via
+  `destroy_node()`, which removes the node from whichever container owns it
+  by address. A `~curr_prog` restores the exit-time munmap/unlink cleanup the
+  old by-value map provided (safe now that the central allocator is
+  immortalized — `852937e`).
+- **C++ condition / semaphore / Windows mutex — no change** (already
+  unlink-safe; see the implementation note at the top).
+- **Tests — done** (`test/test_mutex.cpp`): `ClearStorageOrphansLiveHandle`
+  (orphan a locked handle; fresh `open` yields an independent segment) and
+  `ClearStorageOrphansSharedNode` (two in-process handles share one node;
+  both stay valid; the orphan drains only when its last local handle closes).
+  Verified under AddressSanitizer + UBSan; full C++ suite 285/285.
+- **Verification caveat**: apple is runtime- and ASan-proven on macOS; posix
+  and linux are type-checked locally but not yet runtime-tested on their
+  native platforms (a `workflow_dispatch` CI run is the intended gate).
+- **Rust parity — pending audit** (see below).
 
 ## Rollout
 
-1. Land the C++ core change (apple → posix → linux → win, in that order;
-   apple is where the corruption was observed).
-2. Audit/align the Rust side; extend parity tests.
+1. ~~Land the C++ core change (apple → posix → linux → win)~~ **Done** for
+   the mutex on apple/posix/linux; Windows needs nothing (no-op
+   `clear_storage`).
+2. ~~Audit/align the Rust side; extend parity tests.~~ **Done** (apple.rs
+   `clear_storage` aligned to posix.rs; parity tests added; see Cross-language
+   parity above).
 3. Bump the thoth-ipc pin in Sourcetrail-TS. Its `IpcSharedMemory`
    double-owner warning stays (it documents a *design* smell even once the
    behavior is safe), but the S3-era test comment about dangling views can

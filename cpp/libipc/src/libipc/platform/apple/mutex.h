@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <vector>
 
 #include <unistd.h>
 #include <signal.h>
@@ -62,43 +63,77 @@ class mutex {
             shm_data(init arg)
                 : shm{arg.name, arg.size}, ref{0} {}
         };
-        ipc::map<std::string, shm_data> mutex_handles;
+        // Nodes are heap-allocated and referenced by pointer so that a live
+        // node can be *moved* out of the by-name map into `orphans` (see
+        // clear_storage) without being destroyed while open handles still hold
+        // raw pointers into it. std::map is node-based, but the value here is a
+        // shm_data*, so orphaning is a pointer move + erase, not a copy.
+        ipc::map<std::string, shm_data *> mutex_handles;
+        // Nodes cleared via clear_storage() while still in use in-process.
+        // Each keeps its intact mapping + ref counter until its last local
+        // handle closes; drained in destroy_node().
+        std::vector<shm_data *> orphans;
         spin_lock lock;
 
         static curr_prog &get() {
             static curr_prog info;
             return info;
         }
+
+        ~curr_prog() {
+            // Restore the exit-time cleanup that ~map<string, shm_data> used to
+            // provide (munmap + shm_unlink of the last owner). Safe now that the
+            // central allocator is immortalized: ~shm_data -> shm::release ->
+            // mem::$delete never touches a destroyed allocator. See
+            // central_cache_allocator() for that teardown rationale.
+            for (auto &kv : mutex_handles) delete kv.second;
+            for (auto *p : orphans) delete p;
+        }
     };
+
+    // The node this handle acquired. Used to release by identity (not by name):
+    // after clear_storage() orphans a node, a fresh open(name) creates a *new*
+    // node under the same name, so a name-keyed release would corrupt the wrong
+    // node's ref count. See RFC: refcount-aware-clear-storage.
+    curr_prog::shm_data *node_ = nullptr;
 
     ulock_mutex_t *acquire_mutex(char const *name) {
         if (name == nullptr) return nullptr;
         auto &info = curr_prog::get();
         LIBIPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
         auto it = info.mutex_handles.find(name);
+        curr_prog::shm_data *node = nullptr;
         if (it == info.mutex_handles.end()) {
-            it = info.mutex_handles
-                     .emplace(std::piecewise_construct,
-                              std::forward_as_tuple(name),
-                              std::forward_as_tuple(curr_prog::shm_data::init{
-                                  name, sizeof(ulock_mutex_t)}))
-                     .first;
+            node = new curr_prog::shm_data(
+                curr_prog::shm_data::init{name, sizeof(ulock_mutex_t)});
+            info.mutex_handles.emplace(name, node);
+        } else {
+            node = it->second;
         }
-        shm_ = &it->second.shm;
-        ref_ = &it->second.ref;
-        if (shm_ == nullptr) return nullptr;
+        node_ = node;
+        shm_  = &node->shm;
+        ref_  = &node->ref;
         return static_cast<ulock_mutex_t *>(shm_->get());
     }
 
-    template <typename F>
-    static void release_mutex(std::string const &name, F &&clear) {
-        if (name.empty()) return;
-        auto &info = curr_prog::get();
-        LIBIPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
-        auto it = info.mutex_handles.find(name);
-        if (it == info.mutex_handles.end()) return;
-        if (clear())
-            info.mutex_handles.erase(it);
+    // Remove `node` from whichever container currently owns it (the by-name map
+    // or the orphan list), by address, and destroy it. Must hold info.lock.
+    static void destroy_node(curr_prog &info, curr_prog::shm_data *node) noexcept {
+        for (auto it = info.mutex_handles.begin(); it != info.mutex_handles.end(); ++it) {
+            if (it->second == node) {
+                info.mutex_handles.erase(it);
+                delete node;
+                return;
+            }
+        }
+        for (auto it = info.orphans.begin(); it != info.orphans.end(); ++it) {
+            if (*it == node) {
+                info.orphans.erase(it);
+                delete node;
+                return;
+            }
+        }
+        // Not found: already removed by a concurrent path. Do not double-free.
     }
 
     // Check if a PID is alive. Returns false if the process does not exist.
@@ -202,49 +237,76 @@ public:
 
     void close() noexcept {
         LIBIPC_LOG();
-        if ((ref_ != nullptr) && (shm_ != nullptr) && (data_ != nullptr)) {
+        if ((ref_ != nullptr) && (shm_ != nullptr) && (data_ != nullptr) && (node_ != nullptr)) {
             if (shm_->name() != nullptr) {
-                release_mutex(shm_->name(), [this] {
-                    auto self_ref = ref_->fetch_sub(1, std::memory_order_relaxed);
-                    if ((shm_->ref() <= 1) && (self_ref <= 1)) {
-                        // Last user: reset state and wake any stuck waiters.
-                        data_->state.store(0, std::memory_order_release);
-                        data_->holder.store(0, std::memory_order_release);
-                        ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL,
-                                       &data_->state, 0);
-                        return true;
-                    }
-                    return false;
-                });
+                auto &info = curr_prog::get();
+                LIBIPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
+                auto self_ref = ref_->fetch_sub(1, std::memory_order_relaxed);
+                if ((shm_->ref() <= 1) && (self_ref <= 1)) {
+                    // Last user: reset state and wake any stuck waiters, then
+                    // free the node (works whether it lives in the by-name map
+                    // or the orphan list).
+                    data_->state.store(0, std::memory_order_release);
+                    data_->holder.store(0, std::memory_order_release);
+                    ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL,
+                                   &data_->state, 0);
+                    destroy_node(info, node_);
+                }
             } else shm_->release();
         }
         shm_  = nullptr;
         ref_  = nullptr;
         data_ = nullptr;
+        node_ = nullptr;
     }
 
     void clear() noexcept {
         LIBIPC_LOG();
-        if ((shm_ != nullptr) && (data_ != nullptr)) {
+        if ((shm_ != nullptr) && (data_ != nullptr) && (node_ != nullptr)) {
             if (shm_->name() != nullptr) {
-                release_mutex(shm_->name(), [this] {
-                    data_->state.store(0, std::memory_order_release);
-                    data_->holder.store(0, std::memory_order_release);
-                    ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL,
-                                   &data_->state, 0);
-                    shm_->clear();
-                    return true;
-                });
+                auto &info = curr_prog::get();
+                LIBIPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
+                data_->state.store(0, std::memory_order_release);
+                data_->holder.store(0, std::memory_order_release);
+                ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL,
+                               &data_->state, 0);
+                shm_->clear();
+                destroy_node(info, node_);
             } else shm_->clear();
         }
         shm_  = nullptr;
         ref_  = nullptr;
         data_ = nullptr;
+        node_ = nullptr;
     }
 
+    // Ref-count-aware: if any handle in this process still holds `name` open,
+    // orphan the node (keep its intact mapping + ref counter alive for those
+    // handles) instead of destroying it; a subsequent open(name) then creates a
+    // fresh node, exactly as a new opener in another process would. The global
+    // name is always unlinked. See RFC: refcount-aware-clear-storage.
     static void clear_storage(char const *name) noexcept {
+        LIBIPC_LOG();
         if (name == nullptr) return;
-        release_mutex(name, [] { return true; });
+        {
+            auto &info = curr_prog::get();
+            LIBIPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
+            auto it = info.mutex_handles.find(name);
+            if (it != info.mutex_handles.end()) {
+                auto *node = it->second;
+                auto live = node->ref.load(std::memory_order_acquire);
+                if (live > 0) {
+                    log.warning("clear_storage('", name, "') with ", live,
+                                " handle(s) still open in-process; orphaning the "
+                                "segment (live handles keep a private stale mapping).");
+                    info.orphans.push_back(node);
+                    info.mutex_handles.erase(it);
+                } else {
+                    info.mutex_handles.erase(it);
+                    delete node;
+                }
+            }
+        }
         ipc::shm::handle::clear_storage(name);
     }
 

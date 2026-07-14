@@ -6,6 +6,7 @@
 #include <system_error>
 #include <mutex>
 #include <atomic>
+#include <vector>
 
 #include <pthread.h>
 
@@ -38,14 +39,37 @@ class mutex {
             shm_data(init arg)
                 : shm{arg.name, arg.size}, ref{0} {}
         };
-        ipc::map<std::string, shm_data> mutex_handles;
+        // Nodes are heap-allocated and referenced by pointer so that a live
+        // node can be *moved* out of the by-name map into `orphans` (see
+        // clear_storage) without being destroyed while open handles still hold
+        // raw pointers into it.
+        ipc::map<std::string, shm_data *> mutex_handles;
+        // Nodes cleared via clear_storage() while still in use in-process; each
+        // keeps its intact mapping + ref counter until its last local handle
+        // closes. Drained in destroy_node().
+        std::vector<shm_data *> orphans;
         std::mutex lock;
 
         static curr_prog &get() {
             static curr_prog info;
             return info;
         }
+
+        ~curr_prog() {
+            // Restore the exit-time cleanup that ~map<string, shm_data> used to
+            // provide. Safe now that the central allocator is immortalized:
+            // ~shm_data -> shm::release -> mem::$delete never touches a
+            // destroyed allocator. See central_cache_allocator() for details.
+            for (auto &kv : mutex_handles) delete kv.second;
+            for (auto *p : orphans) delete p;
+        }
     };
+
+    // The node this handle acquired. Used to release by identity (not by name):
+    // after clear_storage() orphans a node, a fresh open(name) creates a *new*
+    // node under the same name, so a name-keyed release would corrupt the wrong
+    // node's ref count. See context/refcount-aware-clear-storage-rfc.md.
+    curr_prog::shm_data *node_ = nullptr;
 
     pthread_mutex_t *acquire_mutex(char const *name) {
         if (name == nullptr) {
@@ -54,34 +78,38 @@ class mutex {
         auto &info = curr_prog::get();
         LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
         auto it = info.mutex_handles.find(name);
+        curr_prog::shm_data *node = nullptr;
         if (it == info.mutex_handles.end()) {
-          it = info.mutex_handles
-                   .emplace(std::piecewise_construct,
-                            std::forward_as_tuple(name),
-                            std::forward_as_tuple(curr_prog::shm_data::init{
-                                name, sizeof(pthread_mutex_t)}))
-                   .first;
+            node = new curr_prog::shm_data(
+                curr_prog::shm_data::init{name, sizeof(pthread_mutex_t)});
+            info.mutex_handles.emplace(name, node);
+        } else {
+            node = it->second;
         }
-        shm_ = &it->second.shm;
-        ref_ = &it->second.ref;
-        if (shm_ == nullptr) {
-            return nullptr;
-        }
+        node_ = node;
+        shm_  = &node->shm;
+        ref_  = &node->ref;
         return static_cast<pthread_mutex_t *>(shm_->get());
     }
 
-    template <typename F>
-    static void release_mutex(std::string const &name, F &&clear) {
-        if (name.empty()) return;
-        auto &info = curr_prog::get();
-        LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
-        auto it = info.mutex_handles.find(name);
-        if (it == info.mutex_handles.end()) {
-            return;
+    // Remove `node` from whichever container currently owns it (the by-name map
+    // or the orphan list), by address, and destroy it. Must hold info.lock.
+    static void destroy_node(curr_prog &info, curr_prog::shm_data *node) noexcept {
+        for (auto it = info.mutex_handles.begin(); it != info.mutex_handles.end(); ++it) {
+            if (it->second == node) {
+                info.mutex_handles.erase(it);
+                delete node;
+                return;
+            }
         }
-        if (clear()) {
-            info.mutex_handles.erase(it);
+        for (auto it = info.orphans.begin(); it != info.orphans.end(); ++it) {
+            if (*it == node) {
+                info.orphans.erase(it);
+                delete node;
+                return;
+            }
         }
+        // Not found: already removed by a concurrent path. Do not double-free.
     }
 
     static pthread_mutex_t const &zero_mem() {
@@ -151,60 +179,87 @@ public:
 
     void close() noexcept {
         LIBIPC_LOG();
-        if ((ref_ != nullptr) && (shm_ != nullptr) && (mutex_ != nullptr)) {
+        if ((ref_ != nullptr) && (shm_ != nullptr) && (mutex_ != nullptr) && (node_ != nullptr)) {
             if (shm_->name() != nullptr) {
-                release_mutex(shm_->name(), [this, &log] {
-                    auto self_ref = ref_->fetch_sub(1, std::memory_order_relaxed);
-                    if ((shm_->ref() <= 1) && (self_ref <= 1)) {
-                        // Before destroying the mutex, try to unlock it.
-                        // This is important for robust mutexes on FreeBSD, which maintain
-                        // a per-thread robust list. If we destroy a mutex while it's locked
-                        // or still in the robust list, FreeBSD may encounter dangling pointers
-                        // later, leading to segfaults.
-                        // Only unlock here (when we're the last reference) to avoid
-                        // interfering with other threads that might be using the mutex.
-                        ::pthread_mutex_unlock(mutex_);
-                        
-                        int eno;
-                        if ((eno = ::pthread_mutex_destroy(mutex_)) != 0) {
-                            log.error("fail pthread_mutex_destroy[", eno, "]");
-                        }
-                        return true;
+                auto &info = curr_prog::get();
+                LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+                auto self_ref = ref_->fetch_sub(1, std::memory_order_relaxed);
+                if ((shm_->ref() <= 1) && (self_ref <= 1)) {
+                    // Before destroying the mutex, try to unlock it.
+                    // This is important for robust mutexes on FreeBSD, which maintain
+                    // a per-thread robust list. If we destroy a mutex while it's locked
+                    // or still in the robust list, FreeBSD may encounter dangling pointers
+                    // later, leading to segfaults.
+                    // Only unlock here (when we're the last reference) to avoid
+                    // interfering with other threads that might be using the mutex.
+                    ::pthread_mutex_unlock(mutex_);
+
+                    int eno;
+                    if ((eno = ::pthread_mutex_destroy(mutex_)) != 0) {
+                        log.error("fail pthread_mutex_destroy[", eno, "]");
                     }
-                    return false;
-                });
+                    // Free the node (works whether it lives in the by-name map
+                    // or the orphan list).
+                    destroy_node(info, node_);
+                }
             } else shm_->release();
         }
         shm_   = nullptr;
         ref_   = nullptr;
         mutex_ = nullptr;
+        node_  = nullptr;
     }
 
     void clear() noexcept {
         LIBIPC_LOG();
-        if ((shm_ != nullptr) && (mutex_ != nullptr)) {
+        if ((shm_ != nullptr) && (mutex_ != nullptr) && (node_ != nullptr)) {
             if (shm_->name() != nullptr) {
-                release_mutex(shm_->name(), [this, &log] {
-                    // Unlock before destroying, same reasoning as in close()
-                    ::pthread_mutex_unlock(mutex_);
-                    
-                    int eno;
-                    if ((eno = ::pthread_mutex_destroy(mutex_)) != 0) {
-                        log.error("fail pthread_mutex_destroy[", eno, "]");
-                    }
-                    shm_->clear();
-                    return true;
-                });
+                auto &info = curr_prog::get();
+                LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+                // Unlock before destroying, same reasoning as in close()
+                ::pthread_mutex_unlock(mutex_);
+
+                int eno;
+                if ((eno = ::pthread_mutex_destroy(mutex_)) != 0) {
+                    log.error("fail pthread_mutex_destroy[", eno, "]");
+                }
+                shm_->clear();
+                destroy_node(info, node_);
             } else shm_->clear();
         }
         shm_   = nullptr;
         ref_   = nullptr;
         mutex_ = nullptr;
+        node_  = nullptr;
     }
 
+    // Ref-count-aware: if any handle in this process still holds `name` open,
+    // orphan the node (keep its intact mapping + ref counter alive for those
+    // handles) instead of destroying it; a subsequent open(name) then creates a
+    // fresh node, exactly as a new opener in another process would. The global
+    // name is always unlinked. See context/refcount-aware-clear-storage-rfc.md.
     static void clear_storage(char const *name) noexcept {
+        LIBIPC_LOG();
         if (name == nullptr) return;
-        release_mutex(name, [] { return true; });
+        {
+            auto &info = curr_prog::get();
+            LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+            auto it = info.mutex_handles.find(name);
+            if (it != info.mutex_handles.end()) {
+                auto *node = it->second;
+                auto live = node->ref.load(std::memory_order_acquire);
+                if (live > 0) {
+                    log.warning("clear_storage('", name, "') with ", live,
+                                " handle(s) still open in-process; orphaning the "
+                                "segment (live handles keep a private stale mapping).");
+                    info.orphans.push_back(node);
+                    info.mutex_handles.erase(it);
+                } else {
+                    info.mutex_handles.erase(it);
+                    delete node;
+                }
+            }
+        }
         ipc::shm::handle::clear_storage(name);
     }
 

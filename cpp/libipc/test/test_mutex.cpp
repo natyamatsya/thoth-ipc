@@ -130,9 +130,66 @@ TEST_F(MutexTest, ClearStorage) {
   }
   
   mutex::clear_storage(name.c_str());
-  
+
   // Try to open after clear - should create new or fail gracefully
   mutex mtx2(name.c_str());
+}
+
+// Ref-count-aware clear_storage: clearing a name while a handle is still open
+// in-process must *orphan* (not destroy) the segment, so the live handle stays
+// memory-safe, while a fresh open(name) gets an independent segment.
+// See context/refcount-aware-clear-storage-rfc.md.
+TEST_F(MutexTest, ClearStorageOrphansLiveHandle) {
+  std::string name = generate_unique_mutex_name("clear_orphan");
+
+  mutex A(name.c_str());
+  ASSERT_TRUE(A.valid());
+  ASSERT_TRUE(A.lock(0));
+
+  // Clear while A is live -> A must be orphaned, not freed.
+  mutex::clear_storage(name.c_str());
+
+  // A's orphaned segment stays memory-safe and functional.
+  EXPECT_TRUE(A.unlock());
+  EXPECT_TRUE(A.lock(0));
+  EXPECT_TRUE(A.unlock());
+
+  // A fresh open(name) creates an independent segment.
+  mutex B(name.c_str());
+  ASSERT_TRUE(B.valid());
+  EXPECT_NE(A.native(), B.native());
+
+  // Locking B does not block A (they are independent objects now).
+  EXPECT_TRUE(B.lock(0));
+  EXPECT_TRUE(A.lock(0));
+  EXPECT_TRUE(A.unlock());
+  EXPECT_TRUE(B.unlock());
+
+  A.close();
+  B.close();
+  mutex::clear_storage(name.c_str());
+}
+
+// Two in-process handles sharing one cache node: clear_storage must keep both
+// valid, and the orphaned node must drain only when its last local handle closes.
+TEST_F(MutexTest, ClearStorageOrphansSharedNode) {
+  std::string name = generate_unique_mutex_name("clear_orphan_shared");
+
+  mutex D, E;
+  ASSERT_TRUE(D.open(name.c_str()));
+  ASSERT_TRUE(E.open(name.c_str()));   // shares D's node (ref == 2)
+  EXPECT_EQ(D.native(), E.native());
+
+  mutex::clear_storage(name.c_str());  // ref == 2 -> orphaned, both stay valid
+
+  EXPECT_TRUE(D.lock(0));
+  EXPECT_TRUE(D.unlock());
+  D.close();                            // ref 2 -> 1, node stays orphaned
+  EXPECT_TRUE(E.lock(0));               // E still memory-safe on the orphan
+  EXPECT_TRUE(E.unlock());
+  E.close();                            // ref 1 -> 0, node drained
+
+  mutex::clear_storage(name.c_str());   // final cleanup (no-op)
 }
 
 // Test basic lock and unlock
