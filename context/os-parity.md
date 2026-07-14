@@ -5,11 +5,14 @@ wire ABI, Layer-1 notify, Layer-2 async (C++ stdexec **and** coroutines; Rust
 `AsyncRoute`), and the dead-connection reaper are implemented and **matrix-verified**
 on all three via `tools/xlang-runner` in CI. Swift adds a third language on macOS
 (it is a macOS-only SwiftPM package — out of scope on Linux/Windows). FreeBSD /
-other POSIX remain untested. Only that last row is still open.
+other POSIX remain untested. The open items are that last row plus native-runtime
+CI for the new `clear_storage` orphan-safety row (implemented + locally verified;
+see the Remaining section).
 
 ## Status matrix
 
-Legend: ✅ done + CI-verified · — n/a.
+Legend: ✅ done + CI-verified · 🧪 implemented + unit-test-verified locally,
+native-runtime CI pending · — n/a.
 
 | Capability | macOS | Linux | Windows |
 |---|---|---|---|
@@ -25,6 +28,9 @@ Legend: ✅ done + CI-verified · — n/a.
 | Async recv — Rust `AsyncRoute` | ✅ `AsyncFd` | ✅ `AsyncFd` | ✅ thread-pool² |
 | Async recv — Swift `AsyncRoute` (`DispatchSource`) | ✅ | — | — |
 | Dead-connection reaper (PID-liveness + start-token) | ✅ | ✅ | ✅² |
+| Sync `clear_storage` orphan-safety (double-owner) — C++ | 🧪³ | 🧪³ | —⁴ |
+| Sync `clear_storage` orphan-safety (double-owner) — Rust | 🧪³ | 🧪³ | —⁴ |
+| Sync `clear_storage` orphan-safety (double-owner) — Swift | 🧪³ | — | — |
 | xlang CI matrix (sync / async / reap) | ✅ full 3-lang + coro | ✅ C++↔Rust | ✅ C++↔Rust² |
 
 Footnotes / code pointers:
@@ -45,6 +51,25 @@ Footnotes / code pointers:
    uses `GetProcessTimes` for the start token; and async recv rides `wait_handle_t`
    (a `HANDLE`) — see [ADR-0005](../doc/adr/0005-cross-platform-async-readiness-handle.md)
    and [`cpp/libipc/doc/windows-technical-notes.md`](../cpp/libipc/doc/windows-technical-notes.md).
+3. **`clear_storage` orphan-safety** (2026-07-14). Clearing a named mutex while
+   a handle is still open in-process must orphan (not destroy) the segment; see
+   [`refcount-aware-clear-storage-rfc.md`](refcount-aware-clear-storage-rfc.md).
+   Mutex-scoped: C++ `condition`/`semaphore` hold `shm::handle` by value and are
+   already unlink-safe, so the row tracks the mutex only. Verified by **local
+   unit tests**, not the xlang matrix (this is per-process behavior, not a wire
+   interop): C++ `MutexTest.ClearStorageOrphans{LiveHandle,SharedNode}` (macOS
+   285/285 incl. an ASan+UBSan run of the double-owner sequence); Rust
+   `clear_storage_orphans_{live_handle,shared_node}` (full suite green); Swift
+   `clearStorageOrphansLiveHandle` (mutex suite 15/15). The C++ suite runs in the
+   `c-cpp.yml` `test-ipc` step on ubuntu/macOS/windows but only on
+   `workflow_dispatch`/PR (push triggers off), and **posix/linux C++ is so far
+   only type-checked locally** (posix-shim / a0-mock) — native runtime lands on
+   the next ubuntu dispatch. Rust/Swift unit tests are **not** in CI at all (CI
+   builds only the xlang binary), so those cells are local-only. Rust `posix.rs`
+   was already correct (`cached_shm_purge`); only `apple.rs` changed.
+4. **Windows mutex `clear_storage` is a no-op** — Windows uses a named kernel
+   mutex object with no per-process pointer cache, so there is nothing to orphan
+   (matches the C++ Windows backend). n/a.
 
 ## How to reestablish parity
 
@@ -90,5 +115,9 @@ byte-exact asserts + a CI run before claiming parity.
 1. ~~**Linux spin_lock byte-exactness**~~ — **done.**
 2. ~~**Windows liveness / notify / reactor / async**~~ — **done** (all six RFC
    phases; matrices green on `windows-latest`/MSVC).
-3. **FreeBSD / other POSIX validation** — the only open item (medium; mostly a
+3. **FreeBSD / other POSIX validation** — open item (medium; mostly a
    BSD `start_token` source + a CI run). Swift stays macOS-only.
+4. **`clear_storage` orphan-safety native runtime on Linux** — small: the fix is
+   implemented and macOS-runtime + ASan proven, but the posix/linux C++ path is
+   so far only type-checked locally. Dispatch the `c-cpp.yml` ubuntu `test-ipc`
+   job to promote the C++ Linux cell from 🧪 to ✅ (footnote 3).
