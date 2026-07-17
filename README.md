@@ -46,7 +46,7 @@ and ABI [§9](context/xlang-channel-abi.md).
 cpp/libipc/    — C++ library (upstream core, extended)
 rust/libipc/   — Pure Rust port (feature-complete, 242 tests)
 swift/libipc/  — Swift package (channel transport byte-exact with C++/Rust)
-zig/libipc/    — Native Zig port (core transport + reaper, byte-exact)
+zig/libipc/    — Native Zig port (transport + reaper + sync, byte-exact)
 ```
 
 ## Language implementations
@@ -151,21 +151,28 @@ wire ABI — not an FFI wrapper of the C/C++ core. It covers the **core broadcas
 transport**: byte-exact shm ring (`elem_array<80,8>`, 22784B), DCLP header init
 over `os_unfair_lock`, the broadcast push/pop CAS protocol, prefix-global
 `cc_id` identity, fragment reassembly, and receive-side chunk-storage decode for
-large (>64B) messages; plus the **dead-connection reaper** (the `LV_CONN__`
-owner table with a `proc_pidinfo` start token that defeats PID reuse). It joins
-the matrix's `sync`, `fanout` and `reap` scenarios, proven byte-exact with the
-C++, Rust and Swift ports in every writer→reader direction at all payload sizes
-(40 B – 64 KB) — including that a reaper of any language reclaims a dead Zig
-receiver and never false-reaps a live one. The sync primitives, typed codec,
-secure envelope and async layers are capability-gated and planned for later
-phases (the harness advertises no caps, so the runner cleanly skips them).
+large (>64B) messages; the **dead-connection reaper** (the `LV_CONN__` owner
+table with a `proc_pidinfo` start token that defeats PID reuse); and the
+**sync primitives** — an Apple-ulock word-lock mutex (with robust dead-holder
+recovery), a seq-counter condition variable, and a `sem_open` semaphore, each
+carrying the `SyncAbi` guard stamp. It joins the matrix's `sync`, `fanout`,
+`reap` and `primitives` scenarios, proven byte-exact with the C++, Rust and
+Swift ports in every writer→reader direction at all payload sizes (40 B–64 KB)
+— including that a reaper or a mutex-recoverer of any language reclaims a dead
+Zig peer and never false-reaps a live one, and a Zig `broadcast` wakes a
+C++/Rust/Swift condition waiter. The typed codec, secure envelope and async
+layers are capability-gated and planned for later phases (the `caps` verb
+advertises only what is implemented, so the runner cleanly skips the rest).
 
 Idiomatic Zig: `std.posix`/`std.c` for the syscalls, native `@atomic*`
 builtins over the shm fields, and `extern struct` with comptime `@sizeOf`/
 `@offsetOf` guards for the byte-exact layouts. The only unavoidable C
-dependency is Apple's `os_unfair_lock` (the header lock a C++ peer contends on
-during DCLP init) and the `__ulock_wake` used to wake a parked C++/Rust/Swift
-peer.
+dependencies are Apple-specific primitives with no Zig equivalent: `os_unfair_lock`
+(the header lock a C++ peer contends on during DCLP init), the `__ulock_wait`/
+`__ulock_wake` futex the sync primitives are built on, and `proc_pidinfo` (the
+reaper's start token). One sharp edge worth noting: `sem_open` is variadic, and
+on Apple arm64 variadic args pass on the stack — so it must be declared variadic
+(std.c's fixed-arg wrapper corrupts the mode/value → `EINVAL`).
 
 ```sh
 cd zig/libipc && zig build          # -> zig-out/bin/xlang harness
