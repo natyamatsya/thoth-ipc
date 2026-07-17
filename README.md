@@ -7,20 +7,21 @@
 A high-performance inter-process communication library using shared memory on Linux/Windows/macOS/FreeBSD.
 Binary-compatible primitives implemented in multiple languages — all sharing the same wire format and shm layout.
 
-The C++, Rust and Swift channel ports are **byte-exact** on the `ipc::route`
-wire ABI ([`context/xlang-channel-abi.md`](context/xlang-channel-abi.md)), joined
-by a native **Zig** port whose core transport (sync round-trips + broadcast
-fan-out) is proven byte-exact against all three. A
-CI matrix framework ([`tools/xlang-runner`](tools/xlang-runner)) runs every
-writer→reader language pairing to prove a message sent by any language is
-received byte-for-byte by any other — including async wakeup, broadcast
-fan-out to mixed-language readers, dead-connection reaping, sync primitives
-(mutex/semaphore/condition), the typed codec layer, and **encrypted
-channels**: AEAD envelopes (AES-256-GCM, ChaCha20-Poly1305) sealed by one
-language open in every other, and tampered, wrong-key, wrong-key-id or
-algorithm-mismatched envelopes are rejected fail-closed. Known parity gaps the
-matrix has uncovered (multi-writer `ipc::channel`, C++↔port semaphores,
-Rust-held mutexes) run as tracked expected-failures — see
+Four independent implementations — **C++, Rust, Swift and Zig** — are
+**byte-exact** on the `ipc::route` wire ABI
+([`context/xlang-channel-abi.md`](context/xlang-channel-abi.md)). A CI matrix
+framework ([`tools/xlang-runner`](tools/xlang-runner)) runs every writer→reader
+language pairing to prove a message sent by any language is received
+byte-for-byte by any other — across blocking round-trips (fragment and
+chunk-storage boundaries, 40 B – 64 KB), broadcast fan-out to mixed-language
+readers, async notify wakeup, dead-connection reaping, sync primitives
+(mutex/condition/semaphore), the typed codec layer, and **encrypted channels**:
+AEAD envelopes (AES-256-GCM, ChaCha20-Poly1305) sealed by one language open in
+every other, with tampered, wrong-key, wrong-key-id or algorithm-mismatched
+envelopes rejected fail-closed. (Zig is macOS-first; on Linux and Windows the
+matrix pairs C++ and Rust.) Known parity gaps the matrix has uncovered
+(multi-writer `ipc::channel`, C++↔port semaphores) run as tracked
+expected-failures — see
 [`tools/xlang-runner/README.md`](tools/xlang-runner/README.md#known-gaps-expected-fail).
 
 **Dead-connection reaping.** A `SIGKILL`ed broadcast receiver used to leave a
@@ -28,7 +29,7 @@ phantom `cc_` bit that stalled the ring, exhausted the 32 connection slots, and
 inflated `recv_count`. Each receiver now records `{pid, start_token}` in a
 per-channel `LV_CONN__` owner table, and any participant reaps slots whose owner
 process has died (PID-liveness + a start token that defeats PID reuse). The table
-and token formula are byte-exact across C++/Rust/Swift, so a reaper of any
+and token formula are byte-exact across C++/Rust/Swift/Zig, so a reaper of any
 language reclaims a dead receiver of any other and never false-reaps a live one.
 See [`context/dead-connection-reaper-rfc.md`](context/dead-connection-reaper-rfc.md)
 and ABI [§9](context/xlang-channel-abi.md).
@@ -36,17 +37,17 @@ and ABI [§9](context/xlang-channel-abi.md).
 > **Fork notice:** thoth-ipc is a fork of [cpp-ipc](https://github.com/mutouyun/cpp-ipc) by mutouyun,
 > branched at upstream v1.4.1. thoth-ipc versioning starts independently at 0.1.0.
 > Upstream cpp-ipc targeted Linux and Windows; macOS was not supported. This fork adds full
-> macOS support to the C++ library, a pure Rust port, a Swift package, a pluggable typed
-> protocol layer (FlatBuffers/Cap'n Proto/Protobuf), an opt-in secure codec, and
-> cross-language sync ABI alignment.
+> macOS support to the C++ library, a pure Rust port, a Swift package, a native Zig port, a
+> pluggable typed protocol layer (FlatBuffers/Cap'n Proto/Protobuf), an opt-in secure codec,
+> and cross-language sync ABI alignment.
 
 ## Repository layout
 
 ```
-cpp/libipc/    — C++ library (upstream core, extended)
-rust/libipc/   — Pure Rust port (feature-complete, 242 tests)
-swift/libipc/  — Swift package (channel transport byte-exact with C++/Rust)
-zig/libipc/    — Native Zig port (byte-exact; every scenario but channel)
+cpp/libipc/    — C++ library (upstream core, extended; Linux/Windows/macOS/FreeBSD)
+rust/libipc/   — Pure Rust port (Linux/Windows/macOS)
+swift/libipc/  — Swift package (macOS 14+; byte-exact with C++/Rust/Zig)
+zig/libipc/    — Native Zig port (macOS; byte-exact, every scenario but channel)
 ```
 
 ## Language implementations
@@ -124,7 +125,7 @@ Swift Package Manager package targeting macOS 14+.
 - Typed protocol layer: FlatBuffers, Protocol Buffers
 - Secure codec with AEAD envelope, optional OpenSSL EVP backend
 - **Async receive**: `AsyncRoute.recv() async` over the Layer-1 readiness fd
-  (`DispatchSource`), woken by a C++/Rust/Swift sender's notify
+  (`DispatchSource`), woken by a C++/Rust/Swift/Zig sender's notify
 - Bench and demo executables included
 
 ```sh
@@ -189,27 +190,56 @@ cd zig/libipc && zig build          # -> zig-out/bin/xlang harness
 zig build test                      # byte-exact ABI unit tests
 ```
 
-## Status
+## Capabilities
 
-**Stable** — wire format and shared memory layout are fixed; binary-compatible across all three languages:
+**Cross-language, byte-exact and stable.** Every capability below is proven in
+the CI matrix with a message or primitive produced by one language and consumed
+by another, in every writer→reader direction (all four languages on macOS;
+C++↔Rust on Linux/Windows). The wire format and shared-memory layout are fixed.
 
-- Core transport: `ipc::route` (single-writer broadcast), shared memory primitives
-- Sync ABI: mutex, condition (apple ulock backend, backend_id=2)
-- Secure codec envelope v1 framing (AEAD-only, fail-closed)
+- **Broadcast transport** — `ipc::route`, one writer → N readers over a
+  lock-free shared-memory ring; blocking and non-blocking send/recv, message
+  fragmentation and large-message (>64 B) chunk storage, verified byte-for-byte
+  from 40 B to 64 KB.
+- **Fan-out** — one writer to N concurrently-connected readers of mixed
+  languages; every reader receives every message (per-reader `rc_` bitmask).
+- **Dead-connection reaping** — a `SIGKILL`ed receiver's slot is reclaimed by any
+  participant of any language via the `LV_CONN__` owner table and a
+  PID-reuse-proof start token; a live receiver is never false-reaped.
+- **Sync primitives** — inter-process mutex (with robust dead-holder recovery),
+  condition variable and counting semaphore on the Apple ulock backend
+  (backend_id=2); a lock held or a condition signalled by one language is
+  observed by another.
+- **Typed codec layer** — a pluggable codec wraps the route with a typed message
+  (Protobuf is exercised in the matrix; FlatBuffers / Cap'n Proto are available
+  per language).
+- **Encrypted channels** — an opt-in AEAD secure envelope (SIPC v1) with
+  AES-256-GCM and ChaCha20-Poly1305: sealed by any language, opened by every
+  other; tampered, wrong-key, wrong-key-id and algorithm-mismatched envelopes are
+  rejected fail-closed.
+- **Async receive** — a Layer-1 notify readiness fd multiplexes many channels on
+  one event loop instead of a blocking thread each; a `send()` in any language
+  wakes a C++ stdexec/coroutine, Rust `AsyncRoute`, Swift async or Zig `aread`
+  receiver.
 
-**Known cross-language parity gaps** — discovered by the test matrix (below) and
-tracked as expected-failures in [`tools/xlang-ci.toml`](tools/xlang-ci.toml)
-until the ports close them:
+**Platforms** — C++: Linux, Windows, macOS, FreeBSD. Rust: Linux, Windows,
+macOS. Swift: macOS 14+. Zig: macOS (arm64). Multi-writer `ipc::channel` is the
+one capability not yet cross-language (see gaps below).
+
+**Known cross-language parity gaps** — discovered by the matrix and tracked as
+expected-failures in [`tools/xlang-ci.toml`](tools/xlang-ci.toml) until closed:
 
 - `ipc::channel` (multi-writer): the C++ multi-producer broadcast queue uses a
-  different slot layout (96B + commit flag) than the ports, and port senders
-  draw message ids from a process-local counter instead of the shared
-  `AC_CONN` counter — not interoperable, and port↔port multi-writer collides.
-- Semaphore: C++ ↔ port semaphores don't interop in either direction.
-- Mutex: mutual exclusion is broken while a Rust process holds the lock
-  (probers of any language can acquire it).
-- Async receive: messages above ring capacity (16KB) deadlock a parked async
-  receiver; at exactly 16KB the C++ async receiver can mis-assemble.
+  different slot layout (96 B + commit flag) than the ports, and port senders
+  draw message ids from a process-local counter instead of the shared `AC_CONN`
+  counter — not interoperable, and port↔port multi-writer collides.
+- Semaphore: C++ ↔ port semaphores don't interop in either direction (different
+  backing objects); the pure ports (Rust/Swift/Zig) interoperate.
+- Mutex: mutual exclusion is broken while a **Rust** process holds the lock — its
+  mutex open re-initializes live state, so C++/Rust/Swift probers can acquire a
+  held lock. The Zig prober never re-inits and reports contention correctly.
+- Async receive: messages above ring capacity (16 KB) deadlock a parked async
+  receiver, so the async matrix caps payloads at 3 KB.
 
 **Prototype** — unreleased, under active development, APIs and data layouts may change:
 
@@ -228,10 +258,11 @@ dedicated framework: [`tools/xlang-runner`](tools/xlang-runner) (Rust).
 The architecture has two halves:
 
 1. **One harness binary per language** (`cpp/libipc/test/xlang/xlang.cpp`,
-   `rust/libipc/src/bin/xlang.rs`, `swift/libipc/Sources/XlangHarness`) with a
-   uniform verb CLI (`write`/`read`, `cwrite`/`cread`, `twrite`/`tread`,
-   `swrite`/`sread`, `hold`/`count`/`probe`, `mhold`/`mtry`/`mlock`, …). Each
-   harness reports its build/runtime features via a `caps` verb.
+   `rust/libipc/src/bin/xlang.rs`, `swift/libipc/Sources/XlangHarness`,
+   `zig/libipc/src/xlang.zig`) with a uniform verb CLI (`write`/`read`,
+   `cwrite`/`cread`, `twrite`/`tread`, `swrite`/`sread`, `aread`,
+   `hold`/`count`/`probe`, `mhold`/`mtry`/`mlock`, …). Each harness reports its
+   build/runtime features via a `caps` verb.
 2. **A declarative matrix runner** that expands scenarios into every
    writer→reader language pairing, negotiates capabilities (a harness lacking
    a feature is skipped with a note, or fails fast under `--strict-caps`),
