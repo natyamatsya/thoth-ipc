@@ -304,3 +304,19 @@ jobs:
       with:
         name: xlang-results-async-windows
         path: xlang-results.xml
+
+  # ABI conformance: validate the language-neutral spec (abi/abi.json) against
+  # its JSON Schema, then against the deployed C++ (abi/dump_abi.cpp) — so the
+  # single source of truth cannot silently drift from the wire format.
+  abi-conformance:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    - name: Check ABI conformance (schema + C++ dump)
+      run: cargo run --manifest-path tools/abi/Cargo.toml
+      env:
+        CXX: g++

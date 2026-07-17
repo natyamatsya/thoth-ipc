@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://thoth-ipc/abi/schema.json",
+  "title": "thoth-ipc cross-language ABI",
+  "description": "Language-neutral single source of truth for the thoth-ipc wire/shm ABI. Ports (C++, Rust, Swift, Zig) are generated from / checked against this document as peers. This schema is the STRUCTURAL gate only: it validates document well-formedness. ABI-semantic invariants (offsets non-overlapping, size == layout, per-target resolved values matching the deployed code) are enforced by the conformance tool (abi/dump_abi.cpp) and the xlang matrix, not here.",
+  "type": "object",
+  "required": ["version", "targets", "constants", "structs"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string", "description": "optional pointer to this schema for editor validation" },
+    "version": { "type": "string" },
+    "description": { "type": "string" },
+    "targets": {
+      "type": "object",
+      "description": "Platform targets and the values that are computed per platform (e.g. AlignSize = min(64, alignof(max_align_t))). Store RESOLVED values here, not formulas; the conformance tool verifies them.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["align_size"],
+        "additionalProperties": false,
+        "properties": {
+          "align_size": { "type": "integer", "description": "min(64, alignof(max_align_t))" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "constants": { "type": "array", "items": { "$ref": "#/$defs/constant" } },
+    "enums": { "type": "array", "items": { "$ref": "#/$defs/enum" } },
+    "structs": { "type": "array", "items": { "$ref": "#/$defs/struct" } },
+    "names": { "type": "array", "items": { "$ref": "#/$defs/nameTemplate" } }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "scalarType": {
+      "enum": ["u8", "u16", "u32", "u64", "i32", "usize", "string"]
+    },
+    "intOrPerTarget": {
+      "description": "A small integer (< 2^53), or a per-target object of such integers keyed by target name.",
+      "oneOf": [
+        { "type": "integer" },
+        { "type": "object", "additionalProperties": { "type": "integer" }, "minProperties": 1 }
+      ]
+    },
+    "value": {
+      "description": "Integer for values < 2^53; hex string (e.g. \"0xff000000ffffffff\") for u64 masks that exceed JSON's safe integer range; plain string for string constants; or a per-target object.",
+      "oneOf": [
+        { "type": "integer" },
+        { "type": "string" },
+        { "type": "object", "additionalProperties": { "type": ["integer", "string"] }, "minProperties": 1 }
+      ]
+    },
+    "constant": {
+      "type": "object",
+      "required": ["name", "type", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/identifier" },
+        "type": { "$ref": "#/$defs/scalarType" },
+        "value": { "$ref": "#/$defs/value" },
+        "description": { "type": "string" }
+      }
+    },
+    "enum": {
+      "type": "object",
+      "required": ["name", "type", "values"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/identifier" },
+        "type": { "$ref": "#/$defs/scalarType" },
+        "description": { "type": "string" },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "value"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "$ref": "#/$defs/identifier" },
+              "value": { "type": "integer" },
+              "description": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "required": ["name", "offset", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/identifier" },
+        "offset": { "$ref": "#/$defs/intOrPerTarget" },
+        "type": { "enum": ["u8", "u16", "u32", "u64", "i32", "bytes", "lock"] },
+        "count": { "type": "integer", "description": "element count for `bytes` (a byte array)" },
+        "atomic": { "type": "boolean", "default": false },
+        "description": { "type": "string" }
+      }
+    },
+    "struct": {
+      "type": "object",
+      "required": ["name", "size", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/identifier" },
+        "size": { "$ref": "#/$defs/intOrPerTarget" },
+        "align": { "type": "integer" },
+        "description": { "type": "string" },
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } }
+      }
+    },
+    "nameTemplate": {
+      "type": "object",
+      "required": ["name", "template"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/identifier" },
+        "template": { "type": "string", "description": "e.g. \"{prefix}__IPC_SHM__QU_CONN__{name}__{data_length}__{align_size}\"" },
+        "description": { "type": "string" }
+      }
+    }
+  }
+}

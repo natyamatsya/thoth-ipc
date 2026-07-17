@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+# SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
+
+[package]
+name = "abi-conformance"
+version = "0.1.0"
+edition = "2021"
+description = "thoth-ipc ABI conformance: validate abi/abi.json against the schema and the deployed C++ (abi/dump_abi.cpp)"
+license = "Apache-2.0 WITH LLVM-exception OR MIT"
+publish = false
+
+[[bin]]
+name = "abi-conformance"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+jsonschema = "0.26"
