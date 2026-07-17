@@ -93,19 +93,30 @@ jobs:
       env:
         LIBIPC_SECURE_OPENSSL: "1"
         LIBIPC_OPENSSL_PREFIX: /opt/homebrew/opt/openssl@3
+    # Zig is a fourth, independent native port. v1 covers the core transport
+    # (sync + fanout); it advertises no caps, so the runner plans it around the
+    # scenarios it does not yet join (primitives/typed/secure/async/channel).
+    - name: Set up Zig
+      uses: mlugg/setup-zig@v2
+      with:
+        version: 0.16.0
+    - name: Build Zig harness
+      run: zig build -Doptimize=ReleaseSafe
+      working-directory: zig/libipc
     - name: Build matrix runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
     # No --scenario filter: every scenario with participants runs.
-    - name: Run cross-language matrix (cpp, rust, swift)
+    - name: Run cross-language matrix (cpp, rust, swift, zig)
       run: |
         export XLANG_SWIFT_BIN="$(cd swift/libipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
         tools/xlang-runner/target/release/xlang-runner \
           --config tools/xlang-ci.toml \
-          --require cpp,rust,swift --strict-caps \
+          --require cpp,rust,swift,zig --strict-caps \
           --junit xlang-results.xml
       env:
         XLANG_CPP_BIN: cpp/libipc/bin/xlang_ipc
         XLANG_RUST_BIN: rust/libipc/target/release/xlang
+        XLANG_ZIG_BIN: zig/libipc/zig-out/bin/xlang
     - uses: actions/upload-artifact@v4
       if: always()
       with:
