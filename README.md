@@ -46,7 +46,7 @@ and ABI [§9](context/xlang-channel-abi.md).
 cpp/libipc/    — C++ library (upstream core, extended)
 rust/libipc/   — Pure Rust port (feature-complete, 242 tests)
 swift/libipc/  — Swift package (channel transport byte-exact with C++/Rust)
-zig/libipc/    — Native Zig port (transport + reaper + sync + typed)
+zig/libipc/    — Native Zig port (transport/reaper/sync/typed/secure)
 ```
 
 ## Language implementations
@@ -155,16 +155,20 @@ large (>64B) messages; the **dead-connection reaper** (the `LV_CONN__` owner
 table with a `proc_pidinfo` start token that defeats PID reuse); and the
 **sync primitives** — an Apple-ulock word-lock mutex (with robust dead-holder
 recovery), a seq-counter condition variable, and a `sem_open` semaphore, each
-carrying the `SyncAbi` guard stamp. It also carries the **typed codec** layer (a thin protobuf-framed wrapper over
-the route — field 1 varint `seq`, field 2 bytes `payload`, no protobuf library
-needed). It joins the matrix's `sync`, `fanout`, `reap`, `primitives` and
-`typed` scenarios, proven byte-exact with the C++, Rust and Swift ports in every
-writer→reader direction at all payload sizes (40 B–64 KB) — including that a
-reaper or a mutex-recoverer of any language reclaims a dead Zig peer and never
-false-reaps a live one, and a Zig `broadcast` wakes a C++/Rust/Swift condition
-waiter. The secure envelope and async layers are capability-gated and planned
-for later phases (the `caps` verb advertises only what is implemented, so the
-runner cleanly skips the rest).
+carrying the `SyncAbi` guard stamp. It also carries the **typed codec** (a thin protobuf-framed wrapper over the
+route — field 1 varint `seq`, field 2 bytes `payload`, no protobuf library
+needed) and the **secure AEAD envelope** (SIPC v1 framing with AES-256-GCM and
+ChaCha20-Poly1305 done in pure Zig `std.crypto` — a standardized algorithm is
+byte-identical to the OpenSSL-backed ports, so no C crypto is linked). It joins
+the matrix's `sync`, `fanout`, `reap`, `primitives`, `typed`, `secure`,
+`secure-badkey` and `secure-negative` scenarios, proven byte-exact with the C++,
+Rust and Swift ports in every writer→reader direction at all payload sizes
+(40 B–64 KB) — including that a reaper or a mutex-recoverer of any language
+reclaims a dead Zig peer and never false-reaps a live one, a Zig `broadcast`
+wakes a C++/Rust/Swift condition waiter, and an envelope sealed by any language
+opens in Zig (with tampered / wrong-key / wrong-key-id / algorithm-mismatched
+envelopes rejected fail-closed). Only the async (notify readiness) layer remains
+capability-gated for a later phase.
 
 Idiomatic Zig: `std.posix`/`std.c` for the syscalls, native `@atomic*`
 builtins over the shm fields, and `extern struct` with comptime `@sizeOf`/
