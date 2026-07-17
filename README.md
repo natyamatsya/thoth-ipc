@@ -46,7 +46,7 @@ and ABI [§9](context/xlang-channel-abi.md).
 cpp/libipc/    — C++ library (upstream core, extended)
 rust/libipc/   — Pure Rust port (feature-complete, 242 tests)
 swift/libipc/  — Swift package (channel transport byte-exact with C++/Rust)
-zig/libipc/    — Native Zig port (transport + reaper + sync, byte-exact)
+zig/libipc/    — Native Zig port (transport + reaper + sync + typed)
 ```
 
 ## Language implementations
@@ -155,14 +155,16 @@ large (>64B) messages; the **dead-connection reaper** (the `LV_CONN__` owner
 table with a `proc_pidinfo` start token that defeats PID reuse); and the
 **sync primitives** — an Apple-ulock word-lock mutex (with robust dead-holder
 recovery), a seq-counter condition variable, and a `sem_open` semaphore, each
-carrying the `SyncAbi` guard stamp. It joins the matrix's `sync`, `fanout`,
-`reap` and `primitives` scenarios, proven byte-exact with the C++, Rust and
-Swift ports in every writer→reader direction at all payload sizes (40 B–64 KB)
-— including that a reaper or a mutex-recoverer of any language reclaims a dead
-Zig peer and never false-reaps a live one, and a Zig `broadcast` wakes a
-C++/Rust/Swift condition waiter. The typed codec, secure envelope and async
-layers are capability-gated and planned for later phases (the `caps` verb
-advertises only what is implemented, so the runner cleanly skips the rest).
+carrying the `SyncAbi` guard stamp. It also carries the **typed codec** layer (a thin protobuf-framed wrapper over
+the route — field 1 varint `seq`, field 2 bytes `payload`, no protobuf library
+needed). It joins the matrix's `sync`, `fanout`, `reap`, `primitives` and
+`typed` scenarios, proven byte-exact with the C++, Rust and Swift ports in every
+writer→reader direction at all payload sizes (40 B–64 KB) — including that a
+reaper or a mutex-recoverer of any language reclaims a dead Zig peer and never
+false-reaps a live one, and a Zig `broadcast` wakes a C++/Rust/Swift condition
+waiter. The secure envelope and async layers are capability-gated and planned
+for later phases (the `caps` verb advertises only what is implemented, so the
+runner cleanly skips the rest).
 
 Idiomatic Zig: `std.posix`/`std.c` for the syscalls, native `@atomic*`
 builtins over the shm fields, and `extern struct` with comptime `@sizeOf`/
