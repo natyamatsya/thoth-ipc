@@ -3,14 +3,15 @@
 
 # RFC: Cross-language `ipc::channel` (multi-writer broadcast)
 
-**Status:** In progress. **Phases 1 (Zig) and 2 (Rust) are implemented and
-verified** — all 27 `channel` pairings across C++/Rust/Zig pass byte-exact at
-40/65/3000 B (`zig/libipc/src/transport/channel_multi.zig`,
-`rust/libipc/src/channel.rs`). **Swift (Phase 3) is pending**; the `channel`
-scenario stays a tracked expected-fail until it lands (a Swift channel endpoint
-still uses the route ring). This document is the target ABI and the per-language
-roadmap for closing the one remaining cross-language gap in the matrix:
-multi-writer `ipc::channel`. It complements
+**Status:** ✅ Complete. **All four ports (C++, Rust, Swift, Zig) implement the
+multi-writer channel byte-exact.** The full `channel` scenario — every
+two-language sender pair into every reader, at 40/65/3000 B — passes (72/72), and
+the scenario's expected-fail flag has been cleared
+(`tools/xlang-runner/src/config.rs`). Implementations:
+`zig/libipc/src/transport/channel_multi.zig`, `rust/libipc/src/channel.rs`,
+`swift/libipc/Sources/LibIPC/Transport/Channel.swift`. This document is the
+target ABI and the per-language roadmap that closed the last remaining
+cross-language gap in the matrix: multi-writer `ipc::channel`. It complements
 [`xlang-channel-abi.md`](xlang-channel-abi.md), which specifies the
 single-writer `ipc::route` (already byte-exact across all four ports).
 
@@ -183,10 +184,13 @@ Waiters (`RD/WT/CC_CONN__`), liveness (`LV_CONN__`) and chunk storage
    multi-producer ring + `AC_CONN__` counter behind a `multi` flag on `ChanInner`
    (route path untouched; `push_fragment`/`recv` dispatch to `_multi` variants).
    All `{cpp,rust,zig}` channel pairings pass.
-3. **Swift (Phase 3).** Same. Verify the full 4-language `channel` matrix.
-4. **Flip the expectation.** Change `ChannelScenarioConfig::default().xfail`
-   (`tools/xlang-runner/src/config.rs` L162) from `true` to `false`; the whole
-   `channel` scenario becomes expected-pass.
+3. **Swift (Phase 3) — ✅ done.** `swift/libipc/Sources/LibIPC/Transport/Channel.swift`
+   adds the multi-producer ring + `AC_CONN__` counter behind the same `multi`
+   flag on `ChanInner` (route path untouched; `pushFragment`/`recv` dispatch to
+   `pushFragmentMulti`/`recvMulti`). All `{cpp,rust,swift,zig}` channel pairings pass.
+4. **Flip the expectation — ✅ done.** `ChannelScenarioConfig::default().xfail`
+   (`tools/xlang-runner/src/config.rs`) is now `false`; the whole `channel`
+   scenario is expected-pass (72/72).
 
 Each phase is independently verifiable: a port that implements the ring
 correctly interoperates with C++ immediately (and with any other already-migrated
@@ -248,7 +252,7 @@ notify, framing); only the ring element and push/pop protocol are new.
 
 **Green criteria:** all `{cpp, rust, zig}` channel pairings pass.
 
-### 4.4 Swift — Phase 3
+### 4.4 Swift — Phase 3 (✅ done)
 
 **Files**
 - `swift/libipc/Sources/LibIPC/Transport/Channel.swift` +

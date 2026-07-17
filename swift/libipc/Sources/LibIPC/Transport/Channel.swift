@@ -65,6 +65,37 @@ let msgCcId = 0, msgId = 4, msgRemain = 8, msgStorage = 12, msgPayload = 16
      sb.loadUnaligned(fromByteOffset: msgStorage, as: UInt8.self) != 0)
 }
 
+// MARK: - Multi-writer channel ring (C++ prod_cons_impl<multi,multi,broadcast>)
+//
+// A channel slot is 96 bytes: { data_[80]; rc_ (u64)@80; f_ct_ (u64)@88 }. The
+// header reuses writeCursor@64 as the shared commit index ct_. Readers detect a
+// committed slot via `f_ct_ == ~ct`; the `rc_` word packs a per-reader bitmask
+// (low 32) + an internal read-generation (bits 32..55) + an epoch (top byte).
+// Byte-exact with the Rust/Zig channel ports. See
+// context/xlang-channel-multiwriter-rfc.md.
+let channelElemStride = 96
+let channelElemFctOff = 88
+let channelRingShmSizeBytes = 24832
+
+let chRcMask: UInt64 = 0x0000_0000_FFFF_FFFF   // low 32: per-reader "needs to read" bitmask
+let chEpMask: UInt64 = 0x00FF_FFFF_FFFF_FFFF   // low 56: rc bits + internal read-generation
+let chEpIncr: UInt64 = 0x0100_0000_0000_0000   // epoch increment (top byte)
+let chIcMask: UInt64 = 0xFF00_0000_FFFF_FFFF   // invert-carry mask
+let chIcIncr: UInt64 = 0x0000_0001_0000_0000   // internal read-generation increment (bits 32..)
+
+@inline(__always) func incRc(_ rc: UInt64) -> UInt64 {
+    (rc & chIcMask) | ((rc &+ chIcIncr) & ~chIcMask)
+}
+@inline(__always) func incMask(_ rc: UInt64) -> UInt64 { incRc(rc) & ~chRcMask }
+
+@inline(__always) func channelSlotBase(_ ringBase: UnsafeMutableRawPointer, _ idx: UInt8) -> UnsafeMutableRawPointer {
+    ringBase.advanced(by: offBlock + Int(idx) * channelElemStride)
+}
+// rc_ lives at the same +80 offset as a route slot; f_ct_ is channel-only at +88.
+@inline(__always) func slotFct(_ sb: UnsafeMutableRawPointer) -> UnsafeAtomic<UInt64> {
+    UnsafeAtomic(at: sb.advanced(by: channelElemFctOff).assumingMemoryBound(to: UnsafeAtomic<UInt64>.Storage.self))
+}
+
 // Ring header — byte-exact with the C++ elem_array head (conn_head_base + the
 // cache-line-aligned prod_cons head_). See context/xlang-channel-abi.md.
 //   0 connections  @0   == C++ conn_head_base::cc_
@@ -155,18 +186,35 @@ final class ChanInner: @unchecked Sendable {
     var connId:     UInt32
     var ccId:       UInt32
     var readCursor: UInt32
-    var sendSeq: UInt32 = 0                        // per-sender msg_t.id_ counter
+    var sendSeq: UInt32 = 0                        // route: per-sender msg_t.id_ counter
+    let multi: Bool                                // multi-writer (channel) vs single-writer (route)
+    let acIdShm: ShmHandle?                        // channel: shared AC_CONN__ msg-id counter (owns the mapping)
+    let acIdPtr: UnsafeMutableRawPointer?          // cached base of acIdShm (~Copyable can't be re-read from a class)
     var recvCache: [UInt32: (Int, [UInt8])] = [:]  // id_ -> (fill offset, buffer)
     let wtWaiter: Waiter
     let rdWaiter: Waiter
     let ccWaiter: Waiter
     var disconnected: Bool = false
 
-    static func open(prefix: String, name: String, mode: Mode) async throws(IpcError) -> ChanInner {
+    static func open(prefix: String, name: String, mode: Mode, multi: Bool = false) async throws(IpcError) -> ChanInner {
         let fp = fullPrefix(prefix)
         let chunkPrefix = "\(fp)\(name)_"
-        let ringShm  = try ShmHandle.acquire(name: ringName(prefix, name), size: ringShmSize(), mode: .createOrOpen)
+        // Channel and route share the ring NAME but not the size: the multi-writer
+        // ring has 96-byte slots (24832 B) vs the route's 88 (22784 B).
+        let ringShm  = try ShmHandle.acquire(name: ringName(prefix, name), size: multi ? channelRingShmSizeBytes : ringShmSize(), mode: .createOrOpen)
         let ccIdShm  = try ShmHandle.acquire(name: ccIdName(prefix), size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
+        // Multi-writer channels draw msg_t.id_ from a SHARED per-channel counter
+        // (C++ AC_CONN__<name>) so concurrent writers never collide in a receiver's
+        // reassembly cache. Route uses a process-local sendSeq.
+        let acIdShm: ShmHandle?
+        let acIdPtr: UnsafeMutableRawPointer?
+        if multi {
+            let h = try ShmHandle.acquire(name: "\(fp)AC_CONN__\(name)", size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
+            acIdPtr = h.ptr   // borrow-read before the consume-move below
+            acIdShm = consume h
+        } else {
+            acIdShm = nil; acIdPtr = nil
+        }
         let livenessShm = try ShmHandle.acquire(name: livenessName(prefix, name), size: livenessShmSizeBytes, mode: .createOrOpen)
         let wtWaiter = try await Waiter.open(name: "\(fp)WT_CONN__\(name)")
         let rdWaiter = try await Waiter.open(name: "\(fp)RD_CONN__\(name)")
@@ -214,15 +262,24 @@ final class ChanInner: @unchecked Sendable {
 
         return ChanInner(name: name, prefix: prefix, chunkPrefix: chunkPrefix, mode: mode,
                          ringShm: ringShm, ccIdShm: ccIdShm, livenessShm: livenessShm,
-                         connId: connId, ccId: ccId, readCursor: readCursor,
+                         connId: connId, ccId: ccId, readCursor: readCursor, multi: multi, acIdShm: acIdShm, acIdPtr: acIdPtr,
                          wtWaiter: wtWaiter, rdWaiter: rdWaiter, ccWaiter: ccWaiter)
     }
 
-    static func openSync(prefix: String, name: String, mode: Mode) throws(IpcError) -> ChanInner {
+    static func openSync(prefix: String, name: String, mode: Mode, multi: Bool = false) throws(IpcError) -> ChanInner {
         let fp = fullPrefix(prefix)
         let chunkPrefix = "\(fp)\(name)_"
-        let ringShm  = try ShmHandle.acquire(name: ringName(prefix, name), size: ringShmSize(), mode: .createOrOpen)
+        let ringShm  = try ShmHandle.acquire(name: ringName(prefix, name), size: multi ? channelRingShmSizeBytes : ringShmSize(), mode: .createOrOpen)
         let ccIdShm  = try ShmHandle.acquire(name: ccIdName(prefix), size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
+        let acIdShm: ShmHandle?
+        let acIdPtr: UnsafeMutableRawPointer?
+        if multi {
+            let h = try ShmHandle.acquire(name: "\(fp)AC_CONN__\(name)", size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
+            acIdPtr = h.ptr   // borrow-read before the consume-move below
+            acIdShm = consume h
+        } else {
+            acIdShm = nil; acIdPtr = nil
+        }
         let livenessShm = try ShmHandle.acquire(name: livenessName(prefix, name), size: livenessShmSizeBytes, mode: .createOrOpen)
         let wtWaiter = try Waiter.openSync(name: "\(fp)WT_CONN__\(name)")
         let rdWaiter = try Waiter.openSync(name: "\(fp)RD_CONN__\(name)")
@@ -268,17 +325,19 @@ final class ChanInner: @unchecked Sendable {
 
         return ChanInner(name: name, prefix: prefix, chunkPrefix: chunkPrefix, mode: mode,
                          ringShm: ringShm, ccIdShm: ccIdShm, livenessShm: livenessShm,
-                         connId: connId, ccId: ccId, readCursor: readCursor,
+                         connId: connId, ccId: ccId, readCursor: readCursor, multi: multi, acIdShm: acIdShm, acIdPtr: acIdPtr,
                          wtWaiter: wtWaiter, rdWaiter: rdWaiter, ccWaiter: ccWaiter)
     }
 
     init(name: String, prefix: String, chunkPrefix: String, mode: Mode,
          ringShm: consuming ShmHandle, ccIdShm: consuming ShmHandle, livenessShm: consuming ShmHandle,
-         connId: UInt32, ccId: UInt32, readCursor: UInt32,
+         connId: UInt32, ccId: UInt32, readCursor: UInt32, multi: Bool,
+         acIdShm: consuming ShmHandle?, acIdPtr: UnsafeMutableRawPointer?,
          wtWaiter: consuming Waiter, rdWaiter: consuming Waiter, ccWaiter: consuming Waiter) {
         self.name = name; self.prefix = prefix; self.chunkPrefix = chunkPrefix; self.mode = mode
         self.ringShm = ringShm; self.ccIdShm = ccIdShm; self.livenessShm = livenessShm
         self.connId = connId; self.ccId = ccId; self.readCursor = readCursor
+        self.multi = multi; self.acIdShm = acIdShm; self.acIdPtr = acIdPtr
         self.wtWaiter = wtWaiter; self.rdWaiter = rdWaiter; self.ccWaiter = ccWaiter
     }
 
@@ -361,7 +420,15 @@ extension ChanInner {
         guard mode == .sender else { throw .osError(EPERM) }
         guard ua32(&hdrPtr.pointee.connections).load(ordering: .relaxed) != 0 else { return false }
         let size = data.count
-        let msgId = sendSeq; sendSeq &+= 1
+        // Multi-writer: shared AC_CONN__ counter (concurrent writers must not
+        // collide in a receiver's reassembly cache); route: process-local sendSeq.
+        let msgId: UInt32
+        if multi, let acPtr = acIdPtr {
+            let atom = UnsafeAtomic<UInt32>(at: acPtr.withMemoryRebound(to: UnsafeAtomic<UInt32>.Storage.self, capacity: 1) { $0 })
+            msgId = atom.loadThenWrappingIncrement(by: 1, ordering: .relaxed)
+        } else {
+            msgId = sendSeq; sendSeq &+= 1
+        }
         let full = size / dataLength
         var offset = 0
         for _ in 0..<full {
@@ -383,6 +450,7 @@ extension ChanInner {
     /// Claim the next ring slot (C++ prod_cons broadcast push/force_push) and write
     /// one msg_t fragment, then advance wt_ and wake receivers.
     func pushFragment(msgId: UInt32, remain: Int32, payload: [UInt8], timeout: Duration) throws(IpcError) -> Bool {
+        if multi { return try pushFragmentMulti(msgId: msgId, remain: remain, payload: payload, timeout: timeout) }
         let hdr = hdrPtr
         let ringBase = ringShm.ptr
         var claimedWt: UInt32 = 0
@@ -429,6 +497,7 @@ extension ChanInner {
     /// Receive one message; reassemble msg_t fragments by id_ (C++ ipc.cpp recv()).
     /// Large (storage_) messages are read from chunk shm and recycled.
     func recv(timeout: Duration?) throws(IpcError) -> IpcBuffer {
+        if multi { return try recvMulti(timeout: timeout) }
         guard mode == .receiver else { throw .osError(EPERM) }
         let deadline = timeout.map { ContinuousClock.now + $0 }
         let ringBase = ringShm.ptr
@@ -478,34 +547,166 @@ extension ChanInner {
             try? wtWaiter.broadcast()
             readCursor = readCursor &+ 1
 
-            if !keep { continue }
+            if let out = assembleMessage(keep: keep, id: id, remain: remain, rSize: rSize, storageId: storageId, frag: frag) {
+                return out
+            }
+        }
+    }
 
-            // Large message via chunk storage (single msg_t — no reassembly).
-            if let sid = storageId {
-                let msgSize = Int(rSize)
-                let chunkSize = calcChunkSize(msgSize)
-                let out = withChunkShm(chunkSize: chunkSize) { shm -> [UInt8] in
-                    defer { recycleStorage(shm: shm, chunkSize: chunkSize, id: sid, connId: connId) }
-                    guard let ptr = findStorage(shm: shm, chunkSize: chunkSize, id: sid) else { return [] }
-                    return Array(UnsafeRawBufferPointer(start: ptr, count: msgSize))
+    /// Shared tail of `recv` / `recvMulti`: after a slot has been decoded and
+    /// released, either read a large message from chunk storage or reassemble
+    /// inline fragments by id_. Returns the completed message, or nil to keep
+    /// reading (self / malformed slot, unavailable chunk shm, or a still-
+    /// incomplete multi-fragment message). Byte-exact with C++ ipc.cpp recv()
+    /// regardless of the single- or multi-writer ring.
+    private func assembleMessage(keep: Bool, id: UInt32, remain: Int32, rSize: Int32,
+                                 storageId: Int32?, frag: [UInt8]?) -> IpcBuffer? {
+        guard keep else { return nil }  // self-message / malformed — slot already released
+        // Large message via chunk storage (single msg_t — no reassembly).
+        if let sid = storageId {
+            let msgSize = Int(rSize)
+            let chunkSize = calcChunkSize(msgSize)
+            let out = withChunkShm(chunkSize: chunkSize) { shm -> [UInt8] in
+                defer { recycleStorage(shm: shm, chunkSize: chunkSize, id: sid, connId: connId) }
+                guard let ptr = findStorage(shm: shm, chunkSize: chunkSize, id: sid) else { return [] }
+                return Array(UnsafeRawBufferPointer(start: ptr, count: msgSize))
+            }
+            if let b = out, !b.isEmpty { return IpcBuffer(bytes: b) }
+            return nil  // chunk shm unavailable
+        }
+        // Inline fragment reassembly by id_.
+        let f = frag!
+        if var entry = recvCache[id] {
+            recvCache[id] = nil
+            entry.1.replaceSubrange(entry.0 ..< entry.0 + f.count, with: f)
+            if remain <= 0 { return IpcBuffer(bytes: entry.1) }  // last fragment
+            recvCache[id] = (entry.0 + f.count, entry.1)
+            return nil
+        } else if remain <= 0 {
+            return IpcBuffer(bytes: f)  // single fragment
+        } else {
+            var buf = [UInt8](repeating: 0, count: Int(rSize))
+            buf.replaceSubrange(0 ..< f.count, with: f)
+            recvCache[id] = (f.count, buf)
+            return nil
+        }
+    }
+
+    // MARK: - Multi-writer (channel) push / recv
+
+    /// Multi-writer push (C++ prod_cons_impl<multi,multi,broadcast>): claim the
+    /// `ct_` commit slot via a CAS on `rc_` + an epoch re-validate, advance `ct_`,
+    /// write the fragment, then publish `f_ct_ = ~ct` for readers. Busy-polls with
+    /// a deadline while the target slot is still owed a read / not yet drained.
+    func pushFragmentMulti(msgId: UInt32, remain: Int32, payload: [UInt8], timeout: Duration) throws(IpcError) -> Bool {
+        let hdr = hdrPtr
+        let ringBase = ringShm.ptr
+        let deadline = ContinuousClock.now + timeout
+        var epoch = ua64(&hdr.pointee.epoch).load(ordering: .acquiring)
+        var claimedCt: UInt32 = 0
+        var yk: UInt32 = 0
+        claimLoop: while true {
+            let cc = UInt64(ua32(&hdr.pointee.connections).load(ordering: .relaxed))
+            guard cc != 0 else { return false }
+            let curCt = ua32(&hdr.pointee.writeCursor).load(ordering: .relaxed) // commit index (ct_)
+            let sb = channelSlotBase(ringBase, UInt8(curCt & 0xFF))
+            let curRc = slotRc(sb).load(ordering: .relaxed)
+            let remCc = curRc & chRcMask
+            if (cc & remCc) != 0 && (curRc & ~chEpMask) == epoch {
+                // Slot still held by a live reader in the current epoch.
+                if ContinuousClock.now >= deadline { return false }
+                adaptiveYieldSync(&yk)
+                continue claimLoop
+            } else if remCc == 0 {
+                let curFl = slotFct(sb).load(ordering: .acquiring)
+                if curFl != UInt64(curCt) && curFl != 0 {
+                    // Previous lap's data not yet drained by the reader.
+                    if ContinuousClock.now >= deadline { return false }
+                    adaptiveYieldSync(&yk)
+                    continue claimLoop
                 }
-                if let b = out, !b.isEmpty { return IpcBuffer(bytes: b) }
+            }
+            let desired = incMask(epoch | (curRc & chEpMask)) | cc
+            let (rcOk, _) = slotRc(sb).weakCompareExchange(expected: curRc, desired: desired, successOrdering: .relaxed, failureOrdering: .relaxed)
+            if rcOk {
+                // Won the slot; re-validate the epoch has not moved. An acquire
+                // load is equivalent to the old self-CAS (a no-op store publishes
+                // nothing) without the weak-CAS spurious-failure retry.
+                let now = ua64(&hdr.pointee.epoch).load(ordering: .acquiring)
+                if now == epoch { claimedCt = curCt; break claimLoop }
+                epoch = now
+            }
+            adaptiveYieldSync(&yk)
+        }
+        ua32(&hdr.pointee.writeCursor).store(claimedCt &+ 1, ordering: .releasing) // advance ct_
+        let sb = channelSlotBase(ringBase, UInt8(claimedCt & 0xFF))
+        writeMsgHeader(sb, ccId: ccId, id: msgId, remain: remain, storage: false)
+        let dst = sb.advanced(by: msgPayload)
+        payload.withUnsafeBytes { dst.copyMemory(from: $0.baseAddress!, byteCount: payload.count) }
+        slotFct(sb).store(~UInt64(claimedCt), ordering: .releasing) // publish commit flag
+        try? rdWaiter.broadcast()
+        return true
+    }
+
+    /// Multi-writer recv: emptiness via `f_ct_ == ~cur`, the channel `rc_`/`f_ct_`
+    /// slot-free protocol, then the same fragment reassembly / chunk-storage decode
+    /// as route `recv()`.
+    func recvMulti(timeout: Duration?) throws(IpcError) -> IpcBuffer {
+        guard mode == .receiver else { throw .osError(EPERM) }
+        let deadline = timeout.map { ContinuousClock.now + $0 }
+        let ringBase = ringShm.ptr
+        var yk: UInt32 = 0
+        while true {
+            let cur = readCursor
+            let sb = channelSlotBase(ringBase, UInt8(cur & 0xFF))
+            if slotFct(sb).load(ordering: .acquiring) != ~UInt64(cur) {
+                // Empty — the sender has not published this cursor's commit flag.
+                if let dl = deadline, ContinuousClock.now >= dl { return IpcBuffer() }
+                adaptiveYieldSync(&yk)
                 continue
             }
+            yk = 0
 
-            // Inline fragment reassembly by id_.
-            let f = frag!
-            if var entry = recvCache[id] {
-                recvCache[id] = nil
-                entry.1.replaceSubrange(entry.0 ..< entry.0 + f.count, with: f)
-                if remain <= 0 { return IpcBuffer(bytes: entry.1) }
-                recvCache[id] = (entry.0 + f.count, entry.1)
-            } else if remain <= 0 {
-                return IpcBuffer(bytes: f)
-            } else {
-                var buf = [UInt8](repeating: 0, count: Int(rSize))
-                buf.replaceSubrange(0 ..< f.count, with: f)
-                recvCache[id] = (f.count, buf)
+            let (ccIdVal, id, remain, storage) = readMsgHeader(sb)
+            let isSelf = ccIdVal == ccId
+            let rSize = Int32(dataLength) + remain
+            let keep = !isSelf && rSize > 0
+
+            var storageId: Int32? = nil
+            var frag: [UInt8]? = nil
+            if keep {
+                if storage {
+                    storageId = sb.loadUnaligned(fromByteOffset: msgPayload, as: Int32.self)
+                } else {
+                    let n = remain <= 0 ? Int(rSize) : dataLength
+                    frag = Array(UnsafeRawBufferPointer(start: sb.advanced(by: msgPayload), count: n))
+                }
+            }
+
+            // Clear our rc_ bit (channel incRc protocol); the last reader frees the
+            // slot by setting f_ct_ to the next-lap ct value (cur + RING_SIZE).
+            let curPost = cur &+ 1
+            let freeFlag = UInt64(curPost) + UInt64(ringSize - 1)
+            var k: UInt32 = 0
+            while true {
+                let curRc = slotRc(sb).load(ordering: .acquiring)
+                if (curRc & chRcMask) == 0 {
+                    slotFct(sb).store(freeFlag, ordering: .releasing)
+                    break
+                }
+                let nxt = incRc(curRc) & ~UInt64(connId)
+                if (nxt & chRcMask) == 0 {
+                    slotFct(sb).store(freeFlag, ordering: .releasing)
+                }
+                let (ok, _) = slotRc(sb).weakCompareExchange(expected: curRc, desired: nxt, successOrdering: .releasing, failureOrdering: .relaxed)
+                if ok { break }
+                adaptiveYieldSync(&k)
+            }
+            readCursor = curPost
+            try? wtWaiter.broadcast()
+
+            if let out = assembleMessage(keep: keep, id: id, remain: remain, rSize: rSize, storageId: storageId, frag: frag) {
+                return out
             }
         }
     }

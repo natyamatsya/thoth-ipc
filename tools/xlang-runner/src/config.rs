@@ -146,11 +146,11 @@ pub struct ChannelScenarioConfig {
     pub sizes: Vec<usize>,
     /// Messages per writer; the reader expects 2 x count.
     pub count: usize,
-    /// Failures are expected and do not fail the run (flip once the ports
-    /// implement the C++ multi-producer broadcast layout — see the matrix
-    /// finding: C++ channel uses 96B slots + f_ct_ commit flags, the ports
-    /// reuse the 88B route layout, and port senders draw msg ids from a
-    /// process-local counter instead of the shared AC_CONN counter).
+    /// Expected-failure flag. Now `false`: all four ports (C++, Rust, Swift,
+    /// Zig) implement the multi-producer broadcast layout byte-exactly — 96B
+    /// slots with `f_ct_` commit flags, the shared `AC_CONN__` msg-id counter,
+    /// and the channel `rc_` region packing. The full channel matrix is
+    /// expected-pass with no remaining gaps.
     pub xfail: bool,
 }
 
@@ -159,7 +159,7 @@ impl Default for ChannelScenarioConfig {
         Self {
             sizes: vec![40, 65, 3000],
             count: 10,
-            xfail: true,
+            xfail: false,
         }
     }
 }

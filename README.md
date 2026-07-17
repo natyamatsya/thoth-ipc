@@ -14,14 +14,14 @@ framework ([`tools/xlang-runner`](tools/xlang-runner)) runs every writer→reade
 language pairing to prove a message sent by any language is received
 byte-for-byte by any other — across blocking round-trips (fragment and
 chunk-storage boundaries, 40 B – 64 KB), broadcast fan-out to mixed-language
-readers, async notify wakeup, dead-connection reaping, sync primitives
-(mutex/condition/semaphore), the typed codec layer, and **encrypted channels**:
-AEAD envelopes (AES-256-GCM, ChaCha20-Poly1305) sealed by one language open in
-every other, with tampered, wrong-key, wrong-key-id or algorithm-mismatched
-envelopes rejected fail-closed. (Zig is macOS-first; on Linux and Windows the
-matrix pairs C++ and Rust.) Known parity gaps the matrix has uncovered
-(multi-writer `ipc::channel`, C++↔port semaphores) run as tracked
-expected-failures — see
+readers, multi-writer `ipc::channel` (two concurrent senders of different
+languages into one reader), async notify wakeup, dead-connection reaping, sync
+primitives (mutex/condition/semaphore), the typed codec layer, and **encrypted
+channels**: AEAD envelopes (AES-256-GCM, ChaCha20-Poly1305) sealed by one
+language open in every other, with tampered, wrong-key, wrong-key-id or
+algorithm-mismatched envelopes rejected fail-closed. (Zig is macOS-first; on
+Linux and Windows the matrix pairs C++ and Rust.) The one remaining parity gap
+the matrix tracks (C++↔port semaphores) runs as a tracked expected-failure — see
 [`tools/xlang-runner/README.md`](tools/xlang-runner/README.md#known-gaps-expected-fail).
 
 **Dead-connection reaping.** A `SIGKILL`ed broadcast receiver used to leave a
@@ -173,10 +173,9 @@ wakes a C++/Rust/Swift condition waiter; an envelope sealed by any language open
 in Zig (with tampered / wrong-key / wrong-key-id / algorithm-mismatched envelopes
 rejected fail-closed); and a Zig `send` wakes a C++ stdexec / coroutine, Rust
 `AsyncRoute` or Swift async receiver, and vice versa. The multi-writer
-`ipc::channel` is not interoperable for **any** port — a cross-port ABI gap
-(different slot layout, process-local message ids) tracked as an expected-fail
-for every language — so it sits outside the parity matrix rather than being a
-Zig-specific limitation.
+`ipc::channel` is now interoperable across all four ports too — two concurrent
+senders of different languages into one reader, byte-exact on the 96-byte
+commit-flag slot layout and the shared `AC_CONN__` message-id counter.
 
 Idiomatic Zig: `std.posix`/`std.c` for the syscalls, native `@atomic*`
 builtins over the shm fields, and `extern struct` with comptime `@sizeOf`/
@@ -228,21 +227,12 @@ C++↔Rust on Linux/Windows). The wire format and shared-memory layout are fixed
 **Platforms** — C++: Linux, Windows, macOS, FreeBSD. Rust: Linux, Windows,
 macOS. Swift: macOS 14+. Zig: macOS (arm64).
 
-Every port targets the single-writer `ipc::route`. The multi-writer
-`ipc::channel` is the one capability that is **not** cross-language for any port
-(a known ABI gap, see below) — so it falls outside the parity guarantees above
-for all languages, not just one.
+Every port targets both the single-writer `ipc::route` and the multi-writer
+`ipc::channel`; both are cross-language byte-exact across all four ports.
 
 **Known cross-language parity gaps** — discovered by the matrix and tracked as
 expected-failures in [`tools/xlang-ci.toml`](tools/xlang-ci.toml) until closed:
 
-- `ipc::channel` (multi-writer): the C++ multi-producer broadcast queue uses a
-  different slot layout (96 B + commit flag) than the ports, and port senders
-  draw message ids from a process-local counter instead of the shared `AC_CONN`
-  counter — not interoperable, and port↔port multi-writer collides. Closing this
-  is scoped in
-  [`context/xlang-channel-multiwriter-rfc.md`](context/xlang-channel-multiwriter-rfc.md)
-  (the target ABI + a per-language roadmap, Zig first).
 - Semaphore: C++ ↔ port semaphores don't interop in either direction (different
   backing objects); the pure ports (Rust/Swift/Zig) interoperate.
 - Mutex: mutual exclusion is broken while a **Rust** process holds the lock — its
@@ -367,7 +357,7 @@ Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [
 
 - **[Cross-Language Test Framework](tools/xlang-runner/README.md)** — the xlang matrix runner: scenarios, capability negotiation, expected-failure tracking, adding languages/scenarios
 - **[Cross-Language Channel ABI](context/xlang-channel-abi.md)** — the byte-exact wire spec the matrix verifies (ring layout, framing, notify, reaper)
-- **[Multi-writer `ipc::channel` RFC](context/xlang-channel-multiwriter-rfc.md)** — target ABI + per-language roadmap (Zig → Rust → Swift) to close the one remaining cross-language gap
+- **[Multi-writer `ipc::channel` RFC](context/xlang-channel-multiwriter-rfc.md)** — the multi-writer ABI + per-language roadmap (Zig → Rust → Swift), now complete: `ipc::channel` is cross-language byte-exact across all four ports
 - **[macOS Technical Notes](doc/macos-technical-notes.md)** — platform-specific implementation details for macOS (semaphores, mutexes, shared memory)
 - **[Windows Technical Notes](doc/windows-technical-notes.md)** — platform-specific implementation details for Windows (MSVC conformance, process management, thread priority)
 - **[macOS Deployment & Distribution](doc/macos-deployment.md)** — code signing, notarization, sandbox restrictions, and XPC alternatives for production shipping

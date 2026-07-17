@@ -52,6 +52,8 @@ func runBlocking<T: Sendable>(_ body: @Sendable @escaping () async throws -> T) 
 func clearStorageImplSync(prefix: String, name: String) {
     let fp = fullPrefix(prefix)
     ShmHandle.clearStorage(name: ringName(prefix, name))
+    // Per-channel multi-writer msg-id counter (byte-exact with C++ AC_CONN__).
+    ShmHandle.clearStorage(name: "\(fp)AC_CONN__\(name)")
     // NB: CA_CONN__ (cc_id counter) is prefix-global + persistent — like C++
     // cc_acc, never cleared. Clearing it resets cc_ids under concurrent channels.
     ShmHandle.clearStorage(name: "\(fp)WT_CONN__\(name)_WAITER_COND_")
@@ -69,6 +71,7 @@ func clearStorageImplSync(prefix: String, name: String) {
 func clearStorageImpl(prefix: String, name: String) async {
     let fp = fullPrefix(prefix)
     ShmHandle.clearStorage(name: ringName(prefix, name))
+    ShmHandle.clearStorage(name: "\(fp)AC_CONN__\(name)")  // per-channel msg-id counter
     await Waiter.clearStorage(name: "\(fp)WT_CONN__\(name)")
     await Waiter.clearStorage(name: "\(fp)RD_CONN__\(name)")
     await Waiter.clearStorage(name: "\(fp)CC_CONN__\(name)")
@@ -150,7 +153,7 @@ public final class Channel: @unchecked Sendable {
         try await connect(prefix: "", name: name, mode: mode)
     }
     public static func connect(prefix: String, name: String, mode: Mode) async throws(IpcError) -> Channel {
-        Channel(inner: try await ChanInner.open(prefix: prefix, name: name, mode: mode))
+        Channel(inner: try await ChanInner.open(prefix: prefix, name: name, mode: mode, multi: true))
     }
     private init(inner: ChanInner) { self.inner = inner }
 
@@ -192,7 +195,7 @@ public final class Channel: @unchecked Sendable {
 
     /// Blocking connect — safe to call from a POSIX thread (not from an async context).
     public static func connectBlocking(name: String, mode: Mode) -> Channel {
-        Channel(inner: try! ChanInner.openSync(prefix: "", name: name, mode: mode))
+        Channel(inner: try! ChanInner.openSync(prefix: "", name: name, mode: mode, multi: true))
     }
     /// Blocking clearStorage — safe to call from a POSIX thread.
     public static func clearStorageBlocking(name: String) {
