@@ -27,9 +27,16 @@ reader_warmup_ms = 400
 xfail = [
     "primitives:cpp posts 3 -> rust",
     "primitives:cpp posts 3 -> swift",
+    "primitives:cpp posts 3 -> zig",
     "primitives:rust posts 3 -> cpp",
     "primitives:swift posts 3 -> cpp",
-    "primitives:rust holds mutex ->",
+    "primitives:zig posts 3 -> cpp",
+    # A live Rust holder does not exclude probers (rust mutex re-inits live
+    # state). The Zig prober is NOT affected — it never re-inits, so it reads
+    # `busy` correctly — hence zig is deliberately excluded here.
+    "primitives:rust holds mutex -> cpp",
+    "primitives:rust holds mutex -> rust",
+    "primitives:rust holds mutex -> swift",
 ]
 
 [languages.cpp]
@@ -50,7 +57,7 @@ modes = ["sync", "channel", "reap", "primitives", "typed", "secure"]
 # until each ABI surface lands.
 [languages.zig]
 bin = "${XLANG_ZIG_BIN}"
-modes = ["sync", "reap"]
+modes = ["sync", "reap", "primitives"]
 
 # Async endpoints are separate binaries for C++ (xasync: stdexec sender,
 # xcoro: C++ coroutines); Rust/Swift reuse their main harness via `aread`.

@@ -15,13 +15,9 @@
 const std = @import("std");
 const shm = @import("../platform/shm.zig");
 const shmname = @import("../platform/shmname.zig");
+const ulock = @import("../sync/ulock.zig");
 
 const ShmHandle = shm.ShmHandle;
-
-// Apple __ulock private syscalls (stable since 10.12; used by libc++/pthread).
-const UL_COMPARE_AND_WAIT_SHARED: u32 = 3;
-const ULF_WAKE_ALL: u32 = 0x0000_0100;
-extern "c" fn __ulock_wake(operation: u32, addr: *u32, wake_value: u64) c_int;
 
 /// One route waiter (RD/WT/CC), signal side only.
 pub const Waiter = struct {
@@ -43,7 +39,7 @@ pub const Waiter = struct {
         const waiters: *i32 = @ptrCast(@alignCast(base + 4));
         _ = @atomicRmw(u32, seq, .Add, 1, .acq_rel);
         if (@atomicLoad(i32, waiters, .acquire) > 0) {
-            _ = __ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL, seq, 0);
+            ulock.wakeAll(seq);
         }
     }
 

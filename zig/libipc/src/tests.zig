@@ -13,4 +13,9 @@ test {
     std.testing.refAllDecls(@import("transport/waiter.zig"));
     std.testing.refAllDecls(@import("transport/liveness.zig"));
     std.testing.refAllDecls(@import("transport/channel.zig"));
+    std.testing.refAllDecls(@import("sync/ulock.zig"));
+    std.testing.refAllDecls(@import("sync/abi_guard.zig"));
+    std.testing.refAllDecls(@import("sync/mutex.zig"));
+    std.testing.refAllDecls(@import("sync/condition.zig"));
+    std.testing.refAllDecls(@import("sync/semaphore.zig"));
 }
