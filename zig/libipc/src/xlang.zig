@@ -45,6 +45,134 @@ fn pout(comptime fmt: []const u8, args: anytype) void {
     _ = std.c.write(1, s.ptr, s.len);
 }
 
+// --- Typed codec verbs (scenario: typed) -----------------------------------
+// The typed layer is a thin codec wrapper over the route (no extra on-wire
+// framing): the message is a hand-rolled protobuf record — field 1 (0x08) varint
+// `seq`, field 2 (0x12) length-delimited `payload` — byte-identical across ports,
+// so no protobuf library is needed.
+
+fn varintLen(v: u64) usize {
+    var n: usize = 1;
+    var x = v;
+    while (x >= 0x80) : (x >>= 7) n += 1;
+    return n;
+}
+
+fn putVarint(buf: []u8, i: *usize, v: u64) void {
+    var x = v;
+    while (x >= 0x80) : (x >>= 7) {
+        buf[i.*] = @as(u8, @intCast(x & 0x7F)) | 0x80;
+        i.* += 1;
+    }
+    buf[i.*] = @intCast(x);
+    i.* += 1;
+}
+
+fn getVarint(bytes: []const u8, pos: *usize) ?u64 {
+    var v: u64 = 0;
+    var shift: u6 = 0;
+    while (pos.* < bytes.len) {
+        const b = bytes[pos.*];
+        pos.* += 1;
+        v |= @as(u64, b & 0x7F) << shift;
+        if (b & 0x80 == 0) return v;
+        if (shift >= 63) return null;
+        shift += 7;
+    }
+    return null;
+}
+
+fn encodeMsg(seq: u32, payload: []const u8) ![]u8 {
+    const total = 1 + varintLen(seq) + 1 + varintLen(payload.len) + payload.len;
+    const buf = try alloc.alloc(u8, total);
+    var i: usize = 0;
+    buf[i] = 0x08;
+    i += 1;
+    putVarint(buf, &i, seq);
+    buf[i] = 0x12;
+    i += 1;
+    putVarint(buf, &i, payload.len);
+    @memcpy(buf[i .. i + payload.len], payload);
+    return buf;
+}
+
+const Decoded = struct { seq: u32, payload: []const u8 };
+
+fn decodeMsg(bytes: []const u8) ?Decoded {
+    var pos: usize = 0;
+    if (bytes.len == 0 or bytes[0] != 0x08) return null;
+    pos = 1;
+    const seq64 = getVarint(bytes, &pos) orelse return null;
+    if (seq64 > std.math.maxInt(u32)) return null;
+    if (pos >= bytes.len or bytes[pos] != 0x12) return null;
+    pos += 1;
+    const len = getVarint(bytes, &pos) orelse return null;
+    if (bytes.len - pos != len) return null;
+    return .{ .seq = @intCast(seq64), .payload = bytes[pos..] };
+}
+
+fn doTwrite(name: []const u8, count: usize, size: usize) u8 {
+    var ch = ChanInner.open(alloc, "", name, .sender) catch {
+        perr("[zig-typed] connect(sender) failed", .{});
+        return 3;
+    };
+    defer ch.deinit();
+    if (!ch.waitForRecv(1, deadline(5))) {
+        perr("[zig-typed] no receiver within 5s", .{});
+        return 2;
+    }
+    const payload = alloc.alloc(u8, size) catch return 4;
+    defer alloc.free(payload);
+    fillPattern(payload);
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const enc = encodeMsg(@intCast(i), payload) catch return 4;
+        defer alloc.free(enc);
+        if (!(ch.send(enc, deadline(8)) catch false)) {
+            perr("[zig-typed] send {d} failed", .{i});
+            return 4;
+        }
+    }
+    perr("[zig-typed] wrote {d} x {d}B typed on '{s}'", .{ count, size, name });
+    return 0;
+}
+
+fn doTread(name: []const u8, count: usize, size: usize) u8 {
+    var ch = ChanInner.open(alloc, "", name, .receiver) catch {
+        perr("[zig-typed] connect(receiver) failed", .{});
+        return 3;
+    };
+    defer ch.deinit();
+    const want = alloc.alloc(u8, size) catch return 5;
+    defer alloc.free(want);
+    fillPattern(want);
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const got = (ch.recv(deadline(8)) catch {
+            perr("[zig-typed] recv {d} error", .{i});
+            return 5;
+        }) orelse {
+            perr("[zig-typed] recv {d} timed out", .{i});
+            return 5;
+        };
+        defer alloc.free(got);
+        const dec = decodeMsg(got) orelse {
+            perr("[zig-typed] recv {d} undecodable", .{i});
+            return 8;
+        };
+        if (dec.seq != i) {
+            perr("[zig-typed] recv {d} wrong seq {d}", .{ i, dec.seq });
+            return 6;
+        }
+        if (!std.mem.eql(u8, dec.payload, want)) {
+            perr("[zig-typed] recv {d} payload mismatch", .{i});
+            return 7;
+        }
+    }
+    perr("[zig-typed] read {d} x {d}B typed on '{s}' OK", .{ count, size, name });
+    return 0;
+}
+
 // --- Reaper verbs (scenario: reap) -----------------------------------------
 // hold: connect a receiver, print READY, hold the slot (SIGKILL target).
 // probe: connect as a SENDER (no reap, no slot claim), report recv count.
@@ -297,10 +425,11 @@ pub fn main(m: std.process.Init.Minimal) void {
         std.process.exit(0);
     }
     if (std.mem.eql(u8, verb, "caps")) {
-        // "prim" = the sync-primitive verbs are available. The runner joins
-        // sync/fanout/reap/primitives and skips the still-uncapped scenarios
-        // (typed/secure/async/channel).
-        _ = std.c.write(1, "prim\n", 5);
+        // Advertised capabilities: sync-primitive verbs ("prim") and the typed
+        // protobuf codec. The runner joins sync/fanout/reap/primitives/typed and
+        // skips the still-uncapped scenarios (secure/async/channel).
+        const caps = "prim typed:protobuf\n";
+        _ = std.c.write(1, caps, caps.len);
         std.process.exit(0);
     }
 
@@ -353,6 +482,10 @@ pub fn main(m: std.process.Init.Minimal) void {
             break :blk doWrite(name, count, size, minrecv);
         } else if (std.mem.eql(u8, verb, "read")) {
             break :blk doRead(name, count, size);
+        } else if (std.mem.eql(u8, verb, "twrite")) {
+            break :blk doTwrite(name, count, size);
+        } else if (std.mem.eql(u8, verb, "tread")) {
+            break :blk doTread(name, count, size);
         } else {
             perr("unknown verb '{s}'", .{verb});
             break :blk 1;
