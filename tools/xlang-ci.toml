@@ -57,7 +57,7 @@ modes = ["sync", "channel", "reap", "primitives", "typed", "secure"]
 # until each ABI surface lands.
 [languages.zig]
 bin = "${XLANG_ZIG_BIN}"
-modes = ["sync", "reap", "primitives", "typed", "secure"]
+modes = ["sync", "reap", "primitives", "typed", "secure", "channel"]
 
 # Async endpoints are separate binaries for C++ (xasync: stdexec sender,
 # xcoro: C++ coroutines); Rust/Swift reuse their main harness via `aread`.

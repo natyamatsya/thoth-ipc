@@ -15,6 +15,7 @@
 const std = @import("std");
 const channel = @import("transport/channel.zig");
 const notify = @import("transport/notify.zig");
+const ChannelInner = @import("transport/channel_multi.zig").ChannelInner;
 const Mutex = @import("sync/mutex.zig").Mutex;
 const Condition = @import("sync/condition.zig").Condition;
 const Semaphore = @import("sync/semaphore.zig").Semaphore;
@@ -562,6 +563,68 @@ fn doRead(name: []const u8, count: usize, size: usize) u8 {
     return 0;
 }
 
+// --- Multi-writer channel verbs (scenario: channel) ------------------------
+// ipc::channel (N writers, N readers). Same msg framing as route over a
+// multi-producer commit ring; the runner pairs two writers of (possibly
+// different) languages into one reader, which expects 2*count messages.
+
+fn doCwrite(name: []const u8, count: usize, size: usize) u8 {
+    var ch = ChannelInner.open(alloc, "", name, .sender) catch {
+        perr("[zig-chan] connect(sender) failed", .{});
+        return 3;
+    };
+    defer ch.deinit();
+    if (!ch.waitForRecv(1, deadline(5))) {
+        perr("[zig-chan] no receiver within 5s", .{});
+        return 2;
+    }
+    const msg = alloc.alloc(u8, size) catch return 4;
+    defer alloc.free(msg);
+    fillPattern(msg);
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const ok = ch.send(msg, deadline(8)) catch false;
+        if (!ok) {
+            perr("[zig-chan] send {d} failed", .{i});
+            return 4;
+        }
+    }
+    perr("[zig-chan] wrote {d} x {d}B on '{s}'", .{ count, size, name });
+    return 0;
+}
+
+fn doCread(name: []const u8, count: usize, size: usize) u8 {
+    var ch = ChannelInner.open(alloc, "", name, .receiver) catch {
+        perr("[zig-chan] connect(receiver) failed", .{});
+        return 3;
+    };
+    defer ch.deinit();
+    const want = alloc.alloc(u8, size) catch return 5;
+    defer alloc.free(want);
+    fillPattern(want);
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const got = (ch.recv(deadline(8)) catch {
+            perr("[zig-chan] recv {d} error", .{i});
+            return 5;
+        }) orelse {
+            perr("[zig-chan] recv {d} timed out", .{i});
+            return 5;
+        };
+        defer alloc.free(got);
+        if (got.len != size) {
+            perr("[zig-chan] recv {d} wrong size: got {d} want {d}", .{ i, got.len, size });
+            return 6;
+        }
+        if (!std.mem.eql(u8, got, want)) {
+            perr("[zig-chan] recv {d} payload mismatch", .{i});
+            return 7;
+        }
+    }
+    perr("[zig-chan] read {d} x {d}B on '{s}' OK", .{ count, size, name });
+    return 0;
+}
+
 pub fn main(m: std.process.Init.Minimal) void {
     // Collect argv (Zig 0.16 Args iterator) into a small fixed array.
     var storage: [8][:0]const u8 = undefined;
@@ -656,6 +719,10 @@ pub fn main(m: std.process.Init.Minimal) void {
             break :blk doTwrite(name, count, size);
         } else if (std.mem.eql(u8, verb, "tread")) {
             break :blk doTread(name, count, size);
+        } else if (std.mem.eql(u8, verb, "cwrite")) {
+            break :blk doCwrite(name, count, size);
+        } else if (std.mem.eql(u8, verb, "cread")) {
+            break :blk doCread(name, count, size);
         } else if (isSecureVerb(verb)) {
             const alg_str = if (argv.len > 5) argv[5] else "aes256gcm";
             break :blk runSecure(verb, name, count, size, alg_str);

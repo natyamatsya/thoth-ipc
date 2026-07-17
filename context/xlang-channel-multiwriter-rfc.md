@@ -3,9 +3,14 @@
 
 # RFC: Cross-language `ipc::channel` (multi-writer broadcast)
 
-**Status:** Planned — phased rollout, **Zig first**. This document is the target
-ABI and the per-language roadmap for closing the one remaining cross-language
-gap in the matrix: multi-writer `ipc::channel`. It complements
+**Status:** In progress. **Phase 1 (Zig) is implemented and verified** — a Zig
+multi-producer ring interoperates byte-exact with C++ `ipc::channel` (all
+`cpp+zig → {cpp,zig}` pairings pass at 40/65/3000 B; see
+`zig/libipc/src/transport/channel_multi.zig`). Rust (Phase 2) and Swift
+(Phase 3) are pending; the `channel` scenario stays a tracked expected-fail
+until they land. This document is the target ABI and the per-language roadmap
+for closing the one remaining cross-language gap in the matrix: multi-writer
+`ipc::channel`. It complements
 [`xlang-channel-abi.md`](xlang-channel-abi.md), which specifies the
 single-writer `ipc::route` (already byte-exact across all four ports).
 
@@ -169,10 +174,11 @@ Waiters (`RD/WT/CC_CONN__`), liveness (`LV_CONN__`) and chunk storage
 
 ## 3. Rollout order
 
-1. **Zig (Phase 1, next).** Implement the multi-producer ring + `AC_CONN__`
-   counter + `cwrite`/`cread` byte-exact with C++. Verify `zig→cpp`, `cpp→zig`
-   and `zig→zig` channel pass. De-risks the hardest lock-free protocol against the
-   reference before touching the other ports. Scenario stays `xfail` overall.
+1. **Zig (Phase 1) — ✅ done.** `zig/libipc/src/transport/channel_multi.zig`
+   implements the multi-producer ring + `AC_CONN__` counter + `cwrite`/`cread`
+   byte-exact with C++; `cpp+zig → {cpp,zig}` pass at 40/65/3000 B and `zig→zig`
+   works. De-risked the hardest lock-free protocol against the reference.
+   Scenario stays `xfail` overall until Rust/Swift land.
 2. **Rust (Phase 2).** Same ring + counter; split `Channel` off the route
    `ChanInner`. Verify all `{rust,cpp,zig}` channel pairings.
 3. **Swift (Phase 3).** Same. Verify the full 4-language `channel` matrix.
