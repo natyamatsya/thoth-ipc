@@ -14,6 +14,7 @@
 
 const std = @import("std");
 const channel = @import("transport/channel.zig");
+const notify = @import("transport/notify.zig");
 const Mutex = @import("sync/mutex.zig").Mutex;
 const Condition = @import("sync/condition.zig").Condition;
 const Semaphore = @import("sync/semaphore.zig").Semaphore;
@@ -468,6 +469,65 @@ fn doWrite(name: []const u8, count: usize, size: usize, minrecv: usize) u8 {
     return 0;
 }
 
+/// Async receive (scenario: async): wait on the Layer-1 readiness fd, woken by
+/// any language's sender posting the notify, then drain the ring. Proves the
+/// notify key is byte-exact — a C++/Rust/Swift `write` wakes this receiver.
+fn doAread(name: []const u8, count: usize, size: usize) u8 {
+    var ch = ChanInner.open(alloc, "", name, .receiver) catch {
+        perr("[zig-async] connect(receiver) failed", .{});
+        return 3;
+    };
+    defer ch.deinit();
+    var sink = notify.Sink.open("", name);
+    defer sink.close();
+
+    const want = alloc.alloc(u8, size) catch return 5;
+    defer alloc.free(want);
+    fillPattern(want);
+
+    const overall = deadline(20);
+    var i: usize = 0;
+    while (i < count) {
+        // Greedily drain whatever is already in the ring (non-blocking recv).
+        if (ch.recv(channel.nowNs()) catch return 5) |got| {
+            defer alloc.free(got);
+            if (got.len != size) {
+                perr("[zig-async] recv {d} wrong size {d}", .{ i, got.len });
+                return 6;
+            }
+            if (!std.mem.eql(u8, got, want)) {
+                perr("[zig-async] recv {d} mismatch", .{i});
+                return 7;
+            }
+            i += 1;
+            continue;
+        }
+        // Nothing ready — park on the readiness fd until a sender posts.
+        const rem_ns = overall - channel.nowNs();
+        if (rem_ns <= 0) {
+            perr("[zig-async] recv {d} timed out", .{i});
+            return 5;
+        }
+        if (!sink.valid) {
+            // Notify unavailable: fall back to a blocking (busy-poll) recv.
+            const got = (ch.recv(deadline(8)) catch return 5) orelse return 5;
+            defer alloc.free(got);
+            if (got.len != size) return 6;
+            if (!std.mem.eql(u8, got, want)) return 7;
+            i += 1;
+            continue;
+        }
+        const rem_ms: i32 = @intCast(@min(@divTrunc(rem_ns, std.time.ns_per_ms), std.math.maxInt(i32)));
+        if (!sink.wait(rem_ms)) {
+            perr("[zig-async] recv {d} timed out on readiness fd", .{i});
+            return 5;
+        }
+        sink.drain();
+    }
+    perr("[zig-async] read {d} x {d}B async on '{s}' OK", .{ count, size, name });
+    return 0;
+}
+
 fn doRead(name: []const u8, count: usize, size: usize) u8 {
     var ch = ChanInner.open(alloc, "", name, .receiver) catch {
         perr("[zig] connect(receiver) failed", .{});
@@ -533,10 +593,10 @@ pub fn main(m: std.process.Init.Minimal) void {
     }
     if (std.mem.eql(u8, verb, "caps")) {
         // Advertised capabilities: sync-primitive verbs ("prim"), the typed
-        // protobuf codec, and the AEAD secure envelope (always available — the
-        // crypto is pure Zig std.crypto). The runner joins every scenario except
-        // the still-uncapped async/channel.
-        const caps = "prim typed:protobuf secure secure:aes256gcm secure:chacha20poly1305\n";
+        // protobuf codec, the AEAD secure envelope (pure Zig std.crypto), and the
+        // Layer-1 notify/async readiness. All always available on macOS, so the
+        // runner joins every scenario except multi-writer channel.
+        const caps = "prim typed:protobuf notify async secure secure:aes256gcm secure:chacha20poly1305\n";
         _ = std.c.write(1, caps, caps.len);
         std.process.exit(0);
     }
@@ -590,6 +650,8 @@ pub fn main(m: std.process.Init.Minimal) void {
             break :blk doWrite(name, count, size, minrecv);
         } else if (std.mem.eql(u8, verb, "read")) {
             break :blk doRead(name, count, size);
+        } else if (std.mem.eql(u8, verb, "aread")) {
+            break :blk doAread(name, count, size);
         } else if (std.mem.eql(u8, verb, "twrite")) {
             break :blk doTwrite(name, count, size);
         } else if (std.mem.eql(u8, verb, "tread")) {

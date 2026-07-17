@@ -186,20 +186,28 @@ jobs:
     - name: Build Swift harness (Layer 1 notify + AsyncRoute)
       run: swift build -c release --product xlang-harness
       working-directory: swift/libipc
+    - name: Set up Zig
+      uses: mlugg/setup-zig@v2
+      with:
+        version: 0.16.0
+    - name: Build Zig harness (Layer 1 notify + aread)
+      run: zig build -Doptimize=ReleaseSafe
+      working-directory: zig/libipc
     - name: Build matrix runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
-    - name: Run async matrix (cpp, rust, swift)
+    - name: Run async matrix (cpp, rust, swift, zig)
       run: |
         export XLANG_SWIFT_ASYNC_BIN="$(cd swift/libipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
         tools/xlang-runner/target/release/xlang-runner \
           --config tools/xlang-ci.toml \
           --scenario async \
-          --require cpp-async,cpp-coro,rust-async,swift-async --strict-caps \
+          --require cpp-async,cpp-coro,rust-async,swift-async,zig-async --strict-caps \
           --junit xlang-results.xml
       env:
         XLANG_CPP_ASYNC_BIN: cpp/libipc/bin/xasync
         XLANG_CPP_CORO_BIN: cpp/libipc/bin/xcoro
         XLANG_RUST_ASYNC_BIN: rust/libipc/target/release/xlang
+        XLANG_ZIG_ASYNC_BIN: zig/libipc/zig-out/bin/xlang
     - uses: actions/upload-artifact@v4
       if: always()
       with:

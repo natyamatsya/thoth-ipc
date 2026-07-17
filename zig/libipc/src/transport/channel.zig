@@ -17,6 +17,7 @@ const layout = @import("layout.zig");
 const chunk = @import("chunk.zig");
 const waiter = @import("waiter.zig");
 const liveness = @import("liveness.zig");
+const notify = @import("notify.zig");
 const shm = @import("../platform/shm.zig");
 const shmname = @import("../platform/shmname.zig");
 
@@ -181,6 +182,9 @@ pub const ChanInner = struct {
             const remain: i32 = @as(i32, @intCast(tail)) - @as(i32, @intCast(layout.data_length));
             if (!try self.pushFragment(msg_id, remain, data[offset..], deadline_ns)) return false;
         }
+        // Layer 1: wake any async receiver parked on its readiness fd (byte-exact
+        // with C++/Rust/Swift notify_post; a no-op if nobody is listening).
+        notify.post(self.prefix, self.name);
         return true;
     }
 

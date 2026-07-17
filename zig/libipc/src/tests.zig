@@ -12,6 +12,7 @@ test {
     std.testing.refAllDecls(@import("transport/chunk.zig"));
     std.testing.refAllDecls(@import("transport/waiter.zig"));
     std.testing.refAllDecls(@import("transport/liveness.zig"));
+    std.testing.refAllDecls(@import("transport/notify.zig"));
     std.testing.refAllDecls(@import("transport/channel.zig"));
     std.testing.refAllDecls(@import("sync/ulock.zig"));
     std.testing.refAllDecls(@import("sync/abi_guard.zig"));

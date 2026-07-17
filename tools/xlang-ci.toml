@@ -77,6 +77,12 @@ modes = ["async"]
 bin = "${XLANG_SWIFT_ASYNC_BIN}"
 modes = ["async"]
 
+# Zig reuses its main harness for async (notify/AsyncRoute are always-on on
+# macOS — no separate feature build), like Rust and Swift.
+[languages.zig-async]
+bin = "${XLANG_ZIG_ASYNC_BIN}"
+modes = ["async"]
+
 # Payload sizes exercise the single-fragment (<=64B), multi-fragment and
 # chunk-storage paths of the ipc::route wire — including the exact
 # data_length boundary (63/64/65) and a large chunk-storage payload.
