@@ -58,10 +58,12 @@ gaps this matrix discovered:
 - **`channel`**: cross-language `ipc::channel` was never ABI-compatible — the
   C++ multi-producer broadcast queue uses 96-byte slots with an `f_ct_` commit
   flag and a commit-index protocol (`prod_cons.h`, multi-multi-broadcast),
-  while the Rust/Swift `Channel` reuses the 88-byte route layout; port senders
-  also draw message ids from a process-local counter instead of the shared
-  `AC_CONN` counter (ABI §6a), so even port↔port multi-writer reassembly
-  collides.
+  while the Rust/Swift `Channel` reuses the 88-byte route layout (and Zig has no
+  channel at all); port senders also draw message ids from a process-local
+  counter instead of the shared `AC_CONN` counter (ABI §6a), so even port↔port
+  multi-writer reassembly collides. The target ABI and the per-language roadmap
+  to close this (Zig first) are in
+  [`context/xlang-channel-multiwriter-rfc.md`](../../context/xlang-channel-multiwriter-rfc.md).
 - **`primitives` semaphore cpp↔ports**: the C++ and port semaphores don't
   interop in either direction (different backing objects).
 - **`primitives` mutex with a Rust holder**: probers of every language can

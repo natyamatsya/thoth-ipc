@@ -239,7 +239,10 @@ expected-failures in [`tools/xlang-ci.toml`](tools/xlang-ci.toml) until closed:
 - `ipc::channel` (multi-writer): the C++ multi-producer broadcast queue uses a
   different slot layout (96 B + commit flag) than the ports, and port senders
   draw message ids from a process-local counter instead of the shared `AC_CONN`
-  counter — not interoperable, and port↔port multi-writer collides.
+  counter — not interoperable, and port↔port multi-writer collides. Closing this
+  is scoped in
+  [`context/xlang-channel-multiwriter-rfc.md`](context/xlang-channel-multiwriter-rfc.md)
+  (the target ABI + a per-language roadmap, Zig first).
 - Semaphore: C++ ↔ port semaphores don't interop in either direction (different
   backing objects); the pure ports (Rust/Swift/Zig) interoperate.
 - Mutex: mutual exclusion is broken while a **Rust** process holds the lock — its
@@ -364,6 +367,7 @@ Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [
 
 - **[Cross-Language Test Framework](tools/xlang-runner/README.md)** — the xlang matrix runner: scenarios, capability negotiation, expected-failure tracking, adding languages/scenarios
 - **[Cross-Language Channel ABI](context/xlang-channel-abi.md)** — the byte-exact wire spec the matrix verifies (ring layout, framing, notify, reaper)
+- **[Multi-writer `ipc::channel` RFC](context/xlang-channel-multiwriter-rfc.md)** — target ABI + per-language roadmap (Zig → Rust → Swift) to close the one remaining cross-language gap
 - **[macOS Technical Notes](doc/macos-technical-notes.md)** — platform-specific implementation details for macOS (semaphores, mutexes, shared memory)
 - **[Windows Technical Notes](doc/windows-technical-notes.md)** — platform-specific implementation details for Windows (MSVC conformance, process management, thread priority)
 - **[macOS Deployment & Distribution](doc/macos-deployment.md)** — code signing, notarization, sandbox restrictions, and XPC alternatives for production shipping

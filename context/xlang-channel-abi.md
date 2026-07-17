@@ -9,11 +9,17 @@ pure ports currently diverge — this is the target to fix).
 byte-for-byte and semantically. Verify every change against the C++↔port harness
 (`context/` prototype: C++ writer ↔ port reader message exchange + `recv_count`).
 
-All offsets/sizes below are for **`ipc::route` / `ipc::channel`** =
-`chan<single|multi, multi, broadcast>` on a 64-bit target. Two values are
-**platform-dependent** and must be computed, not hard-coded:
-`AlignSize = min(64, alignof(max_align_t))` (8 on Apple arm64, 16 on x86-64 /
-Linux aarch64) and the `spin_lock` type in the header (below).
+All offsets/sizes below specify the single-writer **`ipc::route`** ring
+(`chan<single, multi, broadcast>`) on a 64-bit target, which the C++, Rust,
+Swift and Zig ports implement byte-exact. Two values are **platform-dependent**
+and must be computed, not hard-coded: `AlignSize = min(64, alignof(max_align_t))`
+(8 on Apple arm64, 16 on x86-64 / Linux aarch64) and the `spin_lock` type in the
+header (below).
+
+> **Multi-writer `ipc::channel`** (`chan<multi, multi, broadcast>`) is a
+> *different* ring — 96-byte slots with a `ct_`/`f_ct_` commit protocol — not yet
+> cross-language. Its target ABI and the per-language roadmap to close the gap
+> live in [`xlang-channel-multiwriter-rfc.md`](xlang-channel-multiwriter-rfc.md).
 
 ## 1. Object names (per channel)
 
