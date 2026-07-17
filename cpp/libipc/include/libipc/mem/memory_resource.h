@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2018 mutouyun (http://orzz.org)
+
 /**
  * \file libipc/memory_resource.h
  * \author mutouyun (orz@orzz.org)

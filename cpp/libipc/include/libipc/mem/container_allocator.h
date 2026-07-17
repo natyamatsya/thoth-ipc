@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2018 mutouyun (http://orzz.org)
+
 /**
  * \file libipc/container_allocator.h
  * \author mutouyun (orz@orzz.org)

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2018 mutouyun (http://orzz.org)
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
+
 /**
  * \file libipc/detect_plat.h
  * \author mutouyun (orz@orzz.org)
