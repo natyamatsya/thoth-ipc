@@ -24,7 +24,8 @@ for the parallel channel work and
 | [`abi.json`](abi.json) | the ABI spec — constants, enums, structs, naming templates, per-target values |
 | [`abi.schema.json`](abi.schema.json) | JSON Schema for `abi.json` — the **structural** gate + editor validation |
 | [`dump_abi.cpp`](dump_abi.cpp) | tiny C++ probe that emits the *deployed* ABI values (`sizeof`/masks/constants) as JSON |
-| [`../tools/abi`](../tools/abi) | Rust checker: validates `abi.json` vs the schema, then diffs it against the C++ dump |
+| [`../tools/abi`](../tools/abi) | Rust `check` + `generate` — validates `abi.json` and emits per-language modules |
+| [`generated/`](generated/) | generated Rust / Swift / C++ modules (`abi.{rs,swift,hpp}`), not yet consumed by their ports |
 
 ## Three gates
 
@@ -65,20 +66,30 @@ cargo run --manifest-path tools/abi/Cargo.toml
 
 ## Generation
 
-`tools/abi generate --lang zig` emits a per-language constant module from
-`abi.json` (constants, enums, and struct sizes/field-offsets, resolved for the
-`--target`). The generated file is committed and consumed by the port; CI runs
-`generate --lang zig --check` to fail if it is stale vs `abi.json`.
+`tools/abi generate --lang <zig|rust|swift|cpp> [--target T] [--out P] [--check]`
+emits a per-language constant module from `abi.json` (constants, enums, struct
+sizes/field-offsets, and `abi_version`, resolved for `--target`). Each language's
+idiom: Zig `pub const`, Rust `pub const` + `#[repr]` enums, Swift a caseless
+`enum ABI` namespace, C++ `namespace ipc::abi` with `inline constexpr`. CI runs
+`generate --lang <l> --check` for all four (staleness gate) and compiles the
+generated Rust/C++ modules.
 
 ```sh
-cargo run --manifest-path tools/abi/Cargo.toml -- generate --lang zig
+cargo run --manifest-path tools/abi/Cargo.toml -- generate --lang rust
 ```
 
-**Zig is migrated:** `zig/libipc/src/abi_generated.zig` is generated from
-`abi.json`, and `layout.zig` / `channel_multi.zig` / `chunk.zig` re-export from it
-(the public const names are unchanged, so the rest of the port is untouched). A
-change to a constant in `abi.json` now propagates to Zig by regeneration, and the
-xlang matrix confirms it stays byte-exact.
+**Zig is migrated** (consumes its module): `zig/libipc/src/abi_generated.zig` is
+generated, and `layout.zig` / `channel_multi.zig` / `chunk.zig` re-export from it
+(public const names unchanged, so the rest of the port is untouched). A change to
+`abi.json` propagates to Zig by regeneration, and the xlang matrix confirms it
+stays byte-exact.
+
+**Rust / Swift / C++ modules are generated** to
+[`abi/generated/`](generated/) (`abi.rs`, `abi.swift`, `abi.hpp`) — committed,
+compile-checked and staleness-gated, but **not yet consumed** by their ports.
+Migrating a port means moving its generated file into the port tree (re-pointing
+`--out`) and re-exporting the port's hand-written constants from it, exactly as
+Zig did — then that port, C++ included, is a generated peer, not a hand-source.
 
 ## ABI versioning
 
@@ -99,8 +110,9 @@ cpp-ipc v1.4.1 and proven across four ports). This is the global contract versio
 
 ## Next steps
 
-1. Grow `abi.json` + dumper coverage (`msg_t` offsets via a small introspection
+1. **Migrate** the Rust, Swift and C++ ports to consume their generated modules
+   (one at a time, matrix-verified) — the payoff that removes hand-maintained
+   duplication. Once C++ consumes `ipc::abi`, it is a generated peer, not the
+   reference.
+2. Grow `abi.json` + dumper coverage (`msg_t` offsets via a small introspection
    shim, SIPC / SyncAbi framing, naming-template checks).
-2. Generators for the other ports (`--lang rust|swift|cpp`) and migrate each to
-   consume the generated constants — one port at a time, matrix-verified. Once
-   C++ is generated too, it is a peer, not the reference.

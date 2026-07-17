@@ -320,5 +320,13 @@ jobs:
       run: cargo run --manifest-path tools/abi/Cargo.toml
       env:
         CXX: g++
-    - name: Check generated Zig ABI module is up to date
-      run: cargo run --manifest-path tools/abi/Cargo.toml -- generate --lang zig --check
+    - name: Check generated ABI modules are up to date with abi.json
+      run: |
+        for lang in zig rust swift cpp; do
+          cargo run --manifest-path tools/abi/Cargo.toml -- generate --lang "$lang" --check
+        done
+    - name: Compile-check generated Rust and C++ modules
+      run: |
+        rustc --edition 2021 --crate-type lib --emit=metadata --out-dir /tmp abi/generated/abi.rs
+        g++ -std=c++17 -fsyntax-only -x c++ abi/generated/abi.hpp
+      # (the generated Swift module is parse-checked on the macOS jobs / locally)
