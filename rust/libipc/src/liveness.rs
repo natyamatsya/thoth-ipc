@@ -27,10 +27,10 @@ pub struct SlotOwner {
 }
 
 const _: () = {
-    assert!(std::mem::size_of::<SlotOwner>() == 16);
+    assert!(std::mem::size_of::<SlotOwner>() == crate::abi_generated::liveness_slot_size);
     assert!(std::mem::align_of::<SlotOwner>() == 8);
-    assert!(std::mem::offset_of!(SlotOwner, pid) == 0);
-    assert!(std::mem::offset_of!(SlotOwner, start_tok) == 8);
+    assert!(std::mem::offset_of!(SlotOwner, pid) == crate::abi_generated::liveness_slot_pid_off);
+    assert!(std::mem::offset_of!(SlotOwner, start_tok) == crate::abi_generated::liveness_slot_start_tok_off);
 };
 
 /// The LV_CONN__ segment: one owner per broadcast connection bit.

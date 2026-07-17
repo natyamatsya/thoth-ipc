@@ -17,13 +17,15 @@ const std = @import("std");
 const shm = @import("../platform/shm.zig");
 const shmname = @import("../platform/shmname.zig");
 const layout = @import("layout.zig");
+// Slot layout (size + field offsets) is generated from abi/abi.json by tools/abi.
+const abi = @import("../abi_generated.zig");
 
 const ShmHandle = shm.ShmHandle;
 
-pub const max_slots: usize = 32;
-pub const slot_stride: usize = 16; // sizeof(slot_owner)
-const pid_off: usize = 0; // int32
-const tok_off: usize = 8; // uint64
+pub const max_slots: usize = 32; // one slot per cc_ bit (32-bit connection bitmask)
+pub const slot_stride: usize = abi.liveness_slot_size; // sizeof(slot_owner) = 16
+const pid_off: usize = abi.liveness_slot_pid_off; // int32 @0
+const tok_off: usize = abi.liveness_slot_start_tok_off; // uint64 @8
 pub const shm_size_bytes: usize = max_slots * slot_stride; // 512
 
 // Darwin proc_pidinfo — no std.c wrapper; the BSD start time is the process

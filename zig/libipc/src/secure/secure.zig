@@ -14,6 +14,9 @@
 //   then nonce ‖ ciphertext ‖ tag   (fixed header = 19 bytes)
 
 const std = @import("std");
+// SIPC magic/version and the fixed-header field offsets are generated from
+// abi/abi.json (single source of truth) by `tools/abi`.
+const abi = @import("../abi_generated.zig");
 
 const Aes256Gcm = std.crypto.aead.aes_gcm.Aes256Gcm;
 const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
@@ -21,7 +24,30 @@ const ChaCha20Poly1305 = std.crypto.aead.chacha_poly.ChaCha20Poly1305;
 const NONCE_SIZE = 12;
 const TAG_SIZE = 16;
 const KEY_SIZE = 32;
-const FIXED_HEADER = 19;
+
+// --- SIPC envelope v1 framing (all little-endian) — generated offsets ---------
+const SIPC_MAGIC = abi.sipc_magic; // "SIPC"
+const SIPC_VERSION: u8 = abi.sipc_version; // 1
+const FIXED_HEADER = abi.sipc_header_size; // 19
+const OFF_VERSION = abi.sipc_header_version_off; // 4
+const OFF_ALG = abi.sipc_header_alg_id_off; // 5  (u16)
+const OFF_KEY = abi.sipc_header_key_id_off; // 7  (u32)
+const OFF_NONCE_SIZE = abi.sipc_header_nonce_size_off; // 11 (u16)
+const OFF_TAG_SIZE = abi.sipc_header_tag_size_off; // 13 (u16)
+const OFF_CT_SIZE = abi.sipc_header_ct_size_off; // 15 (u32)
+
+comptime {
+    // Guard the hand-written slice offsets below against generated drift.
+    std.debug.assert(SIPC_MAGIC.len == 4);
+    std.debug.assert(abi.sipc_header_magic_off == 0);
+    std.debug.assert(OFF_VERSION == 4);
+    std.debug.assert(OFF_ALG == 5);
+    std.debug.assert(OFF_KEY == 7);
+    std.debug.assert(OFF_NONCE_SIZE == 11);
+    std.debug.assert(OFF_TAG_SIZE == 13);
+    std.debug.assert(OFF_CT_SIZE == 15);
+    std.debug.assert(FIXED_HEADER == 19);
+}
 
 // macOS entropy source (getentropy(2), ≤256 B) for the per-seal random nonce.
 extern "c" fn getentropy(buf: [*]u8, len: usize) c_int;
@@ -93,13 +119,13 @@ pub fn sealMessage(alloc: std.mem.Allocator, alg: Alg, key: Key, plain: []const 
 
     const total = FIXED_HEADER + NONCE_SIZE + plain.len + TAG_SIZE;
     const out = try alloc.alloc(u8, total);
-    @memcpy(out[0..4], "SIPC");
-    out[4] = 1;
-    std.mem.writeInt(u16, out[5..7], @intFromEnum(alg), .little);
-    std.mem.writeInt(u32, out[7..11], key.id, .little);
-    std.mem.writeInt(u16, out[11..13], NONCE_SIZE, .little);
-    std.mem.writeInt(u16, out[13..15], TAG_SIZE, .little);
-    std.mem.writeInt(u32, out[15..19], @intCast(ct.len), .little);
+    @memcpy(out[0..SIPC_MAGIC.len], SIPC_MAGIC);
+    out[OFF_VERSION] = SIPC_VERSION;
+    std.mem.writeInt(u16, out[OFF_ALG..][0..2], @intFromEnum(alg), .little);
+    std.mem.writeInt(u32, out[OFF_KEY..][0..4], key.id, .little);
+    std.mem.writeInt(u16, out[OFF_NONCE_SIZE..][0..2], NONCE_SIZE, .little);
+    std.mem.writeInt(u16, out[OFF_TAG_SIZE..][0..2], TAG_SIZE, .little);
+    std.mem.writeInt(u32, out[OFF_CT_SIZE..][0..4], @intCast(ct.len), .little);
     var o: usize = FIXED_HEADER;
     @memcpy(out[o .. o + NONCE_SIZE], &nonce);
     o += NONCE_SIZE;
@@ -113,13 +139,13 @@ pub fn sealMessage(alloc: std.mem.Allocator, alg: Alg, key: Key, plain: []const 
 /// key-id mismatch, or AEAD authentication failure. Caller owns the plaintext.
 pub fn openMessage(alloc: std.mem.Allocator, expected_alg: Alg, key: Key, env: []const u8) ?[]u8 {
     if (env.len < FIXED_HEADER) return null;
-    if (!std.mem.eql(u8, env[0..4], "SIPC")) return null;
-    if (env[4] != 1) return null;
-    const alg_id = std.mem.readInt(u16, env[5..7], .little);
-    const key_id = std.mem.readInt(u32, env[7..11], .little);
-    const nonce_size = std.mem.readInt(u16, env[11..13], .little);
-    const tag_size = std.mem.readInt(u16, env[13..15], .little);
-    const ct_size = std.mem.readInt(u32, env[15..19], .little);
+    if (!std.mem.eql(u8, env[0..SIPC_MAGIC.len], SIPC_MAGIC)) return null;
+    if (env[OFF_VERSION] != SIPC_VERSION) return null;
+    const alg_id = std.mem.readInt(u16, env[OFF_ALG..][0..2], .little);
+    const key_id = std.mem.readInt(u32, env[OFF_KEY..][0..4], .little);
+    const nonce_size = std.mem.readInt(u16, env[OFF_NONCE_SIZE..][0..2], .little);
+    const tag_size = std.mem.readInt(u16, env[OFF_TAG_SIZE..][0..2], .little);
+    const ct_size = std.mem.readInt(u32, env[OFF_CT_SIZE..][0..4], .little);
 
     if (alg_id != @intFromEnum(expected_alg)) return null;
     if (key_id != key.id) return null;

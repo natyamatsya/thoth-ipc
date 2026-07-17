@@ -23,6 +23,8 @@ use std::io;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
+use crate::abi_generated as abi;
+
 #[cfg(unix)]
 use crate::platform::posix::{cached_shm_acquire, cached_shm_purge, cached_shm_release, CachedShm};
 use crate::shm::ShmHandle;
@@ -30,11 +32,11 @@ use crate::shm::ShmHandle;
 use crate::shm::ShmOpenMode;
 
 /// Max large-message slots per chunk size (C++ `large_msg_cache = 32`).
-pub const MAX_COUNT: usize = 32;
+pub const MAX_COUNT: usize = abi::large_msg_cache;
 /// Chunk-size alignment (C++ `large_msg_align = 1024`).
-pub const CHUNK_ALIGN: usize = 1024;
+pub const CHUNK_ALIGN: usize = abi::large_msg_align;
 /// Per-chunk header = `make_align(alignof(max_align_t)=8, sizeof(atomic<cc_t>)=4)` = 8.
-const CHUNK_HEADER: usize = 8;
+const CHUNK_HEADER: usize = abi::chunk_header_size;
 
 /// A `storage_id` (C++ `storage_id_t = int32`); < 0 means invalid.
 pub type StorageId = i32;
@@ -56,7 +58,7 @@ struct ChunkInfo {
 }
 
 const _: () = {
-    assert!(std::mem::size_of::<ChunkInfo>() == 40);
+    assert!(std::mem::size_of::<ChunkInfo>() == abi::chunk_info_size);
     assert!(std::mem::offset_of!(ChunkInfo, next_) == 0);
     assert!(std::mem::offset_of!(ChunkInfo, cursor_) == 32);
     assert!(std::mem::offset_of!(ChunkInfo, prepared_) == 33);

@@ -11,17 +11,32 @@
 
 const std = @import("std");
 const shm = @import("../platform/shm.zig");
+// Numeric ABI constants/offsets are generated from abi/abi.json (single source
+// of truth) by `tools/abi`; re-export the wire-visible ones so drift is caught.
+const abi = @import("../abi_generated.zig");
 
 const ShmHandle = shm.ShmHandle;
 
-const MAGIC: u32 = 0x4C49_5341; // "LISA"
+const MAGIC: u32 = abi.syncabi_magic; // "LISA" (0x4C495341)
 const INIT_IN_PROGRESS: u32 = 0xFFFF_FFFF;
 const VERSION_MAJOR: u32 = 1;
 const VERSION_MINOR: u32 = 0;
-const BACKEND_APPLE_ULOCK: u32 = 2;
+const BACKEND_APPLE_ULOCK: u32 = abi.syncabi_backend_ulock; // apple_ulock = 2
 const PAYLOAD_SIZE: u32 = 8; // both mutex (state+holder) and condition (seq+waiters)
 const INIT_WAIT_LIMIT: u32 = 16_384;
-const STAMP_SIZE: usize = 6 * 4;
+const STAMP_SIZE: usize = abi.syncabi_stamp_size; // 6 x u32 = 24
+
+comptime {
+    // The stamp is 6 sequential u32 words; word(base, i) lives at i*4. Guard that
+    // the word layout still matches the generated SyncAbi stamp field offsets.
+    std.debug.assert(abi.syncabi_stamp_magic_off == 0 * 4);
+    std.debug.assert(abi.syncabi_stamp_ver_major_off == 1 * 4);
+    std.debug.assert(abi.syncabi_stamp_ver_minor_off == 2 * 4);
+    std.debug.assert(abi.syncabi_stamp_backend_id_off == 3 * 4);
+    std.debug.assert(abi.syncabi_stamp_primitive_id_off == 4 * 4);
+    std.debug.assert(abi.syncabi_stamp_payload_size_off == 5 * 4);
+    std.debug.assert(STAMP_SIZE == 6 * 4);
+}
 
 pub const Primitive = enum(u32) {
     mutex = 1,

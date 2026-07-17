@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -10,6 +11,7 @@
 #include "libipc/imp/log.h"
 #include "libipc/mem/resource.h"
 #include "libipc/shm.h"
+#include "libipc/abi_generated.hpp"    // generated ipc::abi (abi/abi.json)
 
 #if defined(LIBIPC_OS_LINUX)
 #include "a0/mtx.h"
@@ -50,6 +52,34 @@ struct expected_t {
     std::uint32_t primitive_id;
     std::uint32_t payload_size;
 };
+
+// -----------------------------------------------------------------------------
+// ABI conformance — the C++ SyncAbi stamp layout must match the generated
+// ipc::abi (from abi/abi.json). C++ keeps *deriving* stamp_t / sync_abi_magic
+// from its own definitions here (dump_abi.cpp stays the independent ground
+// truth); these compile-time asserts make C++ a *checked* peer of the generated
+// Rust/Swift/Zig sync modules. stamp_t is standard-layout (six same-typed atomic
+// fields, no bases), so offsetof is well-formed.
+// (syncabi_backend_ulock == 2 is not asserted: the C++ backend id is an inline
+//  platform literal in backend_id(), not an independently-named constant.)
+// -----------------------------------------------------------------------------
+static_assert(static_cast<std::uint32_t>(sync_abi_magic) == ipc::abi::syncabi_magic,
+              "abi drift: syncabi_magic");
+
+static_assert(sizeof(stamp_t) == ipc::abi::syncabi_stamp_size,
+              "abi drift: syncabi_stamp.size");
+static_assert(offsetof(stamp_t, magic)             == ipc::abi::syncabi_stamp_magic_off,
+              "abi drift: syncabi_stamp.magic_off");
+static_assert(offsetof(stamp_t, abi_version_major) == ipc::abi::syncabi_stamp_ver_major_off,
+              "abi drift: syncabi_stamp.ver_major_off");
+static_assert(offsetof(stamp_t, abi_version_minor) == ipc::abi::syncabi_stamp_ver_minor_off,
+              "abi drift: syncabi_stamp.ver_minor_off");
+static_assert(offsetof(stamp_t, backend_id)        == ipc::abi::syncabi_stamp_backend_id_off,
+              "abi drift: syncabi_stamp.backend_id_off");
+static_assert(offsetof(stamp_t, primitive_id)      == ipc::abi::syncabi_stamp_primitive_id_off,
+              "abi drift: syncabi_stamp.primitive_id_off");
+static_assert(offsetof(stamp_t, payload_size)      == ipc::abi::syncabi_stamp_payload_size_off,
+              "abi drift: syncabi_stamp.payload_size_off");
 
 inline char const *kind_name(primitive_kind const kind) noexcept {
     switch (kind) {

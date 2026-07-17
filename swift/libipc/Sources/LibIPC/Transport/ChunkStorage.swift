@@ -17,11 +17,11 @@ import Atomics
 // MARK: - Constants
 
 /// Max large-message slots per chunk size (C++ large_msg_cache = 32).
-let chunkMaxCount: Int = 32
+let chunkMaxCount: Int = ABI.large_msg_cache
 /// Chunk-size alignment (C++ large_msg_align = 1024).
-let chunkAlign: Int = 1024
+let chunkAlign: Int = ABI.large_msg_align
 /// Per-chunk header = make_align(alignof(max_align_t)=8, sizeof(atomic<cc_t>)=4) = 8.
-let chunkHeaderSize: Int = 8
+let chunkHeaderSize: Int = ABI.chunk_header_size
 
 /// A storage slot identifier (C++ storage_id_t = int32); < 0 means invalid.
 typealias StorageId = Int32
@@ -42,7 +42,7 @@ private let ciCursorOffset   = 32  // cursor_ (u8)
 private let ciPreparedOffset = 33  // prepared_ (bool)
 private let ciLockOffset     = 36  // os_unfair_lock
 /// sizeof(chunk_info_t) = 40; the chunk array starts here (C++ `this + 1`).
-let chunkInfoSize: Int = 40
+let chunkInfoSize: Int = ABI.chunk_info_size
 
 func chunkShmSize(_ chunkSize: Int) -> Int { chunkInfoSize + chunkMaxCount * chunkSize }
 

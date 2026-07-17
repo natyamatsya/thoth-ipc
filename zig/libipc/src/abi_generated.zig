@@ -37,7 +37,7 @@ pub const chan_ic_mask: u64 = 0xff000000ffffffff;
 /// channel rc_: internal read-generation increment (bits 32..)
 pub const chan_ic_incr: u64 = 0x0000000100000000;
 /// SyncAbi stamp magic "LISA" (0x4C495341)
-pub const syncabi_magic: u32 = 1279613249;
+pub const syncabi_magic: u32 = 1279873857;
 /// SyncAbi backend id: apple_ulock
 pub const syncabi_backend_ulock: u32 = 2;
 /// secure envelope v1 magic

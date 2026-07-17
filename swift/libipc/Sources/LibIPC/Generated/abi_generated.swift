@@ -36,7 +36,7 @@ public enum ABI {
     /// channel rc_: internal read-generation increment (bits 32..)
     public static let chan_ic_incr: UInt64 = 0x0000000100000000
     /// SyncAbi stamp magic "LISA" (0x4C495341)
-    public static let syncabi_magic: UInt32 = 1279613249
+    public static let syncabi_magic: UInt32 = 1279873857
     /// SyncAbi backend id: apple_ulock
     public static let syncabi_backend_ulock: UInt32 = 2
     /// secure envelope v1 magic

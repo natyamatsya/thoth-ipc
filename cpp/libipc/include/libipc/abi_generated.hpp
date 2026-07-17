@@ -41,7 +41,7 @@ inline constexpr std::uint64_t chan_ic_mask = 0xff000000ffffffffull;
 /// channel rc_: internal read-generation increment (bits 32..)
 inline constexpr std::uint64_t chan_ic_incr = 0x0000000100000000ull;
 /// SyncAbi stamp magic "LISA" (0x4C495341)
-inline constexpr std::uint32_t syncabi_magic = 1279613249;
+inline constexpr std::uint32_t syncabi_magic = 1279873857;
 /// SyncAbi backend id: apple_ulock
 inline constexpr std::uint32_t syncabi_backend_ulock = 2;
 /// secure envelope v1 magic

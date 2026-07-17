@@ -25,7 +25,7 @@
     { "name": "chan_ic_mask", "type": "u64", "value": "0xff000000ffffffff", "description": "channel rc_: invert-carry mask" },
     { "name": "chan_ic_incr", "type": "u64", "value": "0x0000000100000000", "description": "channel rc_: internal read-generation increment (bits 32..)" },
 
-    { "name": "syncabi_magic",         "type": "u32", "value": 1279613249, "description": "SyncAbi stamp magic \"LISA\" (0x4C495341)" },
+    { "name": "syncabi_magic",         "type": "u32", "value": 1279873857, "description": "SyncAbi stamp magic \"LISA\" (0x4C495341)" },
     { "name": "syncabi_backend_ulock", "type": "u32", "value": 2,          "description": "SyncAbi backend id: apple_ulock" },
     { "name": "sipc_magic",            "type": "string", "value": "SIPC",  "description": "secure envelope v1 magic" },
     { "name": "sipc_version",          "type": "u8",  "value": 1,          "description": "secure envelope v1 version" },

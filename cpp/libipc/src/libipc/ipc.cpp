@@ -101,6 +101,15 @@ static_assert(AbiChanP::ep_mask  == ipc::abi::chan_ep_mask,  "abi drift: chan_ep
 static_assert(AbiChanP::ep_incr  == ipc::abi::chan_ep_incr,  "abi drift: chan_ep_incr");
 static_assert(AbiChanP::ic_mask  == ipc::abi::chan_ic_mask,  "abi drift: chan_ic_mask");
 static_assert(AbiChanP::ic_incr  == ipc::abi::chan_ic_incr,  "abi drift: chan_ic_incr");
+
+// Liveness slot-owner table (LV_CONN__ segment, libipc/liveness.h). slot_owner
+// is standard-layout (two atomic fields, no bases), so offsetof is well-formed.
+static_assert(sizeof(ipc::detail::slot_owner) == ipc::abi::liveness_slot_size,
+              "abi drift: liveness_slot.size");
+static_assert(offsetof(ipc::detail::slot_owner, pid)       == ipc::abi::liveness_slot_pid_off,
+              "abi drift: liveness_slot.pid_off");
+static_assert(offsetof(ipc::detail::slot_owner, start_tok) == ipc::abi::liveness_slot_start_tok_off,
+              "abi drift: liveness_slot.start_tok_off");
 } // namespace
 
 template <typename T>
@@ -309,6 +318,27 @@ struct chunk_info_t {
         return reinterpret_cast<chunk_t *>(chunks_mem() + (chunk_size * id));
     }
 };
+
+// -----------------------------------------------------------------------------
+// ABI conformance — the large-message chunk layout must match the generated
+// ipc::abi (from abi/abi.json). chunk_info_t / chunk_t live in this TU (not a
+// header), so dump_abi.cpp cannot reach them; C++ keeps deriving these values
+// from its own definitions (chunk_info_t, make_align, def.h). The per-chunk
+// header size is the same make_align expression chunk_t::data() uses.
+//
+// Apple-only: both values depend on alignof(std::max_align_t) (8 on Apple, 16 on
+// Linux/Win x86-64) — chunk_header directly, chunk_info via the lock's alignment.
+// The generated values are the apple_arm64 target, so guard the check to Apple
+// (the transport asserts above stay portable only because they force AlignSize=8
+// through the elem_array template parameter, which is not possible here).
+// -----------------------------------------------------------------------------
+#if defined(__APPLE__)
+namespace {
+static_assert(sizeof(chunk_info_t) == ipc::abi::chunk_info_size, "abi drift: chunk_info.size");
+static_assert(ipc::make_align(alignof(std::max_align_t), sizeof(std::atomic<ipc::circ::cc_t>))
+                  == ipc::abi::chunk_header_size, "abi drift: chunk_header_size");
+} // namespace
+#endif
 
 auto& chunk_storages() {
     class chunk_handle_t {

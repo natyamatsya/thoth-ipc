@@ -4,14 +4,14 @@
 import Atomics
 import Darwin.POSIX
 
-private let syncAbiMagic: UInt32 = 0x4C49_5341 // "LISA"
+private let syncAbiMagic: UInt32 = ABI.syncabi_magic // "LISA" (0x4C495341)
 private let syncAbiInitInProgress: UInt32 = .max
 private let syncAbiVersionMajor: UInt32 = 1
 private let syncAbiVersionMinor: UInt32 = 0
 private let syncAbiInitWaitLimit: UInt32 = 16_384
 
 // Swift macOS sync uses the Apple ulock profile.
-private let syncAbiBackendId: UInt32 = 2 // apple_ulock
+private let syncAbiBackendId: UInt32 = ABI.syncabi_backend_ulock // apple_ulock (2)
 
 // Payload sizes derived from the actual shared-memory layout structs, mirroring
 // the C++ sizeof(ulock_mutex_t) / sizeof(ulock_cond_t) approach.
@@ -72,6 +72,19 @@ struct SyncAbiGuard: ~Copyable {
 
     private static func sidecarName(_ name: String, _ primitive: SyncAbiPrimitive) -> String {
         "\(name)\(primitive.sidecarSuffix)"
+    }
+
+    /// Guard the stamp layout against ABI drift (offsets/size from the spec),
+    /// mirroring Channel.swift's assertHeaderLayout(). The stamp is accessed by
+    /// word index (withAtomicWord), so its field offsets must match the ABI.
+    private static func assertStampLayout() {
+        assert(MemoryLayout<SyncAbiStamp>.size == ABI.syncabi_stamp_size)
+        assert(MemoryLayout<SyncAbiStamp>.offset(of: \.magic)! == ABI.syncabi_stamp_magic_off)
+        assert(MemoryLayout<SyncAbiStamp>.offset(of: \.abiVersionMajor)! == ABI.syncabi_stamp_ver_major_off)
+        assert(MemoryLayout<SyncAbiStamp>.offset(of: \.abiVersionMinor)! == ABI.syncabi_stamp_ver_minor_off)
+        assert(MemoryLayout<SyncAbiStamp>.offset(of: \.backendId)! == ABI.syncabi_stamp_backend_id_off)
+        assert(MemoryLayout<SyncAbiStamp>.offset(of: \.primitiveId)! == ABI.syncabi_stamp_primitive_id_off)
+        assert(MemoryLayout<SyncAbiStamp>.offset(of: \.payloadSize)! == ABI.syncabi_stamp_payload_size_off)
     }
 
     private static func expected(for primitive: SyncAbiPrimitive) -> SyncAbiExpected {
@@ -188,6 +201,7 @@ struct SyncAbiGuard: ~Copyable {
         guard !name.isEmpty else {
             throw .invalidArgument("name is empty")
         }
+        assertStampLayout()
 
         let metaName = sidecarName(name, primitive)
         let shm: ShmHandle

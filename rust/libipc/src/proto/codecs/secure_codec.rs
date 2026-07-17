@@ -6,6 +6,7 @@
 use std::marker::PhantomData;
 use std::mem::size_of;
 
+use crate::abi_generated as abi;
 use crate::buffer::IpcBuffer;
 
 use super::super::codec::{Codec, CodecId};
@@ -27,15 +28,21 @@ pub trait SecureCipher {
     fn open(nonce: &[u8], ciphertext: &[u8], tag: &[u8], plain: &mut Vec<u8>) -> bool;
 }
 
-const SECURE_ENVELOPE_MAGIC: &[u8; 4] = b"SIPC";
-const SECURE_ENVELOPE_VERSION: u8 = 1;
-const SECURE_ENVELOPE_OFFSET_VERSION: usize = 4;
-const SECURE_ENVELOPE_OFFSET_ALGORITHM_ID: usize = 5;
-const SECURE_ENVELOPE_OFFSET_KEY_ID: usize = 7;
-const SECURE_ENVELOPE_OFFSET_NONCE_SIZE: usize = 11;
-const SECURE_ENVELOPE_OFFSET_TAG_SIZE: usize = 13;
-const SECURE_ENVELOPE_OFFSET_CIPHERTEXT_SIZE: usize = 15;
-const SECURE_ENVELOPE_FIXED_HEADER_SIZE: usize = 19;
+// SIPC envelope v1 framing — sourced from the generated ABI (abi/abi.json).
+const SECURE_ENVELOPE_MAGIC: &[u8; 4] = b"SIPC"; // == abi::sipc_magic
+const SECURE_ENVELOPE_VERSION: u8 = abi::sipc_version;
+const SECURE_ENVELOPE_OFFSET_VERSION: usize = abi::sipc_header_version_off;
+const SECURE_ENVELOPE_OFFSET_ALGORITHM_ID: usize = abi::sipc_header_alg_id_off;
+const SECURE_ENVELOPE_OFFSET_KEY_ID: usize = abi::sipc_header_key_id_off;
+const SECURE_ENVELOPE_OFFSET_NONCE_SIZE: usize = abi::sipc_header_nonce_size_off;
+const SECURE_ENVELOPE_OFFSET_TAG_SIZE: usize = abi::sipc_header_tag_size_off;
+const SECURE_ENVELOPE_OFFSET_CIPHERTEXT_SIZE: usize = abi::sipc_header_ct_size_off;
+const SECURE_ENVELOPE_FIXED_HEADER_SIZE: usize = abi::sipc_header_size;
+// Guard: abi::sipc_magic must match the byte literal above.
+const _: () = {
+    let m = abi::sipc_magic.as_bytes();
+    assert!(m.len() == 4 && m[0] == b'S' && m[1] == b'I' && m[2] == b'P' && m[3] == b'C');
+};
 
 struct SecureEnvelopeView<'a> {
     algorithm_id: u16,

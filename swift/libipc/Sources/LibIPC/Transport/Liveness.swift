@@ -19,9 +19,9 @@ import Darwin
 import Atomics
 
 let livenessMaxSlots = 32
-let livenessSlotStride = 16   // sizeof(slot_owner)
-let livenessPidOffset = 0     // int32
-let livenessTokOffset = 8     // uint64
+let livenessSlotStride = ABI.liveness_slot_size        // sizeof(slot_owner) = 16
+let livenessPidOffset = ABI.liveness_slot_pid_off      // int32 @0
+let livenessTokOffset = ABI.liveness_slot_start_tok_off // uint64 @8
 let livenessShmSizeBytes = livenessMaxSlots * livenessSlotStride  // 512
 
 func livenessName(_ prefix: String, _ name: String) -> String {

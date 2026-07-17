@@ -5,9 +5,10 @@ use std::io;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::abi_generated as abi;
 use crate::{ShmHandle, ShmOpenMode};
 
-const SYNC_ABI_MAGIC: u32 = 0x4C49_5341; // "LISA" (LibIPC Sync ABI)
+const SYNC_ABI_MAGIC: u32 = abi::syncabi_magic; // "LISA" (LibIPC Sync ABI)
 const SYNC_ABI_INIT_IN_PROGRESS: u32 = u32::MAX;
 const SYNC_ABI_VERSION_MAJOR: u32 = 1;
 const SYNC_ABI_VERSION_MINOR: u32 = 0;
@@ -25,7 +26,7 @@ const SYNC_ABI_VERSION_MINOR: u32 = 0;
 const SYNC_ABI_INIT_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[cfg(target_os = "macos")]
-const SYNC_BACKEND_ID: u32 = 2; // apple_ulock
+const SYNC_BACKEND_ID: u32 = abi::syncabi_backend_ulock; // apple_ulock
 #[cfg(all(unix, not(target_os = "macos")))]
 const SYNC_BACKEND_ID: u32 = 1; // posix_pthread
 #[cfg(windows)]
@@ -112,6 +113,17 @@ struct SyncAbiStamp {
     primitive_kind: AtomicU32,
     payload_size: AtomicU32,
 }
+
+// Compile-time guard: the stamp must match the generated ABI layout.
+const _: () = {
+    assert!(std::mem::size_of::<SyncAbiStamp>() == abi::syncabi_stamp_size);
+    assert!(std::mem::offset_of!(SyncAbiStamp, magic) == abi::syncabi_stamp_magic_off);
+    assert!(std::mem::offset_of!(SyncAbiStamp, abi_version_major) == abi::syncabi_stamp_ver_major_off);
+    assert!(std::mem::offset_of!(SyncAbiStamp, abi_version_minor) == abi::syncabi_stamp_ver_minor_off);
+    assert!(std::mem::offset_of!(SyncAbiStamp, backend_id) == abi::syncabi_stamp_backend_id_off);
+    assert!(std::mem::offset_of!(SyncAbiStamp, primitive_kind) == abi::syncabi_stamp_primitive_id_off);
+    assert!(std::mem::offset_of!(SyncAbiStamp, payload_size) == abi::syncabi_stamp_payload_size_off);
+};
 
 #[derive(Clone, Copy)]
 struct SyncAbiExpected {

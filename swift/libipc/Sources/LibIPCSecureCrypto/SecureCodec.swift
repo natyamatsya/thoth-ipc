@@ -24,16 +24,19 @@ public extension SecureCipher {
 }
 
 private enum SecureEnvelopeV1 {
-    static let magic: [UInt8] = [0x53, 0x49, 0x50, 0x43] // "SIPC"
-    static let version: UInt8 = 1
+    // SIPC envelope constants — sourced from the generated `ABI` namespace
+    // (abi/abi.json → LibIPC/Generated/abi_generated.swift). `sipc_magic` is a
+    // String in the spec; the wire header is the ASCII bytes ("SIPC").
+    static let magic: [UInt8] = Array(ABI.sipc_magic.utf8) // "SIPC" (0x53 0x49 0x50 0x43)
+    static let version: UInt8 = ABI.sipc_version
 
-    static let offsetVersion = 4
-    static let offsetAlgorithmId = 5
-    static let offsetKeyId = 7
-    static let offsetNonceSize = 11
-    static let offsetTagSize = 13
-    static let offsetCiphertextSize = 15
-    static let fixedHeaderSize = 19
+    static let offsetVersion = ABI.sipc_header_version_off
+    static let offsetAlgorithmId = ABI.sipc_header_alg_id_off
+    static let offsetKeyId = ABI.sipc_header_key_id_off
+    static let offsetNonceSize = ABI.sipc_header_nonce_size_off
+    static let offsetTagSize = ABI.sipc_header_tag_size_off
+    static let offsetCiphertextSize = ABI.sipc_header_ct_size_off
+    static let fixedHeaderSize = ABI.sipc_header_size
 
     struct View {
         let algorithmId: UInt16
