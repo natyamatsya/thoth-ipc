@@ -1,9 +1,9 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 # SPDX-FileCopyrightText: 2018 mutouyun (http://orzz.org)
-# SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+# SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 
 cmake_minimum_required(VERSION 3.30)
-project(thoth-ipc VERSION 0.2.0)
+project(thoth-ipc VERSION 0.3.0)
 
 option(LIBIPC_BUILD_TESTS       "Build all of libipc's own tests."                      OFF)
 option(LIBIPC_BUILD_DEMOS       "Build all of libipc's own demos."                      OFF)

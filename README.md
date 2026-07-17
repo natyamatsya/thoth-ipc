@@ -1,6 +1,6 @@
 # thoth-ipc — Cross-Language IPC Library
 
-[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: Apache-2.0-LLVM OR MIT](https://img.shields.io/badge/license-Apache--2.0--LLVM%20OR%20MIT-blue.svg)](#license)
 [![Build Status](https://github.com/natyamatsya/thoth-ipc/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/natyamatsya/thoth-ipc/actions)
 [![Cross-language ABI](https://github.com/natyamatsya/thoth-ipc/actions/workflows/xlang.yml/badge.svg)](https://github.com/natyamatsya/thoth-ipc/actions/workflows/xlang.yml)
 
@@ -370,23 +370,37 @@ Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+thoth-ipc is dual-licensed, at your option, under either of:
 
-The original library is copyright © 2018 mutouyun. The macOS port, protocol
-layer, orchestration utilities, and documentation are copyright © 2025–2026
-natyamatsya contributors. Both are distributed under the same MIT license.
+- **Apache License, Version 2.0, with the LLVM exception** ([LICENSE-APACHE](LICENSE-APACHE)), or
+- **MIT license** ([LICENSE-MIT](LICENSE-MIT))
 
-All source files carry [SPDX](https://spdx.dev/) headers that identify the
-license and copyright holders:
+SPDX: `Apache-2.0 WITH LLVM-exception OR MIT`. Unless you explicitly state
+otherwise, any contribution you intentionally submit for inclusion shall be
+dual-licensed as above, without additional terms.
+
+Copyright © 2025–2026 natyamatsya and thoth-ipc contributors.
+
+**Fork provenance.** thoth-ipc is a fork of
+[cpp-ipc](https://github.com/mutouyun/cpp-ipc) (© 2018 mutouyun), which was
+released under MIT. MIT permits sublicensing, so the combined work — including
+modified upstream portions — is redistributed under the dual license above,
+with mutouyun's original MIT copyright and permission notice retained as MIT
+requires. See [NOTICE](NOTICE) for full provenance and third-party components.
+
+Source files carry [SPDX](https://spdx.dev/) headers identifying the license and
+copyright holders:
 
 ```text
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2018 mutouyun (http://orzz.org)          ← upstream code
-// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors       ← additions
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2018 mutouyun (http://orzz.org)                          ← upstream cpp-ipc code
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors         ← thoth-ipc additions
 ```
 
-Files created entirely by natyamatsya contributors carry only the natyamatsya
-copyright line. Modified upstream files carry both.
+Files created entirely by thoth-ipc contributors carry only the second copyright
+line; files derived from cpp-ipc carry both. Vendored dependencies under
+`cpp/libipc/3rdparty/` and `swift/libipc/vendor/` keep their own licenses and are
+not relicensed.
 
 ## Reference
 

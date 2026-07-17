@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Result reporting: console summary plus machine-readable JUnit XML and JSON
 // for CI annotation and trend tooling.

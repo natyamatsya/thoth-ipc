@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // In-process test for the Layer-2 async receive API (`async-tokio` feature): a
 // blocking sender (with the notify source) wakes an `AsyncRoute::recv().await`

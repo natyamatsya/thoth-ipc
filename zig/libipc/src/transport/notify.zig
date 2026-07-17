@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Layer 1 notify readiness (ABI §8, macOS libnotify backend). A sender posts on
 // enqueue; an async receiver registers a readiness fd and wakes on the post. The

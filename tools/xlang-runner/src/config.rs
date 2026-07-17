@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Declarative matrix configuration. One config file serves every OS/CI job:
 // binary paths reference environment variables (`bin = "${XLANG_CPP_BIN}"`),

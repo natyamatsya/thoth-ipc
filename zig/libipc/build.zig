@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Builds the Zig `xlang` cross-language ABI harness. Point the matrix runner at
 // zig-out/bin/xlang via XLANG_ZIG_BIN (see tools/xlang-ci.toml).

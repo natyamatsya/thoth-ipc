@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+# SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 """Verify that every dependency pin matches versions.json.
 
 versions.json is the single source of truth for third-party dependency

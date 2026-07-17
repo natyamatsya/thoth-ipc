@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Cross-language round-trip harness (Zig endpoint). Shares the CLI contract of
 // the C++ (xlang_ipc), Rust (xlang) and Swift (xlang-harness) harnesses so the

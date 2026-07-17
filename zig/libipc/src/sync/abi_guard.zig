@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Sync ABI guard sidecar (byte-exact with the C++/Rust/Swift SyncAbiGuard). Each
 // named mutex/condition gets a companion stamp segment that records the wire ABI

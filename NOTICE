@@ -1,0 +1,48 @@
+thoth-ipc
+Copyright (c) 2025-2026 natyamatsya and thoth-ipc contributors
+
+This product is dual-licensed under the Apache License, Version 2.0 with the
+LLVM exception, OR the MIT license, at your option. See LICENSE-APACHE and
+LICENSE-MIT. Under SPDX this is:
+
+    Apache-2.0 WITH LLVM-exception OR MIT
+
+------------------------------------------------------------------------------
+Fork provenance
+------------------------------------------------------------------------------
+
+thoth-ipc is a fork of cpp-ipc (libipc) by mutouyun, branched at upstream
+v1.4.1:
+
+    cpp-ipc — https://github.com/mutouyun/cpp-ipc
+    Copyright (c) 2018 mutouyun (http://orzz.org)
+    Licensed under the MIT license.
+
+The upstream cpp-ipc code was received under the MIT license, which permits
+sublicensing. The thoth-ipc contributors redistribute the combined work
+(including modified upstream portions) under the dual license above, while
+retaining mutouyun's original MIT copyright and permission notice as required
+by the MIT license. Source files derived from cpp-ipc carry both copyright
+lines in their SPDX headers:
+
+    // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+    // SPDX-FileCopyrightText: 2018 mutouyun (http://orzz.org)
+    // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
+
+Files authored entirely by thoth-ipc contributors carry only the second
+copyright line.
+
+------------------------------------------------------------------------------
+Third-party components
+------------------------------------------------------------------------------
+
+Vendored dependencies keep their own licenses and are NOT relicensed by this
+project:
+
+    cpp/libipc/3rdparty/googletest    — Google Test         (BSD-3-Clause)
+    cpp/libipc/3rdparty/flatbuffers   — FlatBuffers          (Apache-2.0)
+    swift/libipc/vendor/swift-atomics — Swift Atomics        (Apache-2.0 WITH Runtime Library Exception)
+    swift/libipc/vendor/swift-protobuf— Swift Protobuf       (Apache-2.0)
+    swift/libipc/vendor/flatbuffers   — FlatBuffers          (Apache-2.0)
+
+See versions.json and .gitmodules for exact revisions.

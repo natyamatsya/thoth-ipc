@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Port of cpp-ipc/src/libipc/ipc.cpp: chunk_info_t / id_pool / acquire_storage /
 // find_storage / recycle_storage. **Byte-exact with the C++ chunk storage** so a

@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Layer 1 of the optional async-receive work, Swift side. **Byte-exact with
 // cpp/libipc/src/libipc/notify.h and rust/libipc/src/notify.rs** so a Swift

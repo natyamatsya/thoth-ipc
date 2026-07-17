@@ -4,6 +4,29 @@ Notable changes to thoth-ipc. The format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow SemVer
 (pre-1.0: minor bumps may include behavioural changes).
 
+## [0.3.0] — 2026-07-17
+
+### Added
+- **Native Zig port** [`zig/libipc/`](zig/libipc/) — an independent
+  reimplementation of the `ipc::route` wire ABI (not an FFI wrapper), proven
+  byte-exact against the C++, Rust and Swift ports in every writer→reader
+  direction. Joins every matrix scenario except multi-writer `channel`: the
+  broadcast transport (fragmentation + chunk storage, 40 B–64 KB), fan-out, the
+  dead-connection reaper (`LV_CONN__` + `proc_pidinfo` start token), the ulock
+  sync primitives (mutex with robust dead-holder recovery / condition /
+  semaphore), the typed protobuf codec, the AEAD secure envelope (AES-256-GCM
+  and ChaCha20-Poly1305 via pure Zig `std.crypto`), and Layer-1 notify readiness
+  (`aread`). macOS-first; wired into the `matrix-macos` and `async-matrix-macos`
+  CI jobs.
+
+### Changed
+- **Relicensed** from MIT to a dual **Apache-2.0 WITH LLVM-exception OR MIT**
+  (SPDX: `Apache-2.0 WITH LLVM-exception OR MIT`). Copyright is now held by
+  "natyamatsya and thoth-ipc contributors". The upstream cpp-ipc MIT copyright
+  (© 2018 mutouyun) is retained on the derived source files and in `LICENSE-MIT`
+  as MIT's sublicense terms require. See `LICENSE-APACHE`, `LICENSE-MIT` and
+  `NOTICE`. Vendored dependencies keep their own licenses.
+
 ## [0.2.0] — 2026-07-14
 
 ### Added

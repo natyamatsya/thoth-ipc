@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Secure AEAD envelope v1 ("SIPC", doc/adr/0004), byte-exact with the
 // C++/Rust/Swift SecureCodec. The AEAD is done with Zig's native std.crypto

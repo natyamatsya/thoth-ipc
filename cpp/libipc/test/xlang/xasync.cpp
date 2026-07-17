@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2025-2026 natyamatsya contributors
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Cross-language ASYNC round-trip harness (C++ endpoint, Layer 2). Same uniform
 // CLI as xlang_ipc, but the reader uses ipc::async_recv() — the stdexec sender +
