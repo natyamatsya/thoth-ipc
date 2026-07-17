@@ -8,7 +8,9 @@ A high-performance inter-process communication library using shared memory on Li
 Binary-compatible primitives implemented in multiple languages — all sharing the same wire format and shm layout.
 
 The C++, Rust and Swift channel ports are **byte-exact** on the `ipc::route`
-wire ABI ([`context/xlang-channel-abi.md`](context/xlang-channel-abi.md)), and a
+wire ABI ([`context/xlang-channel-abi.md`](context/xlang-channel-abi.md)), joined
+by a native **Zig** port whose core transport (sync round-trips + broadcast
+fan-out) is proven byte-exact against all three. A
 CI matrix framework ([`tools/xlang-runner`](tools/xlang-runner)) runs every
 writer→reader language pairing to prove a message sent by any language is
 received byte-for-byte by any other — including async wakeup, broadcast
@@ -44,6 +46,7 @@ and ABI [§9](context/xlang-channel-abi.md).
 cpp/libipc/    — C++ library (upstream core, extended)
 rust/libipc/   — Pure Rust port (feature-complete, 242 tests)
 swift/libipc/  — Swift package (channel transport byte-exact with C++/Rust)
+zig/libipc/    — Native Zig port (core transport: sync + fanout, byte-exact)
 ```
 
 ## Language implementations
@@ -139,6 +142,32 @@ while true {
     let msg = try await r.recv()                             // woken by any-language sender
     // dispatch msg.bytes ...
 }
+```
+
+### Zig — [`zig/libipc/`](zig/libipc/)
+
+Native Zig port (macOS-first), independently reimplementing the `ipc::route`
+wire ABI — not an FFI wrapper of the C/C++ core. The v1 scope is the **core
+broadcast transport**: byte-exact shm ring (`elem_array<80,8>`, 22784B), DCLP
+header init over `os_unfair_lock`, the broadcast push/pop CAS protocol,
+prefix-global `cc_id` identity, fragment reassembly, and receive-side
+chunk-storage decode for large (>64B) messages. It joins the matrix's `sync`
+and `fanout` scenarios and is proven byte-exact with the C++, Rust and Swift
+ports in every writer→reader direction at all payload sizes (40 B – 64 KB). The
+reaper, sync primitives, typed codec, secure envelope and async layers are
+capability-gated and planned for later phases (the harness advertises no caps,
+so the runner cleanly skips them).
+
+Idiomatic Zig: `std.posix`/`std.c` for the syscalls, native `@atomic*`
+builtins over the shm fields, and `extern struct` with comptime `@sizeOf`/
+`@offsetOf` guards for the byte-exact layouts. The only unavoidable C
+dependency is Apple's `os_unfair_lock` (the header lock a C++ peer contends on
+during DCLP init) and the `__ulock_wake` used to wake a parked C++/Rust/Swift
+peer.
+
+```sh
+cd zig/libipc && zig build          # -> zig-out/bin/xlang harness
+zig build test                      # byte-exact ABI unit tests
 ```
 
 ## Status
