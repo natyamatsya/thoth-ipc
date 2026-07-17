@@ -17,6 +17,7 @@ const channel = @import("transport/channel.zig");
 const Mutex = @import("sync/mutex.zig").Mutex;
 const Condition = @import("sync/condition.zig").Condition;
 const Semaphore = @import("sync/semaphore.zig").Semaphore;
+const secure = @import("secure/secure.zig");
 
 const ChanInner = channel.ChanInner;
 const alloc = std.heap.c_allocator;
@@ -171,6 +172,112 @@ fn doTread(name: []const u8, count: usize, size: usize) u8 {
     }
     perr("[zig-typed] read {d} x {d}B typed on '{s}' OK", .{ count, size, name });
     return 0;
+}
+
+// --- Secure verbs (scenario: secure / secure-badkey / secure-negative) -----
+// AEAD envelope v1 over a raw (identity) inner codec, so the pairing proves
+// envelope framing + AEAD interop only. swrite seals with the shared xlang test
+// key; the sread variants prove fail-closed behaviour on tamper, wrong key
+// material, wrong key id and algorithm mismatch.
+
+fn doSwrite(name: []const u8, count: usize, size: usize, tamper: bool, alg: secure.Alg) u8 {
+    var ch = ChanInner.open(alloc, "", name, .sender) catch {
+        perr("[zig-secure] connect(sender) failed", .{});
+        return 3;
+    };
+    defer ch.deinit();
+    if (!ch.waitForRecv(1, deadline(5))) {
+        perr("[zig-secure] no receiver within 5s", .{});
+        return 2;
+    }
+    const plain = alloc.alloc(u8, size) catch return 9;
+    defer alloc.free(plain);
+    fillPattern(plain);
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const env = secure.sealMessage(alloc, alg, secure.test_key, plain) catch {
+            perr("[zig-secure] seal {d} failed", .{i});
+            return 9;
+        };
+        defer alloc.free(env);
+        if (tamper) env[env.len - 1] ^= 0x7F; // flip a tag bit → open must fail
+        if (!(ch.send(env, deadline(8)) catch false)) {
+            perr("[zig-secure] send {d} failed", .{i});
+            return 4;
+        }
+    }
+    perr("[zig-secure] wrote {d} x {d}B sealed on '{s}'", .{ count, size, name });
+    return 0;
+}
+
+fn doSread(name: []const u8, count: usize, size: usize, key: secure.Key, expect_open: bool, alg: secure.Alg) u8 {
+    var ch = ChanInner.open(alloc, "", name, .receiver) catch {
+        perr("[zig-secure] connect(receiver) failed", .{});
+        return 3;
+    };
+    defer ch.deinit();
+    const want = alloc.alloc(u8, size) catch return 5;
+    defer alloc.free(want);
+    fillPattern(want);
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const got = (ch.recv(deadline(8)) catch {
+            perr("[zig-secure] recv {d} error", .{i});
+            return 5;
+        }) orelse {
+            perr("[zig-secure] recv {d} timed out", .{i});
+            return 5;
+        };
+        defer alloc.free(got);
+        if (std.mem.eql(u8, got, want)) {
+            perr("[zig-secure] recv {d} arrived as plaintext", .{i});
+            return 10;
+        }
+        const opened = secure.openMessage(alloc, alg, key, got);
+        if (!expect_open) {
+            if (opened) |p| {
+                alloc.free(p);
+                perr("[zig-secure] recv {d} opened under the WRONG key", .{i});
+                return 11;
+            }
+            continue;
+        }
+        const p = opened orelse {
+            perr("[zig-secure] recv {d} open failed", .{i});
+            return 8;
+        };
+        defer alloc.free(p);
+        if (p.len != size) {
+            perr("[zig-secure] recv {d} wrong size: got {d} want {d}", .{ i, p.len, size });
+            return 6;
+        }
+        if (!std.mem.eql(u8, p, want)) {
+            perr("[zig-secure] recv {d} plaintext mismatch", .{i});
+            return 7;
+        }
+    }
+    perr("[zig-secure] {s} {d} x {d}B on '{s}' OK", .{ if (expect_open) "opened" else "rejected", count, size, name });
+    return 0;
+}
+
+fn runSecure(verb: []const u8, name: []const u8, count: usize, size: usize, alg_str: []const u8) u8 {
+    const alg = secure.Alg.fromStr(alg_str) orelse {
+        perr("[zig-secure] unknown algorithm '{s}'", .{alg_str});
+        return 1;
+    };
+    if (std.mem.eql(u8, verb, "swrite")) return doSwrite(name, count, size, false, alg);
+    if (std.mem.eql(u8, verb, "swrite-tamper")) return doSwrite(name, count, size, true, alg);
+    if (std.mem.eql(u8, verb, "sread")) return doSread(name, count, size, secure.test_key, true, alg);
+    if (std.mem.eql(u8, verb, "sread-reject")) return doSread(name, count, size, secure.test_key, false, alg);
+    if (std.mem.eql(u8, verb, "sread-badkey")) return doSread(name, count, size, secure.wrong_key, false, alg);
+    if (std.mem.eql(u8, verb, "sread-badkeyid")) return doSread(name, count, size, secure.wrong_id_key, false, alg);
+    return 1;
+}
+
+fn isSecureVerb(verb: []const u8) bool {
+    const verbs = [_][]const u8{ "swrite", "swrite-tamper", "sread", "sread-reject", "sread-badkey", "sread-badkeyid" };
+    for (verbs) |v| if (std.mem.eql(u8, verb, v)) return true;
+    return false;
 }
 
 // --- Reaper verbs (scenario: reap) -----------------------------------------
@@ -425,10 +532,11 @@ pub fn main(m: std.process.Init.Minimal) void {
         std.process.exit(0);
     }
     if (std.mem.eql(u8, verb, "caps")) {
-        // Advertised capabilities: sync-primitive verbs ("prim") and the typed
-        // protobuf codec. The runner joins sync/fanout/reap/primitives/typed and
-        // skips the still-uncapped scenarios (secure/async/channel).
-        const caps = "prim typed:protobuf\n";
+        // Advertised capabilities: sync-primitive verbs ("prim"), the typed
+        // protobuf codec, and the AEAD secure envelope (always available — the
+        // crypto is pure Zig std.crypto). The runner joins every scenario except
+        // the still-uncapped async/channel.
+        const caps = "prim typed:protobuf secure secure:aes256gcm secure:chacha20poly1305\n";
         _ = std.c.write(1, caps, caps.len);
         std.process.exit(0);
     }
@@ -486,6 +594,9 @@ pub fn main(m: std.process.Init.Minimal) void {
             break :blk doTwrite(name, count, size);
         } else if (std.mem.eql(u8, verb, "tread")) {
             break :blk doTread(name, count, size);
+        } else if (isSecureVerb(verb)) {
+            const alg_str = if (argv.len > 5) argv[5] else "aes256gcm";
+            break :blk runSecure(verb, name, count, size, alg_str);
         } else {
             perr("unknown verb '{s}'", .{verb});
             break :blk 1;

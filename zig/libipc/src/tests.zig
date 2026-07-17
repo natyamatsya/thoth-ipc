@@ -18,4 +18,5 @@ test {
     std.testing.refAllDecls(@import("sync/mutex.zig"));
     std.testing.refAllDecls(@import("sync/condition.zig"));
     std.testing.refAllDecls(@import("sync/semaphore.zig"));
+    std.testing.refAllDecls(@import("secure/secure.zig"));
 }
