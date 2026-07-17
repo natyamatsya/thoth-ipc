@@ -42,9 +42,9 @@ const RING_ALIGN: usize = {
     if DATA_LENGTH < a { DATA_LENGTH } else { a }
 };
 
-/// Number of ring slots (matches C++ `elem_max = 256`). Slot index is the write
-/// cursor truncated to u8, which wraps at 256 — so this is documentation.
-#[allow(dead_code)]
+/// Number of ring slots (matches C++ `elem_max = 256`). The slot index is the
+/// write cursor truncated to u8 (wraps at 256); also used directly in the
+/// channel `recv_multi` next-lap free-flag arithmetic.
 const RING_SIZE: usize = 256;
 
 // ---------------------------------------------------------------------------
@@ -542,11 +542,6 @@ impl ChanInner {
         unsafe { ring_header(self.ring_shm.get()) }
     }
 
-    #[allow(dead_code)]
-    fn slot(&self, idx: u8) -> &ElemT {
-        unsafe { ring_slot(self.ring_shm.get(), idx) }
-    }
-
     /// Number of connected receivers.
     fn recv_count(&self) -> usize {
         self.hdr().connections.load(Ordering::Acquire).count_ones() as usize
@@ -626,7 +621,7 @@ impl ChanInner {
             return Ok(false);
         }
         if self.mode != Mode::Sender {
-            return Err(io::Error::new(io::ErrorKind::Other, "not a sender"));
+            return Err(io::Error::other("not a sender"));
         }
         if self.hdr().connections.load(Ordering::Relaxed) == 0 {
             return Ok(false); // no receivers
@@ -770,7 +765,7 @@ impl ChanInner {
             return self.recv_multi(timeout_ms);
         }
         if self.mode != Mode::Receiver {
-            return Err(io::Error::new(io::ErrorKind::Other, "not a receiver"));
+            return Err(io::Error::other("not a receiver"));
         }
         let deadline = timeout_ms.map(|ms| Instant::now() + Duration::from_millis(ms));
         let ring_ptr = self.ring_shm.get();
@@ -829,44 +824,60 @@ impl ChanInner {
             self.read_cursor = self.read_cursor.wrapping_add(1);
             let _ = self.wt_waiter.broadcast();
 
-            if !keep {
-                continue; // skip self-message / malformed
+            if let Some(buf) = self.assemble_message(keep, id, remain, r_size, storage_id, frag) {
+                return Ok(buf);
             }
+        }
+    }
 
-            // Large message: read the payload from chunk storage and recycle it.
-            // (A storage message is a single msg_t — no reassembly.)
-            if let Some(sid) = storage_id {
-                let msg_size = r_size as usize;
-                let chunk_size = cs::calc_chunk_size(msg_size);
-                let buf = self.chunk_shm_base(chunk_size).and_then(|base| {
-                    let out = cs::find_storage(base, chunk_size, sid)
-                        .map(|ptr| unsafe { std::slice::from_raw_parts(ptr, msg_size).to_vec() });
-                    cs::recycle_storage(base, chunk_size, sid, self.conn_id);
-                    out
-                });
-                match buf {
-                    Some(b) => return Ok(IpcBuffer::from_vec(b)),
-                    None => continue, // chunk shm unavailable — skip
-                }
+    /// Shared tail of `recv` / `recv_multi`: after a slot has been decoded and
+    /// released, either read a large message from chunk storage or reassemble
+    /// inline fragments by `id_`. Returns `Some(buf)` when a full message
+    /// completes, `None` to keep reading (self / malformed slot, unavailable
+    /// chunk shm, or a still-incomplete multi-fragment message). Byte-exact with
+    /// C++ ipc.cpp recv() regardless of the single- or multi-writer ring.
+    fn assemble_message(
+        &mut self,
+        keep: bool,
+        id: u32,
+        remain: i32,
+        r_size: i32,
+        storage_id: Option<i32>,
+        frag: Option<Vec<u8>>,
+    ) -> Option<IpcBuffer> {
+        if !keep {
+            return None; // self-message / malformed — slot already released
+        }
+        // Large message: a single msg_t carrying a storage_id into chunk shm.
+        if let Some(sid) = storage_id {
+            let msg_size = r_size as usize;
+            let chunk_size = cs::calc_chunk_size(msg_size);
+            let buf = self.chunk_shm_base(chunk_size).and_then(|base| {
+                let out = cs::find_storage(base, chunk_size, sid)
+                    .map(|ptr| unsafe { std::slice::from_raw_parts(ptr, msg_size).to_vec() });
+                cs::recycle_storage(base, chunk_size, sid, self.conn_id);
+                out
+            });
+            return buf.map(IpcBuffer::from_vec); // None -> chunk shm unavailable
+        }
+        // Inline fragment; reassemble by id_.
+        let frag = frag.unwrap();
+        if let Some((off, mut buf)) = self.recv_cache.remove(&id) {
+            let n = frag.len();
+            buf[off..off + n].copy_from_slice(&frag);
+            if remain <= 0 {
+                return Some(IpcBuffer::from_vec(buf)); // last fragment
             }
-            let frag = frag.unwrap();
-
-            // Reassemble by id_.
-            if let Some((off, mut buf)) = self.recv_cache.remove(&id) {
-                let n = frag.len();
-                buf[off..off + n].copy_from_slice(&frag);
-                if remain <= 0 {
-                    return Ok(IpcBuffer::from_vec(buf)); // last fragment
-                }
-                self.recv_cache.insert(id, (off + n, buf));
-            } else if remain <= 0 {
-                return Ok(IpcBuffer::from_vec(frag)); // single fragment
-            } else {
-                // First fragment of a multi-fragment message; r_size is the total.
-                let mut buf = vec![0u8; r_size as usize];
-                buf[..frag.len()].copy_from_slice(&frag);
-                self.recv_cache.insert(id, (frag.len(), buf));
-            }
+            self.recv_cache.insert(id, (off + n, buf));
+            None
+        } else if remain <= 0 {
+            Some(IpcBuffer::from_vec(frag)) // single fragment
+        } else {
+            // First fragment of a multi-fragment message; r_size is the total.
+            let mut buf = vec![0u8; r_size as usize];
+            buf[..frag.len()].copy_from_slice(&frag);
+            self.recv_cache.insert(id, (frag.len(), buf));
+            None
         }
     }
 
@@ -915,16 +926,15 @@ impl ChanInner {
                 .compare_exchange_weak(cur_rc, desired, Ordering::Relaxed, Ordering::Relaxed)
                 .is_ok()
             {
-                // Won the slot; re-validate the epoch has not moved.
-                if hdr
-                    .epoch
-                    .compare_exchange_weak(epoch, epoch, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok()
-                {
+                // Won the slot; re-validate the epoch has not moved. An acquire
+                // load is equivalent to the old self-CAS (a no-op store publishes
+                // nothing new) and avoids the weak-CAS spurious-failure retry.
+                let now = hdr.epoch.load(Ordering::Acquire);
+                if now == epoch {
                     claimed_ct = cur_ct;
                     break 'claim;
                 }
-                epoch = hdr.epoch.load(Ordering::Acquire);
+                epoch = now;
             }
             crate::spin_lock::adaptive_yield_pub(&mut k);
         }
@@ -941,7 +951,7 @@ impl ChanInner {
     /// as route `recv()`.
     fn recv_multi(&mut self, timeout_ms: Option<u64>) -> io::Result<IpcBuffer> {
         if self.mode != Mode::Receiver {
-            return Err(io::Error::new(io::ErrorKind::Other, "not a receiver"));
+            return Err(io::Error::other("not a receiver"));
         }
         let deadline = timeout_ms.map(|ms| Instant::now() + Duration::from_millis(ms));
         let ring_ptr = self.ring_shm.get();
@@ -1004,38 +1014,8 @@ impl ChanInner {
             self.read_cursor = cur_post;
             let _ = self.wt_waiter.broadcast();
 
-            if !keep {
-                continue;
-            }
-
-            if let Some(sid) = storage_id {
-                let msg_size = r_size as usize;
-                let chunk_size = cs::calc_chunk_size(msg_size);
-                let buf = self.chunk_shm_base(chunk_size).and_then(|base| {
-                    let out = cs::find_storage(base, chunk_size, sid)
-                        .map(|ptr| unsafe { std::slice::from_raw_parts(ptr, msg_size).to_vec() });
-                    cs::recycle_storage(base, chunk_size, sid, self.conn_id);
-                    out
-                });
-                match buf {
-                    Some(b) => return Ok(IpcBuffer::from_vec(b)),
-                    None => continue,
-                }
-            }
-            let frag = frag.unwrap();
-            if let Some((off, mut buf)) = self.recv_cache.remove(&id) {
-                let n = frag.len();
-                buf[off..off + n].copy_from_slice(&frag);
-                if remain <= 0 {
-                    return Ok(IpcBuffer::from_vec(buf));
-                }
-                self.recv_cache.insert(id, (off + n, buf));
-            } else if remain <= 0 {
-                return Ok(IpcBuffer::from_vec(frag));
-            } else {
-                let mut buf = vec![0u8; r_size as usize];
-                buf[..frag.len()].copy_from_slice(&frag);
-                self.recv_cache.insert(id, (frag.len(), buf));
+            if let Some(buf) = self.assemble_message(keep, id, remain, r_size, storage_id, frag) {
+                return Ok(buf);
             }
         }
     }
@@ -1253,7 +1233,11 @@ impl Route {
     pub fn clear_storage_with_prefix(prefix: &str, name: &str) {
         let full_prefix = format!("{prefix}__IPC_SHM__");
         ShmHandle::clear_storage(&format!("{full_prefix}QU_CONN__{name}__{DATA_LENGTH}__{RING_ALIGN}"));
-        ShmHandle::clear_storage(&format!("{full_prefix}CA_CONN__{name}"));
+        // NB: the cc_id counter CA_CONN__ is prefix-global (no channel name) and
+        // intentionally persistent, like C++ cc_acc — never cleared here. The
+        // per-channel multi-writer msg-id counter AC_CONN__<name> IS cleared,
+        // byte-exact with C++ channel::clear_storage.
+        ShmHandle::clear_storage(&format!("{full_prefix}AC_CONN__{name}"));
         ShmHandle::clear_storage(&format!("{full_prefix}LV_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}WT_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}RD_CONN__{name}"));

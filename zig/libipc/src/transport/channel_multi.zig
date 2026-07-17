@@ -72,7 +72,7 @@ comptime {
 
 fn acIdName(buf: []u8, prefix: []const u8, name: []const u8) []const u8 {
     // Shared per-channel message-id counter (C++ AC_CONN__<name>).
-    return std.fmt.bufPrint(buf, "{s}__IPC_SHM__AC_CONN__{s}", .{ prefix, name }) catch unreachable;
+    return shmname.acConnName(buf, prefix, name);
 }
 
 const Frag = struct { offset: usize, buf: []u8 };
@@ -271,11 +271,14 @@ pub const ChannelInner = struct {
             const desired = incMask(epoch | (cur_rc & ep_mask)) | cc;
             if (@cmpxchgWeak(u64, rc_p, cur_rc, desired, .monotonic, .monotonic) == null) {
                 // Won the slot; re-validate the epoch hasn't moved (force_push).
-                if (@cmpxchgWeak(u64, epoch_p, epoch, epoch, .acq_rel, .acquire) == null) {
+                // An acquire load is equivalent to the old self-CAS (a no-op store
+                // publishes nothing) without the weak-CAS spurious-failure retry.
+                const now = @atomicLoad(u64, epoch_p, .acquire);
+                if (now == epoch) {
                     claimed_ct = cur_ct;
                     break :claim;
                 }
-                epoch = @atomicLoad(u64, epoch_p, .acquire);
+                epoch = now;
             }
             layout.adaptiveYield(&yk);
         }

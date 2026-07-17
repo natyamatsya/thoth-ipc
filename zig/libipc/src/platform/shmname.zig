@@ -99,6 +99,13 @@ pub fn ccIdName(buf: []u8, prefix: []const u8) []const u8 {
     return std.fmt.bufPrint(buf, "{s}__IPC_SHM__CA_CONN__", .{prefix}) catch unreachable;
 }
 
+/// Multi-writer channel message-id counter: __IPC_SHM__AC_CONN__<name> — shared
+/// per-channel (C++ AC_CONN__), so two concurrent writers never collide in a
+/// receiver's reassembly cache. Cleared by clearStorage (unlike CA_CONN__).
+pub fn acConnName(buf: []u8, prefix: []const u8, name: []const u8) []const u8 {
+    return std.fmt.bufPrint(buf, "{s}__IPC_SHM__AC_CONN__{s}", .{ prefix, name }) catch unreachable;
+}
+
 /// Chunk storage: __IPC_SHM__CHUNK_INFO__<chunk_size> — prefix-global.
 pub fn chunkShmName(buf: []u8, prefix: []const u8, chunk_size: usize) []const u8 {
     return std.fmt.bufPrint(buf, "{s}__IPC_SHM__CHUNK_INFO__{d}", .{ prefix, chunk_size }) catch unreachable;
