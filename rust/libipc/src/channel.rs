@@ -14,6 +14,7 @@
 // are stored in a separate shared-memory "chunk" and only the chunk ID
 // is placed in the ring slot.
 
+use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::io;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
@@ -59,9 +60,14 @@ const RING_SIZE: usize = abi::ring_size;
 ///   - low  32 bits (EP_MASK): connection bitmask — which receivers still must read
 ///   - high 32 bits (~EP_MASK): epoch — generation counter written by the sender
 /// A slot is free when `(rc_ & EP_MASK) == 0` OR its epoch differs from the writer's.
+///
+/// `data_` is an `UnsafeCell` (`#[repr(transparent)]`, so the byte layout is
+/// unchanged): a slot lives in shared memory and is written through a shared
+/// `&ElemT`, which would be UB against a plain `[u8; N]`. Cross-slot exclusion is
+/// enforced by the `rc_` protocol, not the Rust borrow checker.
 #[repr(C, align(8))]
 struct ElemT {
-    data_: [u8; MSG_SIZE], // holds a msg_t<64,8>
+    data_: UnsafeCell<[u8; MSG_SIZE]>, // holds a msg_t<64,8>
     rc_: AtomicU64,
 }
 
@@ -84,7 +90,7 @@ const _: () = {
 impl ElemT {
     /// Write the msg_t header + payload into this slot's `data_`.
     unsafe fn write_msg(&self, cc_id: u32, id: u32, remain: i32, storage: bool, payload: &[u8]) {
-        let p = self.data_.as_ptr() as *mut u8;
+        let p = self.data_.get().cast::<u8>();
         std::ptr::copy_nonoverlapping(cc_id.to_ne_bytes().as_ptr(), p.add(MSG_CC_ID), 4);
         std::ptr::copy_nonoverlapping(id.to_ne_bytes().as_ptr(), p.add(MSG_ID), 4);
         std::ptr::copy_nonoverlapping(remain.to_ne_bytes().as_ptr(), p.add(MSG_REMAIN), 4);
@@ -93,7 +99,7 @@ impl ElemT {
     }
     /// Read the msg_t header: (cc_id, id, remain, storage).
     unsafe fn read_header(&self) -> (u32, u32, i32, bool) {
-        let p = self.data_.as_ptr();
+        let p = self.data_.get().cast::<u8>();
         let mut b = [0u8; 4];
         std::ptr::copy_nonoverlapping(p.add(MSG_CC_ID), b.as_mut_ptr(), 4);
         let cc_id = u32::from_ne_bytes(b);
@@ -106,12 +112,12 @@ impl ElemT {
     }
     /// Copy `n` payload bytes out of this slot.
     unsafe fn read_payload(&self, n: usize) -> Vec<u8> {
-        let p = self.data_.as_ptr().add(MSG_PAYLOAD);
+        let p = self.data_.get().cast::<u8>().add(MSG_PAYLOAD);
         std::slice::from_raw_parts(p, n).to_vec()
     }
     /// Read the storage_id (i32) a large-message fragment carries in its payload.
     unsafe fn read_storage_id(&self) -> i32 {
-        let p = self.data_.as_ptr().add(MSG_PAYLOAD);
+        let p = self.data_.get().cast::<u8>().add(MSG_PAYLOAD);
         let mut b = [0u8; 4];
         std::ptr::copy_nonoverlapping(p, b.as_mut_ptr(), 4);
         i32::from_ne_bytes(b)
@@ -134,9 +140,11 @@ const EP_INCR: u64 = abi::route_ep_incr;
 // framing unchanged.
 
 /// Multi-writer channel slot: the route slot plus a per-slot `f_ct_` commit flag.
+/// `data_` is an `UnsafeCell` for the same reason as `ElemT` (interior mutation
+/// through a shared `&ChannelElemT`); `#[repr(transparent)]` keeps the layout.
 #[repr(C, align(8))]
 struct ChannelElemT {
-    data_: [u8; MSG_SIZE],
+    data_: UnsafeCell<[u8; MSG_SIZE]>,
     rc_: AtomicU64,
     f_ct_: AtomicU64,
 }
@@ -148,7 +156,7 @@ const _: () = {
 
 impl ChannelElemT {
     unsafe fn write_msg(&self, cc_id: u32, id: u32, remain: i32, storage: bool, payload: &[u8]) {
-        let p = self.data_.as_ptr() as *mut u8;
+        let p = self.data_.get().cast::<u8>();
         std::ptr::copy_nonoverlapping(cc_id.to_ne_bytes().as_ptr(), p.add(MSG_CC_ID), 4);
         std::ptr::copy_nonoverlapping(id.to_ne_bytes().as_ptr(), p.add(MSG_ID), 4);
         std::ptr::copy_nonoverlapping(remain.to_ne_bytes().as_ptr(), p.add(MSG_REMAIN), 4);
@@ -156,7 +164,7 @@ impl ChannelElemT {
         std::ptr::copy_nonoverlapping(payload.as_ptr(), p.add(MSG_PAYLOAD), payload.len());
     }
     unsafe fn read_header(&self) -> (u32, u32, i32, bool) {
-        let p = self.data_.as_ptr();
+        let p = self.data_.get().cast::<u8>();
         let mut b = [0u8; 4];
         std::ptr::copy_nonoverlapping(p.add(MSG_CC_ID), b.as_mut_ptr(), 4);
         let cc_id = u32::from_ne_bytes(b);
@@ -168,11 +176,11 @@ impl ChannelElemT {
         (cc_id, id, remain, storage)
     }
     unsafe fn read_payload(&self, n: usize) -> Vec<u8> {
-        std::slice::from_raw_parts(self.data_.as_ptr().add(MSG_PAYLOAD), n).to_vec()
+        std::slice::from_raw_parts(self.data_.get().cast::<u8>().add(MSG_PAYLOAD), n).to_vec()
     }
     unsafe fn read_storage_id(&self) -> i32 {
         let mut b = [0u8; 4];
-        std::ptr::copy_nonoverlapping(self.data_.as_ptr().add(MSG_PAYLOAD), b.as_mut_ptr(), 4);
+        std::ptr::copy_nonoverlapping(self.data_.get().cast::<u8>().add(MSG_PAYLOAD), b.as_mut_ptr(), 4);
         i32::from_ne_bytes(b)
     }
 }
