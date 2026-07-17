@@ -49,3 +49,7 @@ build
 # vs
 .vs
 .vscode
+
+# Zig
+zig-out
+.zig-cache
