@@ -47,7 +47,7 @@ and ABI [§9](context/xlang-channel-abi.md).
 cpp/libipc/    — C++ library (upstream core, extended; Linux/Windows/macOS/FreeBSD)
 rust/libipc/   — Pure Rust port (Linux/Windows/macOS)
 swift/libipc/  — Swift package (macOS 14+; byte-exact with C++/Rust/Zig)
-zig/libipc/    — Native Zig port (macOS; byte-exact, every scenario but channel)
+zig/libipc/    — Native Zig port (macOS; byte-exact, full cross-language parity)
 ```
 
 ## Language implementations
@@ -162,8 +162,9 @@ needed) and the **secure AEAD envelope** (SIPC v1 framing with AES-256-GCM and
 ChaCha20-Poly1305 done in pure Zig `std.crypto` — a standardized algorithm is
 byte-identical to the OpenSSL-backed ports, so no C crypto is linked). It also has the **Layer-1 notify readiness** for async receive: a sender posts
 on the libnotify service keyed by `fnv1a_64("<prefix>__IPC_SHM__NOTIFY__<name>")`,
-and an `aread` receiver wakes on that fd. It joins every matrix scenario except
-multi-writer `channel` — `sync`, `fanout`, `reap`, `primitives`, `typed`,
+and an `aread` receiver wakes on that fd. Like the other ports, Zig targets the
+single-writer `ipc::route`, and it joins **every cross-language matrix
+scenario** — `sync`, `fanout`, `reap`, `primitives`, `typed`,
 `secure`/`secure-badkey`/`secure-negative`, and `async` — proven byte-exact with
 the C++, Rust and Swift ports in every writer→reader direction at all payload
 sizes (40 B–64 KB). That includes: a reaper or a mutex-recoverer of any language
@@ -171,9 +172,11 @@ reclaims a dead Zig peer and never false-reaps a live one; a Zig `broadcast`
 wakes a C++/Rust/Swift condition waiter; an envelope sealed by any language opens
 in Zig (with tampered / wrong-key / wrong-key-id / algorithm-mismatched envelopes
 rejected fail-closed); and a Zig `send` wakes a C++ stdexec / coroutine, Rust
-`AsyncRoute` or Swift async receiver, and vice versa. Multi-writer `channel` is
-the one gap — a cross-port ABI incompatibility that predates this port and runs
-as an expected-fail for every language.
+`AsyncRoute` or Swift async receiver, and vice versa. The multi-writer
+`ipc::channel` is not interoperable for **any** port — a cross-port ABI gap
+(different slot layout, process-local message ids) tracked as an expected-fail
+for every language — so it sits outside the parity matrix rather than being a
+Zig-specific limitation.
 
 Idiomatic Zig: `std.posix`/`std.c` for the syscalls, native `@atomic*`
 builtins over the shm fields, and `extern struct` with comptime `@sizeOf`/
@@ -223,8 +226,12 @@ C++↔Rust on Linux/Windows). The wire format and shared-memory layout are fixed
   receiver.
 
 **Platforms** — C++: Linux, Windows, macOS, FreeBSD. Rust: Linux, Windows,
-macOS. Swift: macOS 14+. Zig: macOS (arm64). Multi-writer `ipc::channel` is the
-one capability not yet cross-language (see gaps below).
+macOS. Swift: macOS 14+. Zig: macOS (arm64).
+
+Every port targets the single-writer `ipc::route`. The multi-writer
+`ipc::channel` is the one capability that is **not** cross-language for any port
+(a known ABI gap, see below) — so it falls outside the parity guarantees above
+for all languages, not just one.
 
 **Known cross-language parity gaps** — discovered by the matrix and tracked as
 expected-failures in [`tools/xlang-ci.toml`](tools/xlang-ci.toml) until closed:
