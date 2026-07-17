@@ -46,7 +46,7 @@ and ABI [§9](context/xlang-channel-abi.md).
 cpp/libipc/    — C++ library (upstream core, extended)
 rust/libipc/   — Pure Rust port (feature-complete, 242 tests)
 swift/libipc/  — Swift package (channel transport byte-exact with C++/Rust)
-zig/libipc/    — Native Zig port (core transport: sync + fanout, byte-exact)
+zig/libipc/    — Native Zig port (core transport + reaper, byte-exact)
 ```
 
 ## Language implementations
@@ -147,16 +147,18 @@ while true {
 ### Zig — [`zig/libipc/`](zig/libipc/)
 
 Native Zig port (macOS-first), independently reimplementing the `ipc::route`
-wire ABI — not an FFI wrapper of the C/C++ core. The v1 scope is the **core
-broadcast transport**: byte-exact shm ring (`elem_array<80,8>`, 22784B), DCLP
-header init over `os_unfair_lock`, the broadcast push/pop CAS protocol,
-prefix-global `cc_id` identity, fragment reassembly, and receive-side
-chunk-storage decode for large (>64B) messages. It joins the matrix's `sync`
-and `fanout` scenarios and is proven byte-exact with the C++, Rust and Swift
-ports in every writer→reader direction at all payload sizes (40 B – 64 KB). The
-reaper, sync primitives, typed codec, secure envelope and async layers are
-capability-gated and planned for later phases (the harness advertises no caps,
-so the runner cleanly skips them).
+wire ABI — not an FFI wrapper of the C/C++ core. It covers the **core broadcast
+transport**: byte-exact shm ring (`elem_array<80,8>`, 22784B), DCLP header init
+over `os_unfair_lock`, the broadcast push/pop CAS protocol, prefix-global
+`cc_id` identity, fragment reassembly, and receive-side chunk-storage decode for
+large (>64B) messages; plus the **dead-connection reaper** (the `LV_CONN__`
+owner table with a `proc_pidinfo` start token that defeats PID reuse). It joins
+the matrix's `sync`, `fanout` and `reap` scenarios, proven byte-exact with the
+C++, Rust and Swift ports in every writer→reader direction at all payload sizes
+(40 B – 64 KB) — including that a reaper of any language reclaims a dead Zig
+receiver and never false-reaps a live one. The sync primitives, typed codec,
+secure envelope and async layers are capability-gated and planned for later
+phases (the harness advertises no caps, so the runner cleanly skips them).
 
 Idiomatic Zig: `std.posix`/`std.c` for the syscalls, native `@atomic*`
 builtins over the shm fields, and `extern struct` with comptime `@sizeOf`/

@@ -2,7 +2,7 @@
 
 thoth-ipc's C++, Rust and Swift ports share one byte-exact wire ABI
 ([`context/xlang-channel-abi.md`](../../context/xlang-channel-abi.md)), joined by
-a native Zig port for the core transport (`sync` + `fanout`).
+a native Zig port for the core transport + reaper (`sync` + `fanout` + `reap`).
 Same-language test suites cannot catch ABI drift; this runner proves parity by
 pairing every writer language with every reader language over a real
 `ipc::route` channel.
