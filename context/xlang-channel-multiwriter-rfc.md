@@ -3,14 +3,14 @@
 
 # RFC: Cross-language `ipc::channel` (multi-writer broadcast)
 
-**Status:** In progress. **Phase 1 (Zig) is implemented and verified** — a Zig
-multi-producer ring interoperates byte-exact with C++ `ipc::channel` (all
-`cpp+zig → {cpp,zig}` pairings pass at 40/65/3000 B; see
-`zig/libipc/src/transport/channel_multi.zig`). Rust (Phase 2) and Swift
-(Phase 3) are pending; the `channel` scenario stays a tracked expected-fail
-until they land. This document is the target ABI and the per-language roadmap
-for closing the one remaining cross-language gap in the matrix: multi-writer
-`ipc::channel`. It complements
+**Status:** In progress. **Phases 1 (Zig) and 2 (Rust) are implemented and
+verified** — all 27 `channel` pairings across C++/Rust/Zig pass byte-exact at
+40/65/3000 B (`zig/libipc/src/transport/channel_multi.zig`,
+`rust/libipc/src/channel.rs`). **Swift (Phase 3) is pending**; the `channel`
+scenario stays a tracked expected-fail until it lands (a Swift channel endpoint
+still uses the route ring). This document is the target ABI and the per-language
+roadmap for closing the one remaining cross-language gap in the matrix:
+multi-writer `ipc::channel`. It complements
 [`xlang-channel-abi.md`](xlang-channel-abi.md), which specifies the
 single-writer `ipc::route` (already byte-exact across all four ports).
 
@@ -179,8 +179,10 @@ Waiters (`RD/WT/CC_CONN__`), liveness (`LV_CONN__`) and chunk storage
    byte-exact with C++; `cpp+zig → {cpp,zig}` pass at 40/65/3000 B and `zig→zig`
    works. De-risked the hardest lock-free protocol against the reference.
    Scenario stays `xfail` overall until Rust/Swift land.
-2. **Rust (Phase 2).** Same ring + counter; split `Channel` off the route
-   `ChanInner`. Verify all `{rust,cpp,zig}` channel pairings.
+2. **Rust (Phase 2) — ✅ done.** `rust/libipc/src/channel.rs` adds the
+   multi-producer ring + `AC_CONN__` counter behind a `multi` flag on `ChanInner`
+   (route path untouched; `push_fragment`/`recv` dispatch to `_multi` variants).
+   All `{cpp,rust,zig}` channel pairings pass.
 3. **Swift (Phase 3).** Same. Verify the full 4-language `channel` matrix.
 4. **Flip the expectation.** Change `ChannelScenarioConfig::default().xfail`
    (`tools/xlang-runner/src/config.rs` L162) from `true` to `false`; the whole
@@ -231,7 +233,7 @@ notify, framing); only the ring element and push/pop protocol are new.
 **Not needed for the first cut:** `force_push` eviction (spin-wait like the route
 `pushFragment`; the matrix readers are all live).
 
-### 4.3 Rust — Phase 2
+### 4.3 Rust — Phase 2 (✅ done)
 
 **Files**
 - `rust/libipc/src/channel.rs` — today `Route` and `Channel` are both thin

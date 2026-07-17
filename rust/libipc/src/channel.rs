@@ -121,6 +121,90 @@ const EP_MASK: u64 = 0x0000_0000_ffff_ffff;
 /// Increment for the epoch stored in the high 32 bits of `rc`.
 const EP_INCR: u64 = 0x0000_0001_0000_0000;
 
+// ---------------------------------------------------------------------------
+// Multi-writer channel ring (C++ prod_cons_impl<multi,multi,broadcast>)
+// ---------------------------------------------------------------------------
+// Byte-exact with C++/Zig (context/xlang-channel-multiwriter-rfc.md): a 96-byte
+// slot with an `f_ct_` commit flag, a commit index `ct_` (reusing the header's
+// write_cursor slot), and a 3-region `rc_` packing. Same shm NAME as route; the
+// two are distinguished by layout, so a Channel opens the ring at the larger
+// size. Reuses the route header, waiters, liveness, chunk-storage and msg_t
+// framing unchanged.
+
+/// Multi-writer channel slot: the route slot plus a per-slot `f_ct_` commit flag.
+#[repr(C, align(8))]
+struct ChannelElemT {
+    data_: [u8; MSG_SIZE],
+    rc_: AtomicU64,
+    f_ct_: AtomicU64,
+}
+const _: () = {
+    assert!(std::mem::size_of::<ChannelElemT>() == 96);
+    assert!(std::mem::offset_of!(ChannelElemT, rc_) == 80);
+    assert!(std::mem::offset_of!(ChannelElemT, f_ct_) == 88);
+};
+
+impl ChannelElemT {
+    unsafe fn write_msg(&self, cc_id: u32, id: u32, remain: i32, storage: bool, payload: &[u8]) {
+        let p = self.data_.as_ptr() as *mut u8;
+        std::ptr::copy_nonoverlapping(cc_id.to_ne_bytes().as_ptr(), p.add(MSG_CC_ID), 4);
+        std::ptr::copy_nonoverlapping(id.to_ne_bytes().as_ptr(), p.add(MSG_ID), 4);
+        std::ptr::copy_nonoverlapping(remain.to_ne_bytes().as_ptr(), p.add(MSG_REMAIN), 4);
+        p.add(MSG_STORAGE).write(if storage { 1 } else { 0 });
+        std::ptr::copy_nonoverlapping(payload.as_ptr(), p.add(MSG_PAYLOAD), payload.len());
+    }
+    unsafe fn read_header(&self) -> (u32, u32, i32, bool) {
+        let p = self.data_.as_ptr();
+        let mut b = [0u8; 4];
+        std::ptr::copy_nonoverlapping(p.add(MSG_CC_ID), b.as_mut_ptr(), 4);
+        let cc_id = u32::from_ne_bytes(b);
+        std::ptr::copy_nonoverlapping(p.add(MSG_ID), b.as_mut_ptr(), 4);
+        let id = u32::from_ne_bytes(b);
+        std::ptr::copy_nonoverlapping(p.add(MSG_REMAIN), b.as_mut_ptr(), 4);
+        let remain = i32::from_ne_bytes(b);
+        let storage = p.add(MSG_STORAGE).read() != 0;
+        (cc_id, id, remain, storage)
+    }
+    unsafe fn read_payload(&self, n: usize) -> Vec<u8> {
+        std::slice::from_raw_parts(self.data_.as_ptr().add(MSG_PAYLOAD), n).to_vec()
+    }
+    unsafe fn read_storage_id(&self) -> i32 {
+        let mut b = [0u8; 4];
+        std::ptr::copy_nonoverlapping(self.data_.as_ptr().add(MSG_PAYLOAD), b.as_mut_ptr(), 4);
+        i32::from_ne_bytes(b)
+    }
+}
+
+/// Total channel ring shm size — sizeof(C++ elem_array<multi,80,8>) on Apple arm64
+/// (verified by the abi conformance dumper).
+const CHANNEL_RING_SHM_SIZE: usize = 24832;
+
+// Channel `rc_` 3-region packing (C++ prod_cons.h multi-multi enum).
+const RC_MASK: u64 = 0x0000_0000_ffff_ffff; // low 32: per-reader "needs to read" bitmask
+const CH_EP_MASK: u64 = 0x00ff_ffff_ffff_ffff; // low 56: rc bits + internal read-generation
+const CH_EP_INCR: u64 = 0x0100_0000_0000_0000; // epoch increment (top byte)
+const CH_IC_MASK: u64 = 0xff00_0000_ffff_ffff; // invert-carry mask
+const CH_IC_INCR: u64 = 0x0000_0001_0000_0000; // internal read-generation increment (bits 32..)
+const _: () = {
+    // CH_EP_INCR is documentation of the top-byte epoch step; unused directly here
+    // (force_push is not implemented in the matrix's live-reader path).
+    assert!(CH_EP_INCR != 0);
+};
+
+#[inline]
+fn inc_rc(rc: u64) -> u64 {
+    (rc & CH_IC_MASK) | (rc.wrapping_add(CH_IC_INCR) & !CH_IC_MASK)
+}
+#[inline]
+fn inc_mask(rc: u64) -> u64 {
+    inc_rc(rc) & !RC_MASK
+}
+
+/// Get channel slot `idx` (96-byte stride), at C++ `block_` (offset 192).
+unsafe fn channel_slot(base: *mut u8, idx: u8) -> &'static ChannelElemT {
+    &*((base.add(OFF_BLOCK) as *const ChannelElemT).add(idx as usize))
+}
+
 /// Header of the shared ring buffer, byte-exact with the C++ `elem_array` head
 /// so C++ and the Rust port share the same shm object (see
 /// `context/xlang-channel-abi.md`). Layout on a 64-bit target:
@@ -252,7 +336,9 @@ struct ChanInner {
     conn_id: u32,          // bitmask for this receiver (0 for senders)
     cc_id: u32,            // unique endpoint identity for self-message filtering
     read_cursor: u32,      // receiver's read position
-    send_seq: u32,         // per-sender msg_t.id_ counter (fragment grouping)
+    send_seq: u32,         // route: per-sender msg_t.id_ counter (fragment grouping)
+    multi: bool,           // true = multi-writer channel ring (96B slot, ct_/f_ct_)
+    ac_id_shm: Option<ShmHandle>, // channel: shared per-channel AC_CONN__ msg-id counter
     recv_cache: HashMap<u32, (usize, Vec<u8>)>, // id_ -> (fill offset, buffer) reassembly
     wt_waiter: Waiter,     // write-side waiter (senders block here when ring is full)
     rd_waiter: Waiter,     // read-side waiter (receivers block here when ring is empty)
@@ -280,7 +366,7 @@ struct ChanInner {
 }
 
 impl ChanInner {
-    fn open(prefix: &str, name: &str, mode: Mode) -> io::Result<Self> {
+    fn open(prefix: &str, name: &str, mode: Mode, multi: bool) -> io::Result<Self> {
         // Byte-exact with C++ make_prefix: prefix + "__IPC_SHM__" + TAG + name;
         // the ring additionally carries the __<DataSize>__<AlignSize> geometry.
         let full_prefix = format!("{prefix}__IPC_SHM__");
@@ -298,12 +384,27 @@ impl ChanInner {
         // Dead-connection reaper owner table (byte-exact with C++ LV_CONN__).
         let lv_name = format!("{full_prefix}LV_CONN__{name}");
 
-        let ring_shm = ShmHandle::acquire(&ring_name, ring_shm_size(), ShmOpenMode::CreateOrOpen)?;
+        // Channel and route share the ring NAME but not the size/layout: the
+        // multi-writer ring has 96-byte slots (24832 B total) vs the route's 88.
+        let ring_size = if multi { CHANNEL_RING_SHM_SIZE } else { ring_shm_size() };
+        let ring_shm = ShmHandle::acquire(&ring_name, ring_size, ShmOpenMode::CreateOrOpen)?;
         let cc_id_shm = ShmHandle::acquire(
             &cc_id_name,
             std::mem::size_of::<u32>(),
             ShmOpenMode::CreateOrOpen,
         )?;
+        // Multi-writer channels draw msg_t.id_ from a SHARED per-channel counter
+        // (C++ AC_CONN__<name>) so two concurrent writers never collide in the
+        // receiver's reassembly cache. Route uses a process-local send_seq.
+        let ac_id_shm = if multi {
+            Some(ShmHandle::acquire(
+                &format!("{full_prefix}AC_CONN__{name}"),
+                std::mem::size_of::<u32>(),
+                ShmOpenMode::CreateOrOpen,
+            )?)
+        } else {
+            None
+        };
         let liveness_shm =
             ShmHandle::acquire(&lv_name, crate::liveness::LIVENESS_SHM_SIZE, ShmOpenMode::CreateOrOpen)?;
         let liveness_ptr = liveness_shm.get() as *mut crate::liveness::ConnLiveness;
@@ -378,6 +479,8 @@ impl ChanInner {
             cc_id,
             read_cursor,
             send_seq: 0,
+            multi,
+            ac_id_shm,
             recv_cache: HashMap::new(),
             wt_waiter,
             rd_waiter,
@@ -529,8 +632,15 @@ impl ChanInner {
             return Ok(false); // no receivers
         }
         let size = data.len();
-        let msg_id = self.send_seq;
-        self.send_seq = self.send_seq.wrapping_add(1);
+        // Multi-writer: shared AC_CONN__ counter; route: process-local send_seq.
+        let msg_id = if self.multi {
+            let atomic = unsafe { &*(self.ac_id_shm.as_ref().unwrap().get() as *const AtomicU32) };
+            atomic.fetch_add(1, Ordering::Relaxed)
+        } else {
+            let m = self.send_seq;
+            self.send_seq = self.send_seq.wrapping_add(1);
+            m
+        };
 
         // Full data_length-sized fragments.
         let full = size / DATA_LENGTH;
@@ -564,6 +674,9 @@ impl ChanInner {
     /// Claim the next ring slot (C++ prod_cons broadcast push / force_push) and
     /// write one msg_t fragment, then advance wt_ and wake receivers.
     fn push_fragment(&self, msg_id: u32, remain: i32, payload: &[u8], timeout_ms: u64) -> io::Result<bool> {
+        if self.multi {
+            return self.push_fragment_multi(msg_id, remain, payload, timeout_ms);
+        }
         let hdr = self.hdr();
         let ring_ptr = self.ring_shm.get();
         let claimed_wt: u32;
@@ -653,6 +766,9 @@ impl ChanInner {
     /// Receive one message (receiver only). Reassembles msg_t fragments by id_,
     /// byte-exact with C++ ipc.cpp recv(). No chunk-storage path yet.
     fn recv(&mut self, timeout_ms: Option<u64>) -> io::Result<IpcBuffer> {
+        if self.multi {
+            return self.recv_multi(timeout_ms);
+        }
         if self.mode != Mode::Receiver {
             return Err(io::Error::new(io::ErrorKind::Other, "not a receiver"));
         }
@@ -754,6 +870,176 @@ impl ChanInner {
         }
     }
 
+    /// Multi-writer push (C++ prod_cons_impl<multi,multi,broadcast>): claim the
+    /// `ct_` commit slot via a CAS on `rc_` + an epoch re-validate, advance `ct_`,
+    /// write the fragment, then publish `f_ct_ = !ct` for readers. Busy-polls with
+    /// a deadline while the target slot is still owed a read / not yet drained (the
+    /// matrix keeps every reader live, so force_push eviction is not needed).
+    fn push_fragment_multi(&self, msg_id: u32, remain: i32, payload: &[u8], timeout_ms: u64) -> io::Result<bool> {
+        let hdr = self.hdr();
+        let ring_ptr = self.ring_shm.get();
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+        let mut epoch = hdr.epoch.load(Ordering::Acquire);
+        let claimed_ct: u32;
+        let mut k = 0u32;
+        'claim: loop {
+            let cc = hdr.connections.load(Ordering::Relaxed) as u64;
+            if cc == 0 {
+                return Ok(false); // no receivers
+            }
+            let cur_ct = hdr.write_cursor.load(Ordering::Relaxed); // commit index (ct_)
+            let slot = unsafe { channel_slot(ring_ptr, cur_ct as u8) };
+            let cur_rc = slot.rc_.load(Ordering::Relaxed);
+            let rem_cc = cur_rc & RC_MASK;
+            if (cc & rem_cc) != 0 && (cur_rc & !CH_EP_MASK) == epoch {
+                // Slot still held by a live reader in the current epoch.
+                if Instant::now() >= deadline {
+                    return Ok(false);
+                }
+                crate::spin_lock::adaptive_yield_pub(&mut k);
+                continue 'claim;
+            } else if rem_cc == 0 {
+                let cur_fl = slot.f_ct_.load(Ordering::Acquire);
+                if cur_fl != cur_ct as u64 && cur_fl != 0 {
+                    // Previous lap's data not yet drained by the reader.
+                    if Instant::now() >= deadline {
+                        return Ok(false);
+                    }
+                    crate::spin_lock::adaptive_yield_pub(&mut k);
+                    continue 'claim;
+                }
+            }
+            let desired = inc_mask(epoch | (cur_rc & CH_EP_MASK)) | cc;
+            if slot
+                .rc_
+                .compare_exchange_weak(cur_rc, desired, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                // Won the slot; re-validate the epoch has not moved.
+                if hdr
+                    .epoch
+                    .compare_exchange_weak(epoch, epoch, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    claimed_ct = cur_ct;
+                    break 'claim;
+                }
+                epoch = hdr.epoch.load(Ordering::Acquire);
+            }
+            crate::spin_lock::adaptive_yield_pub(&mut k);
+        }
+        hdr.write_cursor.store(claimed_ct.wrapping_add(1), Ordering::Release); // advance ct_
+        let slot = unsafe { channel_slot(ring_ptr, claimed_ct as u8) };
+        unsafe { slot.write_msg(self.cc_id, msg_id, remain, false, payload) };
+        slot.f_ct_.store(!(claimed_ct as u64), Ordering::Release); // publish commit flag
+        let _ = self.rd_waiter.broadcast();
+        Ok(true)
+    }
+
+    /// Multi-writer recv: emptiness via `f_ct_ == !cur`, the channel `rc_`/`f_ct_`
+    /// slot-free protocol, then the same fragment reassembly / chunk-storage decode
+    /// as route `recv()`.
+    fn recv_multi(&mut self, timeout_ms: Option<u64>) -> io::Result<IpcBuffer> {
+        if self.mode != Mode::Receiver {
+            return Err(io::Error::new(io::ErrorKind::Other, "not a receiver"));
+        }
+        let deadline = timeout_ms.map(|ms| Instant::now() + Duration::from_millis(ms));
+        let ring_ptr = self.ring_shm.get();
+        let mut k = 0u32;
+        loop {
+            let cur = self.read_cursor;
+            let slot = unsafe { channel_slot(ring_ptr, cur as u8) };
+            if slot.f_ct_.load(Ordering::Acquire) != !(cur as u64) {
+                // Empty — the sender has not published this cursor's commit flag.
+                if let Some(dl) = deadline {
+                    if Instant::now() >= dl {
+                        return Ok(IpcBuffer::default());
+                    }
+                }
+                crate::spin_lock::adaptive_yield_pub(&mut k);
+                continue;
+            }
+            k = 0;
+
+            let (cc_id, id, remain, storage) = unsafe { slot.read_header() };
+            let is_self = cc_id == self.cc_id;
+            let r_size = DATA_LENGTH as i32 + remain;
+            let keep = !is_self && r_size > 0;
+            let storage_id: Option<i32> = if keep && storage {
+                Some(unsafe { slot.read_storage_id() })
+            } else {
+                None
+            };
+            let frag: Option<Vec<u8>> = if keep && !storage {
+                let n = if remain <= 0 { r_size as usize } else { DATA_LENGTH };
+                Some(unsafe { slot.read_payload(n) })
+            } else {
+                None
+            };
+
+            // Clear our rc_ bit (channel inc_rc protocol); the last reader frees the
+            // slot by setting f_ct_ to the next-lap ct value (cur + RING_SIZE).
+            let cur_post = cur.wrapping_add(1);
+            let free_flag = cur_post as u64 + (RING_SIZE as u64 - 1);
+            let mut j = 0u32;
+            loop {
+                let cur_rc = slot.rc_.load(Ordering::Acquire);
+                if (cur_rc & RC_MASK) == 0 {
+                    slot.f_ct_.store(free_flag, Ordering::Release);
+                    break;
+                }
+                let nxt = inc_rc(cur_rc) & !(self.conn_id as u64);
+                if (nxt & RC_MASK) == 0 {
+                    slot.f_ct_.store(free_flag, Ordering::Release);
+                }
+                if slot
+                    .rc_
+                    .compare_exchange_weak(cur_rc, nxt, Ordering::Release, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    break;
+                }
+                crate::spin_lock::adaptive_yield_pub(&mut j);
+            }
+            self.read_cursor = cur_post;
+            let _ = self.wt_waiter.broadcast();
+
+            if !keep {
+                continue;
+            }
+
+            if let Some(sid) = storage_id {
+                let msg_size = r_size as usize;
+                let chunk_size = cs::calc_chunk_size(msg_size);
+                let buf = self.chunk_shm_base(chunk_size).and_then(|base| {
+                    let out = cs::find_storage(base, chunk_size, sid)
+                        .map(|ptr| unsafe { std::slice::from_raw_parts(ptr, msg_size).to_vec() });
+                    cs::recycle_storage(base, chunk_size, sid, self.conn_id);
+                    out
+                });
+                match buf {
+                    Some(b) => return Ok(IpcBuffer::from_vec(b)),
+                    None => continue,
+                }
+            }
+            let frag = frag.unwrap();
+            if let Some((off, mut buf)) = self.recv_cache.remove(&id) {
+                let n = frag.len();
+                buf[off..off + n].copy_from_slice(&frag);
+                if remain <= 0 {
+                    return Ok(IpcBuffer::from_vec(buf));
+                }
+                self.recv_cache.insert(id, (off + n, buf));
+            } else if remain <= 0 {
+                return Ok(IpcBuffer::from_vec(frag));
+            } else {
+                let mut buf = vec![0u8; r_size as usize];
+                buf[..frag.len()].copy_from_slice(&frag);
+                self.recv_cache.insert(id, (frag.len(), buf));
+            }
+        }
+    }
+
     /// Try receiving without blocking.
     fn try_recv(&mut self) -> io::Result<IpcBuffer> {
         self.recv(Some(0))
@@ -794,14 +1080,14 @@ impl ChanInner {
     /// Returns an error if the underlying SHM cannot be opened.
     fn reconnect(&mut self, mode: Mode) -> io::Result<()> {
         self.disconnect();
-        let new_inner = ChanInner::open(&self.prefix, &self.name, mode)?;
+        let new_inner = ChanInner::open(&self.prefix, &self.name, mode, self.multi)?;
         *self = new_inner;
         Ok(())
     }
 
     /// Open a new independent endpoint with the same name, prefix, and mode.
     fn clone_inner(&self) -> io::Result<ChanInner> {
-        ChanInner::open(&self.prefix, &self.name, self.mode)
+        ChanInner::open(&self.prefix, &self.name, self.mode, self.multi)
     }
 }
 
@@ -834,7 +1120,7 @@ impl Route {
 
     /// Connect with a prefix.
     pub fn connect_with_prefix(prefix: &str, name: &str, mode: Mode) -> io::Result<Self> {
-        let inner = ChanInner::open(prefix, name, mode)?;
+        let inner = ChanInner::open(prefix, name, mode, false)?;
         Ok(Self { inner })
     }
 
@@ -1009,7 +1295,7 @@ impl Channel {
 
     /// Connect with a prefix.
     pub fn connect_with_prefix(prefix: &str, name: &str, mode: Mode) -> io::Result<Self> {
-        let inner = ChanInner::open(prefix, name, mode)?;
+        let inner = ChanInner::open(prefix, name, mode, true)?;
         Ok(Self { inner })
     }
 
