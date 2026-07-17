@@ -30,10 +30,13 @@ private func ua64(_ field: inout UInt64.AtomicRepresentation) -> UnsafeAtomic<UI
 
 // MARK: - Constants
 
-let dataLength: Int  = 64
-let ringSize: Int    = 256
-let epMask: UInt64 = 0x0000_0000_FFFF_FFFF
-let epIncr: UInt64 = 0x0000_0001_0000_0000
+// Transport ABI constants — sourced from the generated `ABI` namespace
+// (abi/abi.json → Sources/LibIPC/Generated/ABI.swift). A layout/mask change in
+// the spec propagates here by regeneration rather than hand-editing.
+let dataLength: Int  = ABI.data_length
+let ringSize: Int    = ABI.ring_size
+let epMask: UInt64 = ABI.route_ep_mask
+let epIncr: UInt64 = ABI.route_ep_incr
 private let spinCount: UInt32 = 32
 
 // MARK: - Ring slot (byte-exact with C++ broadcast elem_t<80,8>)
@@ -41,10 +44,11 @@ private let spinCount: UInt32 = 32
 // { data_[80]; rc_ } = 88 bytes. `data_` holds a msg_t<64,8>:
 //   cc_id_@0 (u32), id_@4 (u32), remain_@8 (i32), storage_@12 (u8), payload@16 (64).
 // Accessed via raw offsets (Swift struct layout is not guaranteed C-compatible).
-let offBlock   = 192   // C++ block_ offset (after conn_head_base + head_)
-let elemStride = 88    // sizeof(elem_t)
-let elemRcOff  = 80    // rc_ within a slot
-let msgCcId = 0, msgId = 4, msgRemain = 8, msgStorage = 12, msgPayload = 16
+let offBlock   = ABI.ring_header_size   // C++ block_ offset (after conn_head_base + head_)
+let elemStride = ABI.route_elem_size    // sizeof(elem_t)
+let elemRcOff  = ABI.route_elem_rc_off  // rc_ within a slot
+let msgCcId = ABI.msg_t_cc_id_off, msgId = ABI.msg_t_id_off, msgRemain = ABI.msg_t_remain_off,
+    msgStorage = ABI.msg_t_storage_off, msgPayload = ABI.msg_t_payload_off
 
 @inline(__always) func slotBase(_ ringBase: UnsafeMutableRawPointer, _ idx: UInt8) -> UnsafeMutableRawPointer {
     ringBase.advanced(by: offBlock + Int(idx) * elemStride)
@@ -73,15 +77,15 @@ let msgCcId = 0, msgId = 4, msgRemain = 8, msgStorage = 12, msgPayload = 16
 // (low 32) + an internal read-generation (bits 32..55) + an epoch (top byte).
 // Byte-exact with the Rust/Zig channel ports. See
 // context/xlang-channel-multiwriter-rfc.md.
-let channelElemStride = 96
-let channelElemFctOff = 88
-let channelRingShmSizeBytes = 24832
+let channelElemStride = ABI.channel_elem_size
+let channelElemFctOff = ABI.channel_elem_f_ct_off
+let channelRingShmSizeBytes = ABI.channel_ring_size
 
-let chRcMask: UInt64 = 0x0000_0000_FFFF_FFFF   // low 32: per-reader "needs to read" bitmask
-let chEpMask: UInt64 = 0x00FF_FFFF_FFFF_FFFF   // low 56: rc bits + internal read-generation
-let chEpIncr: UInt64 = 0x0100_0000_0000_0000   // epoch increment (top byte)
-let chIcMask: UInt64 = 0xFF00_0000_FFFF_FFFF   // invert-carry mask
-let chIcIncr: UInt64 = 0x0000_0001_0000_0000   // internal read-generation increment (bits 32..)
+let chRcMask: UInt64 = ABI.chan_rc_mask   // low 32: per-reader "needs to read" bitmask
+let chEpMask: UInt64 = ABI.chan_ep_mask   // low 56: rc bits + internal read-generation
+let chEpIncr: UInt64 = ABI.chan_ep_incr   // epoch increment (top byte)
+let chIcMask: UInt64 = ABI.chan_ic_mask   // invert-carry mask
+let chIcIncr: UInt64 = ABI.chan_ic_incr   // internal read-generation increment (bits 32..)
 
 @inline(__always) func incRc(_ rc: UInt64) -> UInt64 {
     (rc & chIcMask) | ((rc &+ chIcIncr) & ~chIcMask)
@@ -120,7 +124,7 @@ struct RingHeader {
 }
 
 let ringHeaderSize = MemoryLayout<RingHeader>.size
-let ringShmSizeBytes = 22784  // sizeof(C++ elem_array<broadcast,80,8>) on Apple arm64
+let ringShmSizeBytes = ABI.route_ring_size  // sizeof(C++ elem_array<broadcast,80,8>) on Apple arm64
 func ringShmSize() -> Int { ringShmSizeBytes }
 
 // Ring element alignment folded into the shm name: C++ AlignSize =
@@ -150,12 +154,13 @@ func initHeader(_ hdr: UnsafeMutablePointer<RingHeader>) {
 
 /// Guard the header layout against C++ drift (offsets from the spec).
 func assertHeaderLayout() {
-    assert(MemoryLayout<RingHeader>.size == 192)
-    assert(MemoryLayout<RingHeader>.offset(of: \.connections)! == 0)
-    assert(MemoryLayout<RingHeader>.offset(of: \.lc)! == 4)
-    assert(MemoryLayout<RingHeader>.offset(of: \.constructed)! == 8)
-    assert(MemoryLayout<RingHeader>.offset(of: \.writeCursor)! == 64)
-    assert(MemoryLayout<RingHeader>.offset(of: \.epoch)! == 128)
+    // Verify the Swift struct matches the generated ABI layout.
+    assert(MemoryLayout<RingHeader>.size == ABI.ring_header_size)
+    assert(MemoryLayout<RingHeader>.offset(of: \.connections)! == ABI.ring_header_cc_off)
+    assert(MemoryLayout<RingHeader>.offset(of: \.lc)! == ABI.ring_header_lc_off)
+    assert(MemoryLayout<RingHeader>.offset(of: \.constructed)! == ABI.ring_header_constructed_off)
+    assert(MemoryLayout<RingHeader>.offset(of: \.writeCursor)! == ABI.ring_header_cursor_off)
+    assert(MemoryLayout<RingHeader>.offset(of: \.epoch)! == ABI.ring_header_epoch_off)
 }
 
 // MARK: - Mode

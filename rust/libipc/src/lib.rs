@@ -7,6 +7,12 @@
 
 pub mod shm_name;
 
+/// Generated ABI constants (byte sizes, offsets, masks) — the single source of
+/// truth in `abi/abi.json`, emitted by `tools/abi`. Consumed by the transport
+/// layer so a mask or layout change in the spec propagates by regeneration
+/// rather than hand-editing each port. DO NOT EDIT the generated file.
+pub mod abi_generated;
+
 mod platform;
 
 mod shm;

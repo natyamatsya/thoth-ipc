@@ -19,6 +19,7 @@ use std::io;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::abi_generated as abi;
 use crate::buffer::IpcBuffer;
 use crate::chunk_storage as cs;
 #[cfg(unix)]
@@ -27,7 +28,7 @@ use crate::shm::{ShmHandle, ShmOpenMode};
 use crate::waiter::Waiter;
 
 /// Default data length per ring slot (matches C++ `ipc::data_length = 64`).
-const DATA_LENGTH: usize = 64;
+const DATA_LENGTH: usize = abi::data_length;
 /// Ring element alignment folded into the shm name, matching C++'s queue
 /// `AlignSize = min(DataSize, alignof(std::max_align_t))`, byte-identical to C++
 /// per target: 8 on Apple arm64, 16 on x86-64 / Linux aarch64, and **8 on
@@ -45,7 +46,7 @@ const RING_ALIGN: usize = {
 /// Number of ring slots (matches C++ `elem_max = 256`). The slot index is the
 /// write cursor truncated to u8 (wraps at 256); also used directly in the
 /// channel `recv_multi` next-lap free-flag arithmetic.
-const RING_SIZE: usize = 256;
+const RING_SIZE: usize = abi::ring_size;
 
 // ---------------------------------------------------------------------------
 // Ring slot layout in shared memory
@@ -65,18 +66,19 @@ struct ElemT {
 }
 
 /// Size of `msg_t<64,8>`: 16-byte header + 64-byte payload.
-const MSG_SIZE: usize = 80;
+const MSG_SIZE: usize = abi::msg_t_size;
 // Field offsets within `ElemT.data_` (a msg_t<64,8>), byte-exact with C++ ipc.cpp.
-const MSG_CC_ID: usize = 0; // u32  sender identity (self-message filter)
-const MSG_ID: usize = 4; // u32  message id (fragment grouping)
-const MSG_REMAIN: usize = 8; // i32  bytes remaining AFTER this fragment
-const MSG_STORAGE: usize = 12; // u8   payload is a storage_id (large-message path)
-const MSG_PAYLOAD: usize = 16; // [u8; 64] fragment payload
+const MSG_CC_ID: usize = abi::msg_t_cc_id_off; // u32  sender identity (self-message filter)
+const MSG_ID: usize = abi::msg_t_id_off; // u32  message id (fragment grouping)
+const MSG_REMAIN: usize = abi::msg_t_remain_off; // i32  bytes remaining AFTER this fragment
+const MSG_STORAGE: usize = abi::msg_t_storage_off; // u8   payload is a storage_id (large-message path)
+const MSG_PAYLOAD: usize = abi::msg_t_payload_off; // [u8; 64] fragment payload
 
+// Compile-time guard: the Rust struct must match the generated ABI layout.
 const _: () = {
-    assert!(std::mem::size_of::<ElemT>() == 88);
+    assert!(std::mem::size_of::<ElemT>() == abi::route_elem_size);
     assert!(std::mem::align_of::<ElemT>() == 8);
-    assert!(std::mem::offset_of!(ElemT, rc_) == 80);
+    assert!(std::mem::offset_of!(ElemT, rc_) == abi::route_elem_rc_off);
 };
 
 impl ElemT {
@@ -117,9 +119,9 @@ impl ElemT {
 }
 
 /// Bitmask for the connection bits in the 64-bit `rc` field (low 32 bits).
-const EP_MASK: u64 = 0x0000_0000_ffff_ffff;
+const EP_MASK: u64 = abi::route_ep_mask;
 /// Increment for the epoch stored in the high 32 bits of `rc`.
-const EP_INCR: u64 = 0x0000_0001_0000_0000;
+const EP_INCR: u64 = abi::route_ep_incr;
 
 // ---------------------------------------------------------------------------
 // Multi-writer channel ring (C++ prod_cons_impl<multi,multi,broadcast>)
@@ -139,9 +141,9 @@ struct ChannelElemT {
     f_ct_: AtomicU64,
 }
 const _: () = {
-    assert!(std::mem::size_of::<ChannelElemT>() == 96);
-    assert!(std::mem::offset_of!(ChannelElemT, rc_) == 80);
-    assert!(std::mem::offset_of!(ChannelElemT, f_ct_) == 88);
+    assert!(std::mem::size_of::<ChannelElemT>() == abi::channel_elem_size);
+    assert!(std::mem::offset_of!(ChannelElemT, rc_) == abi::channel_elem_rc_off);
+    assert!(std::mem::offset_of!(ChannelElemT, f_ct_) == abi::channel_elem_f_ct_off);
 };
 
 impl ChannelElemT {
@@ -177,14 +179,14 @@ impl ChannelElemT {
 
 /// Total channel ring shm size — sizeof(C++ elem_array<multi,80,8>) on Apple arm64
 /// (verified by the abi conformance dumper).
-const CHANNEL_RING_SHM_SIZE: usize = 24832;
+const CHANNEL_RING_SHM_SIZE: usize = abi::channel_ring_size;
 
 // Channel `rc_` 3-region packing (C++ prod_cons.h multi-multi enum).
-const RC_MASK: u64 = 0x0000_0000_ffff_ffff; // low 32: per-reader "needs to read" bitmask
-const CH_EP_MASK: u64 = 0x00ff_ffff_ffff_ffff; // low 56: rc bits + internal read-generation
-const CH_EP_INCR: u64 = 0x0100_0000_0000_0000; // epoch increment (top byte)
-const CH_IC_MASK: u64 = 0xff00_0000_ffff_ffff; // invert-carry mask
-const CH_IC_INCR: u64 = 0x0000_0001_0000_0000; // internal read-generation increment (bits 32..)
+const RC_MASK: u64 = abi::chan_rc_mask; // low 32: per-reader "needs to read" bitmask
+const CH_EP_MASK: u64 = abi::chan_ep_mask; // low 56: rc bits + internal read-generation
+const CH_EP_INCR: u64 = abi::chan_ep_incr; // epoch increment (top byte)
+const CH_IC_MASK: u64 = abi::chan_ic_mask; // invert-carry mask
+const CH_IC_INCR: u64 = abi::chan_ic_incr; // internal read-generation increment (bits 32..)
 const _: () = {
     // CH_EP_INCR is documentation of the top-byte epoch step; unused directly here
     // (force_push is not implemented in the matrix's live-reader path).
@@ -238,7 +240,7 @@ struct RingHeader {
 /// Total ring shm size — byte-exact `sizeof(C++ elem_array<broadcast,80,8>)` on
 /// Apple arm64 (see spec §2). Includes C++'s trailing sender-flag region so the
 /// mapping matches. TODO(xlang): compute per-target from the slot geometry.
-const RING_SHM_SIZE: usize = 22784;
+const RING_SHM_SIZE: usize = abi::route_ring_size;
 
 /// Total shared memory size for the ring.
 const fn ring_shm_size() -> usize {
@@ -247,12 +249,12 @@ const fn ring_shm_size() -> usize {
 
 // Compile-time guard: the header must match the C++ conn_head_base + head_ offsets.
 const _: () = {
-    assert!(std::mem::size_of::<RingHeader>() == 192);
-    assert!(std::mem::offset_of!(RingHeader, connections) == 0);
-    assert!(std::mem::offset_of!(RingHeader, lc) == 4);
-    assert!(std::mem::offset_of!(RingHeader, constructed) == 8);
-    assert!(std::mem::offset_of!(RingHeader, write_cursor) == 64);
-    assert!(std::mem::offset_of!(RingHeader, epoch) == 128);
+    assert!(std::mem::size_of::<RingHeader>() == abi::ring_header_size);
+    assert!(std::mem::offset_of!(RingHeader, connections) == abi::ring_header_cc_off);
+    assert!(std::mem::offset_of!(RingHeader, lc) == abi::ring_header_lc_off);
+    assert!(std::mem::offset_of!(RingHeader, constructed) == abi::ring_header_constructed_off);
+    assert!(std::mem::offset_of!(RingHeader, write_cursor) == abi::ring_header_cursor_off);
+    assert!(std::mem::offset_of!(RingHeader, epoch) == abi::ring_header_epoch_off);
 };
 
 /// C++ `conn_head_base::init()` — a double-checked-locking construct via the
@@ -309,7 +311,7 @@ unsafe fn ring_slot(base: *mut u8, idx: u8) -> &'static ElemT {
 }
 
 /// Offset of the first ring slot (C++ `block_`): after conn_head_base + head_.
-const OFF_BLOCK: usize = 192;
+const OFF_BLOCK: usize = abi::ring_header_size;
 
 // ---------------------------------------------------------------------------
 // Connection mode
