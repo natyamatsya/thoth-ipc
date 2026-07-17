@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0",
+  "version": "1.0.0",
   "$schema": "./abi.schema.json",
   "description": "thoth-ipc cross-language ABI — language-neutral source of truth. Structurally validated by abi.schema.json; semantically validated against the deployed C++ by abi/dump_abi.cpp via the `tools/abi` Rust checker; behaviourally validated by the xlang matrix. This is an initial slice (ring layouts + core constants); extend it as the codegen adopts more of the surface.",
 
@@ -9,12 +9,12 @@
   },
 
   "constants": [
-    { "name": "data_length",      "type": "u32", "value": 64,   "description": "msg_t payload fragment size (large_msg_limit)" },
-    { "name": "ring_size",        "type": "u32", "value": 256,  "description": "ring slot count (block_[256])" },
-    { "name": "large_msg_align",  "type": "u32", "value": 1024, "description": "chunk-size alignment" },
-    { "name": "large_msg_cache",  "type": "u32", "value": 32,   "description": "chunk slots per chunk size (id_pool capacity)" },
-    { "name": "chunk_header_size","type": "u32", "value": 8,    "description": "per-chunk header = make_align(8, sizeof(atomic<cc_t>)=4)" },
-    { "name": "chunk_info_size",  "type": "u32", "value": 40,   "description": "sizeof(chunk_info_t)" },
+    { "name": "data_length",      "type": "usize", "value": 64,   "description": "msg_t payload fragment size (large_msg_limit)" },
+    { "name": "ring_size",        "type": "usize", "value": 256,  "description": "ring slot count (block_[256])" },
+    { "name": "large_msg_align",  "type": "usize", "value": 1024, "description": "chunk-size alignment" },
+    { "name": "large_msg_cache",  "type": "usize", "value": 32,   "description": "chunk slots per chunk size (id_pool capacity)" },
+    { "name": "chunk_header_size","type": "usize", "value": 8,    "description": "per-chunk header = make_align(8, sizeof(atomic<cc_t>)=4)" },
+    { "name": "chunk_info_size",  "type": "usize", "value": 40,   "description": "sizeof(chunk_info_t)" },
 
     { "name": "route_ep_mask", "type": "u64", "value": "0x00000000ffffffff", "description": "route rc_: low 32 = connection bitmask" },
     { "name": "route_ep_incr", "type": "u64", "value": "0x0000000100000000", "description": "route rc_: epoch increment (high 32)" },

@@ -8,7 +8,11 @@
   "additionalProperties": false,
   "properties": {
     "$schema": { "type": "string", "description": "optional pointer to this schema for editor validation" },
-    "version": { "type": "string" },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "ABI CONTRACT version (semver), decoupled from the thoth-ipc RELEASE version. MAJOR = incompatible wire/shm change (existing peers break); MINOR = backward-compatible addition (new struct/const, old peers still interoperate); PATCH = doc/description only, no wire impact. Two builds interoperate iff they share the same MAJOR."
+    },
     "description": { "type": "string" },
     "targets": {
       "type": "object",

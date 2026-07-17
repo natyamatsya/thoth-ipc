@@ -30,22 +30,23 @@ const Waiter = waiter.Waiter;
 pub const Mode = enum { sender, receiver };
 pub const Error = @import("channel.zig").Error;
 
-// --- Multi-producer ring layout (verified via C++ sizeof: 96 B slot, 24832 B ring) ---
+// --- Multi-producer ring layout (generated from abi/abi.json by tools/abi) ---
 
-const ring_user_size: usize = 24832;
-const elem_stride: usize = 96;
-const elem_rc_off: usize = 80;
-const elem_fct_off: usize = 88;
-// Header offsets are identical to route: cc_@0, lc_@4, constructed_@8,
-// ct_@64 (route's wt_ slot), epoch_@128, block_@192.
+const abi = @import("../abi_generated.zig");
+
+const ring_user_size: usize = abi.channel_ring_size; // 96 B slot -> 24832 B ring
+const elem_stride: usize = abi.channel_elem_size;
+const elem_rc_off: usize = abi.channel_elem_rc_off;
+const elem_fct_off: usize = abi.channel_elem_f_ct_off;
+// Header offsets are identical to route (route's wt_ slot holds the channel ct_).
 const off_ct: usize = layout.off_wt;
 
 // Channel-specific rc_ bit-packing (prod_cons.h L307-313).
-const rc_mask: u64 = 0x0000_0000_ffff_ffff; // low 32: per-reader "needs to read" bitmask
-const ep_mask: u64 = 0x00ff_ffff_ffff_ffff; // low 56: rc bits + internal read-generation
-const ep_incr: u64 = 0x0100_0000_0000_0000; // epoch increment (top byte)
-const ic_mask: u64 = 0xff00_0000_ffff_ffff; // invert-carry mask
-const ic_incr: u64 = 0x0000_0001_0000_0000; // internal read-generation increment (bits 32..)
+const rc_mask: u64 = abi.chan_rc_mask; // low 32: per-reader "needs to read" bitmask
+const ep_mask: u64 = abi.chan_ep_mask; // low 56: rc bits + internal read-generation
+const ep_incr: u64 = abi.chan_ep_incr; // epoch increment (top byte)
+const ic_mask: u64 = abi.chan_ic_mask; // invert-carry mask
+const ic_incr: u64 = abi.chan_ic_incr; // internal read-generation increment (bits 32..)
 
 inline fn incRc(rc: u64) u64 {
     return (rc & ic_mask) | ((rc +% ic_incr) & ~ic_mask);

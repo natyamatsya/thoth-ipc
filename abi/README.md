@@ -63,16 +63,44 @@ cargo run --manifest-path tools/abi/Cargo.toml
   the spec; it does not make C++ the source. Once generators exist, C++ is
   generated/checked like Rust, Swift and Zig.
 
-## Status & next steps
+## Generation
 
-**Working:** the schema, an initial `abi.json` (ring layouts + core constants),
-the C++ dumper, and the Rust conformance checker — green end-to-end (15 values
-C++-verified). Wired into CI (`.github/workflows/xlang.yml`, `abi-conformance`
-job).
+`tools/abi generate --lang zig` emits a per-language constant module from
+`abi.json` (constants, enums, and struct sizes/field-offsets, resolved for the
+`--target`). The generated file is committed and consumed by the port; CI runs
+`generate --lang zig --check` to fail if it is stale vs `abi.json`.
 
-**Next:**
-1. Grow `abi.json` coverage (msg_t offsets via a small introspection shim, SIPC /
-   SyncAbi framing, naming templates) and the dumper alongside it.
-2. Add a `generate` subcommand to `tools/abi` emitting per-language const modules
-   (`abi_generated.{h,rs,swift,zig}`), and migrate the hand-written constants in
-   each port to consume them — one port at a time, matrix-verified.
+```sh
+cargo run --manifest-path tools/abi/Cargo.toml -- generate --lang zig
+```
+
+**Zig is migrated:** `zig/libipc/src/abi_generated.zig` is generated from
+`abi.json`, and `layout.zig` / `channel_multi.zig` / `chunk.zig` re-export from it
+(the public const names are unchanged, so the rest of the port is untouched). A
+change to a constant in `abi.json` now propagates to Zig by regeneration, and the
+xlang matrix confirms it stays byte-exact.
+
+## ABI versioning
+
+`abi.json`'s `version` is the **ABI contract version** (semver), **decoupled from
+the thoth-ipc release version** — the wire/shm format changes at a different
+cadence than the software. It is surfaced in generated code as `abi_version`.
+
+- **MAJOR** — incompatible wire/shm change; existing peers break. Two builds
+  interoperate iff they share the same MAJOR.
+- **MINOR** — backward-compatible addition (a new struct/constant); old peers
+  still interoperate.
+- **PATCH** — documentation/description only; no wire impact.
+
+It currently sits at **1.0.0**: the format is byte-exact-stable (inherited from
+cpp-ipc v1.4.1 and proven across four ports). This is the global contract version
+*above* the per-subsystem wire versions already embedded at runtime (the
+`SyncAbi` stamp's `1.0`, the SIPC envelope's `version: 1`).
+
+## Next steps
+
+1. Grow `abi.json` + dumper coverage (`msg_t` offsets via a small introspection
+   shim, SIPC / SyncAbi framing, naming-template checks).
+2. Generators for the other ports (`--lang rust|swift|cpp`) and migrate each to
+   consume the generated constants — one port at a time, matrix-verified. Once
+   C++ is generated too, it is a peer, not the reference.

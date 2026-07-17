@@ -10,11 +10,12 @@
 
 const std = @import("std");
 const layout = @import("layout.zig");
+const abi = @import("../abi_generated.zig"); // generated from abi/abi.json
 
-pub const chunk_max_count: usize = 32; // C++ large_msg_cache
-pub const chunk_align: usize = 1024; // C++ large_msg_align
-pub const chunk_header_size: usize = 8; // make_align(8, sizeof(atomic<cc_t>)=4)
-pub const chunk_info_size: usize = 40; // sizeof(chunk_info_t) = id_pool(34) + pad + lock
+pub const chunk_max_count: usize = abi.large_msg_cache;
+pub const chunk_align: usize = abi.large_msg_align;
+pub const chunk_header_size: usize = abi.chunk_header_size;
+pub const chunk_info_size: usize = abi.chunk_info_size; // id_pool(34) + pad + lock
 
 // chunk_info_t field offsets.
 const ci_next_off: usize = 0; // next_[32] (u8 each)

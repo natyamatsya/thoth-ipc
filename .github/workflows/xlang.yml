@@ -320,3 +320,5 @@ jobs:
       run: cargo run --manifest-path tools/abi/Cargo.toml
       env:
         CXX: g++
+    - name: Check generated Zig ABI module is up to date
+      run: cargo run --manifest-path tools/abi/Cargo.toml -- generate --lang zig --check

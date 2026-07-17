@@ -9,51 +9,48 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+// Numeric ABI constants/offsets are generated from abi/abi.json (single source
+// of truth) by `tools/abi`. These re-exports keep the public API stable.
+const abi = @import("../abi_generated.zig");
 
 // --- Ring dimensions (ABI §2/§3/§4) ----------------------------------------
 
-pub const data_length: usize = 64; // msg_t payload fragment size
-pub const ring_size: usize = 256; // block_[256]
-// AlignSize = min(64, alignof(max_align_t)). 8 on Apple arm64, 16 on x86-64 /
-// Linux aarch64. Computed, not hard-coded, so a later Linux phase is correct.
+pub const data_length: usize = abi.data_length; // msg_t payload fragment size
+pub const ring_size: usize = abi.ring_size; // block_[256]
+// AlignSize = min(64, alignof(max_align_t)) — a computed RULE (8 on Apple arm64,
+// 16 on x86-64/Linux aarch64), kept in code rather than as a generated constant.
 pub const align_size: usize = @min(@as(usize, 64), @alignOf(std.c.max_align_t));
 
 // rc_ epoch packing (ABI §3): low 32 bits = connection bitmask, high 32 = epoch.
-pub const ep_mask: u64 = 0x0000_0000_FFFF_FFFF;
-pub const ep_incr: u64 = 0x0000_0001_0000_0000;
+pub const ep_mask: u64 = abi.route_ep_mask;
+pub const ep_incr: u64 = abi.route_ep_incr;
 
-// --- Ring header offsets (ABI §2) ------------------------------------------
-// conn_head_base { cc_(u32)@0, lc_(spin_lock)@4, constructed_(bool)@8 }, then the
-// cache-line-aligned prod_cons head_ { wt_(u32)@64, epoch_(u64)@128 }. block_@192.
-
-pub const off_cc: usize = 0; // connections bitmask (atomic u32)
-pub const off_lc: usize = 4; // header lock (os_unfair_lock on Apple)
-pub const off_constructed: usize = 8; // DCLP init flag (atomic bool/u8)
-pub const off_wt: usize = 64; // write cursor (atomic u32)
-pub const off_epoch: usize = 128; // writer epoch (u64)
-pub const off_block: usize = 192; // block_[256] of elem_t
+// --- Ring header offsets (ABI §2) — shared by route (wt_) and channel (ct_) --
+pub const off_cc: usize = abi.ring_header_cc_off; // connections bitmask (atomic u32)
+pub const off_lc: usize = abi.ring_header_lc_off; // header lock (os_unfair_lock on Apple)
+pub const off_constructed: usize = abi.ring_header_constructed_off; // DCLP init flag
+pub const off_wt: usize = abi.ring_header_cursor_off; // route write cursor (channel: ct_)
+pub const off_epoch: usize = abi.ring_header_epoch_off; // writer epoch
+pub const off_block: usize = abi.ring_header_size; // block_ starts where the header ends
 
 // --- Slot (elem_t) layout (ABI §3) -----------------------------------------
 
-pub const elem_stride: usize = 88; // sizeof(elem_t) = data_[80] + rc_(u64)
-pub const elem_rc_off: usize = 80; // rc_ within a slot (atomic u64)
+pub const elem_stride: usize = abi.route_elem_size; // sizeof(elem_t) = data_[80] + rc_
+pub const elem_rc_off: usize = abi.route_elem_rc_off; // rc_ within a slot (atomic u64)
 
 // --- Message framing (msg_t<64,8>, lives inside elem_t.data_) (ABI §4) ------
 
-pub const msg_cc_id: usize = 0; // sender identity (self-message filter), u32
-pub const msg_id: usize = 4; // message id (fragments share it), u32
-pub const msg_remain: usize = 8; // bytes remaining after this fragment, i32
-pub const msg_storage: usize = 12; // payload is a storage_id (large-msg path), bool
-pub const msg_payload: usize = 16; // payload fragment (or storage_id), 64 bytes
+pub const msg_cc_id: usize = abi.msg_t_cc_id_off;
+pub const msg_id: usize = abi.msg_t_id_off;
+pub const msg_remain: usize = abi.msg_t_remain_off;
+pub const msg_storage: usize = abi.msg_t_storage_off;
+pub const msg_payload: usize = abi.msg_t_payload_off;
 
 // --- Total ring shm size ----------------------------------------------------
-// sizeof(elem_array<broadcast,80,8>) on Apple arm64. block_ ends at
-// 192 + 88*256 = 22720; the trailing sender_checker/receiver_checker flags plus
-// align-64 padding round the type up to 22784. Ports must ftruncate to the full
-// size so the sender flag maps.
-pub const ring_user_size: usize = 22784;
+pub const ring_user_size: usize = abi.route_ring_size; // ftruncate target
 
 comptime {
+    // Cross-check the generated layout against the structural invariants.
     std.debug.assert(off_block + elem_stride * ring_size == 22720);
     std.debug.assert(align_size == 8); // Apple arm64 (this port is macOS-first)
     std.debug.assert(msg_payload + data_length == 80); // sizeof(msg_t<64,8>)
