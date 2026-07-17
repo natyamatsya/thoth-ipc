@@ -30,6 +30,52 @@ fn perr(comptime fmt: []const u8, args: anytype) void {
     std.debug.print(fmt ++ "\n", args);
 }
 
+/// Print a line to stdout (the runner compares trimmed stdout for reaper verbs).
+fn pout(comptime fmt: []const u8, args: anytype) void {
+    var buf: [64]u8 = undefined;
+    const s = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
+    _ = std.c.write(1, s.ptr, s.len);
+}
+
+// --- Reaper verbs (scenario: reap) -----------------------------------------
+// hold: connect a receiver, print READY, hold the slot (SIGKILL target).
+// probe: connect as a SENDER (no reap, no slot claim), report recv count.
+// count: connect as a RECEIVER (reap-on-connect runs), report recv count.
+
+fn doHold(name: []const u8, secs: u64) u8 {
+    var ch = ChanInner.open(alloc, "", name, .receiver) catch {
+        perr("[zig] connect(receiver) failed", .{});
+        return 3;
+    };
+    // Note: no deinit — a `hold` process is SIGKILLed by the reap test, so the
+    // slot must stay owned (dead) until a peer reaps it. On a clean timeout exit
+    // we also leak deliberately so behaviour matches the SIGKILL path.
+    pout("READY", .{});
+    channel.sleepNs(secs * std.time.ns_per_s);
+    _ = &ch;
+    return 0;
+}
+
+fn doProbe(name: []const u8) u8 {
+    var ch = ChanInner.open(alloc, "", name, .sender) catch {
+        perr("[zig] connect(sender) failed", .{});
+        return 3;
+    };
+    defer ch.deinit();
+    pout("{d}", .{ch.recvCount()});
+    return 0;
+}
+
+fn doCount(name: []const u8) u8 {
+    var ch = ChanInner.open(alloc, "", name, .receiver) catch {
+        perr("[zig] connect(receiver) failed", .{});
+        return 3;
+    };
+    defer ch.deinit();
+    pout("{d}", .{ch.recvCount()});
+    return 0;
+}
+
 fn doWrite(name: []const u8, count: usize, size: usize, minrecv: usize) u8 {
     var ch = ChanInner.open(alloc, "", name, .sender) catch {
         perr("[zig] connect(sender) failed", .{});
@@ -115,11 +161,20 @@ pub fn main(m: std.process.Init.Minimal) void {
         std.process.exit(0);
     }
     if (std.mem.eql(u8, verb, "caps")) {
-        // v1: no capabilities advertised (empty set) — the runner joins only
-        // sync/fanout and skips primitives/typed/secure/async/channel.
+        // No capabilities advertised (empty set) — the runner joins the
+        // scenarios this port's modes list (sync/fanout/reap) and skips the
+        // cap-gated ones (primitives/typed/secure/async/channel).
         _ = std.c.write(1, "\n", 1);
         std.process.exit(0);
     }
+
+    // Reaper verbs (scenario: reap) — hold takes an optional seconds arg.
+    if (std.mem.eql(u8, verb, "hold")) {
+        const secs: u64 = if (argv.len > 3) (std.fmt.parseInt(u64, argv[3], 10) catch 30) else 30;
+        std.process.exit(doHold(name, secs));
+    }
+    if (std.mem.eql(u8, verb, "probe")) std.process.exit(doProbe(name));
+    if (std.mem.eql(u8, verb, "count")) std.process.exit(doCount(name));
 
     if (argv.len < 5) {
         perr("write/read need <count> <size>", .{});

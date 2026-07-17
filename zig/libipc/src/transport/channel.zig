@@ -16,6 +16,7 @@ const std = @import("std");
 const layout = @import("layout.zig");
 const chunk = @import("chunk.zig");
 const waiter = @import("waiter.zig");
+const liveness = @import("liveness.zig");
 const shm = @import("../platform/shm.zig");
 const shmname = @import("../platform/shmname.zig");
 
@@ -23,6 +24,7 @@ const ShmHandle = shm.ShmHandle;
 const Waiter = waiter.Waiter;
 
 pub const nowNs = layout.nowNs;
+pub const sleepNs = layout.sleepNs;
 
 pub const Mode = enum { sender, receiver };
 
@@ -42,6 +44,7 @@ pub const ChanInner = struct {
     mode: Mode,
     ring: ShmHandle,
     ccid: ShmHandle,
+    liveness_shm: ShmHandle, // LV_CONN__ owner table (dead-connection reaper)
     conn_id: u32 = 0,
     cc_id: u32 = 0,
     read_cursor: u32 = 0,
@@ -63,6 +66,9 @@ pub const ChanInner = struct {
         errdefer ring.release();
         var ccid = try ShmHandle.acquire(shmname.ccIdName(&cbuf, prefix), 4, .create_or_open);
         errdefer ccid.release();
+        var lbuf: [256]u8 = undefined;
+        var liveness_shm = try ShmHandle.acquire(liveness.livenessName(&lbuf, prefix, name), liveness.shm_size_bytes, .create_or_open);
+        errdefer liveness_shm.release();
         var rd_waiter = try Waiter.open(prefix, name, "RD_CONN__");
         errdefer rd_waiter.release();
         var wt_waiter = try Waiter.open(prefix, name, "WT_CONN__");
@@ -86,6 +92,7 @@ pub const ChanInner = struct {
             .mode = mode,
             .ring = ring,
             .ccid = ccid,
+            .liveness_shm = liveness_shm,
             .cc_id = cc_id,
             .recv_cache = std.AutoHashMap(u32, Frag).init(alloc),
             .chunk_shms = std.AutoHashMap(usize, ShmHandle).init(alloc),
@@ -96,6 +103,10 @@ pub const ChanInner = struct {
 
         if (mode == .receiver) {
             const cc = layout.u32ptr(base, layout.off_cc);
+            const lv = self.liveness_shm.ptr();
+            // Reclaim slots held by dead peers before claiming one (byte-exact
+            // reap-on-connect; safe by default — an unowned slot is skipped).
+            _ = liveness.reapDeadReceivers(lv, @atomicLoad(u32, cc, .acquire), cc);
             var k: u32 = 0;
             while (true) {
                 const curr = @atomicLoad(u32, cc, .acquire);
@@ -107,6 +118,7 @@ pub const ChanInner = struct {
                 }
                 layout.adaptiveYield(&k);
             }
+            liveness.setOwner(lv, self.conn_id);
             self.read_cursor = @atomicLoad(u32, layout.u32ptr(base, layout.off_wt), .acquire);
             // Wake any sender parked in waitForRecv (CC waiter).
             self.cc_waiter.broadcast();
@@ -124,6 +136,7 @@ pub const ChanInner = struct {
         if (self.mode == .receiver) {
             const cc = layout.u32ptr(self.ring.ptr(), layout.off_cc);
             _ = @atomicRmw(u32, cc, .And, ~self.conn_id, .acq_rel);
+            liveness.clearOwner(self.liveness_shm.ptr(), self.conn_id);
         }
         self.disconnected = true;
     }
@@ -139,6 +152,7 @@ pub const ChanInner = struct {
         self.cc_waiter.release();
         self.wt_waiter.release();
         self.rd_waiter.release();
+        self.liveness_shm.release();
         self.ccid.release();
         self.ring.release();
     }
@@ -329,6 +343,8 @@ pub const ChanInner = struct {
 pub fn clearStorage(prefix: []const u8, name: []const u8) void {
     var rbuf: [256]u8 = undefined;
     shm.ShmHandle.clearStorage(shmname.ringName(&rbuf, prefix, name));
+    var lbuf: [256]u8 = undefined;
+    shm.ShmHandle.clearStorage(liveness.livenessName(&lbuf, prefix, name));
     const sizes = [_]usize{ 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 65536 };
     for (sizes) |ps| {
         var nbuf: [256]u8 = undefined;

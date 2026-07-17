@@ -44,12 +44,13 @@ modes = ["sync", "channel", "reap", "primitives", "typed", "secure"]
 bin = "${XLANG_SWIFT_BIN}"
 modes = ["sync", "channel", "reap", "primitives", "typed", "secure"]
 
-# Native Zig port (macOS-first). v1 implements the core transport only, so it
-# joins sync + fanout (both use Mode::Sync) and advertises no caps; the later
-# phases add reap/primitives/typed/secure/channel as each ABI surface lands.
+# Native Zig port (macOS-first). Implements the core transport (sync + fanout,
+# both Mode::Sync) and the dead-connection reaper (reap); it advertises no caps,
+# so the cap-gated phases (primitives/typed/secure/channel/async) are skipped
+# until each ABI surface lands.
 [languages.zig]
 bin = "${XLANG_ZIG_BIN}"
-modes = ["sync"]
+modes = ["sync", "reap"]
 
 # Async endpoints are separate binaries for C++ (xasync: stdexec sender,
 # xcoro: C++ coroutines); Rust/Swift reuse their main harness via `aread`.

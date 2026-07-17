@@ -143,10 +143,10 @@ pub fn nowNs() i128 {
     return @as(i128, ts.sec) * std.time.ns_per_s + ts.nsec;
 }
 
-fn sleepMs(ms: i64) void {
+pub fn sleepNs(ns: u64) void {
     const ts = std.c.timespec{
-        .sec = @intCast(@divTrunc(ms, 1000)),
-        .nsec = @intCast(@rem(ms, 1000) * std.time.ns_per_ms),
+        .sec = @intCast(ns / std.time.ns_per_s),
+        .nsec = @intCast(ns % std.time.ns_per_s),
     };
     _ = std.c.nanosleep(&ts, null);
 }
@@ -160,6 +160,6 @@ pub fn adaptiveYield(k: *u32) void {
     } else if (k.* < 64) {
         std.Thread.yield() catch {};
     } else {
-        sleepMs(1);
+        sleepNs(std.time.ns_per_ms);
     }
 }
