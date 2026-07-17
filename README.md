@@ -46,7 +46,7 @@ and ABI [§9](context/xlang-channel-abi.md).
 cpp/libipc/    — C++ library (upstream core, extended)
 rust/libipc/   — Pure Rust port (feature-complete, 242 tests)
 swift/libipc/  — Swift package (channel transport byte-exact with C++/Rust)
-zig/libipc/    — Native Zig port (transport/reaper/sync/typed/secure)
+zig/libipc/    — Native Zig port (byte-exact; every scenario but channel)
 ```
 
 ## Language implementations
@@ -159,16 +159,20 @@ carrying the `SyncAbi` guard stamp. It also carries the **typed codec** (a thin 
 route — field 1 varint `seq`, field 2 bytes `payload`, no protobuf library
 needed) and the **secure AEAD envelope** (SIPC v1 framing with AES-256-GCM and
 ChaCha20-Poly1305 done in pure Zig `std.crypto` — a standardized algorithm is
-byte-identical to the OpenSSL-backed ports, so no C crypto is linked). It joins
-the matrix's `sync`, `fanout`, `reap`, `primitives`, `typed`, `secure`,
-`secure-badkey` and `secure-negative` scenarios, proven byte-exact with the C++,
-Rust and Swift ports in every writer→reader direction at all payload sizes
-(40 B–64 KB) — including that a reaper or a mutex-recoverer of any language
-reclaims a dead Zig peer and never false-reaps a live one, a Zig `broadcast`
-wakes a C++/Rust/Swift condition waiter, and an envelope sealed by any language
-opens in Zig (with tampered / wrong-key / wrong-key-id / algorithm-mismatched
-envelopes rejected fail-closed). Only the async (notify readiness) layer remains
-capability-gated for a later phase.
+byte-identical to the OpenSSL-backed ports, so no C crypto is linked). It also has the **Layer-1 notify readiness** for async receive: a sender posts
+on the libnotify service keyed by `fnv1a_64("<prefix>__IPC_SHM__NOTIFY__<name>")`,
+and an `aread` receiver wakes on that fd. It joins every matrix scenario except
+multi-writer `channel` — `sync`, `fanout`, `reap`, `primitives`, `typed`,
+`secure`/`secure-badkey`/`secure-negative`, and `async` — proven byte-exact with
+the C++, Rust and Swift ports in every writer→reader direction at all payload
+sizes (40 B–64 KB). That includes: a reaper or a mutex-recoverer of any language
+reclaims a dead Zig peer and never false-reaps a live one; a Zig `broadcast`
+wakes a C++/Rust/Swift condition waiter; an envelope sealed by any language opens
+in Zig (with tampered / wrong-key / wrong-key-id / algorithm-mismatched envelopes
+rejected fail-closed); and a Zig `send` wakes a C++ stdexec / coroutine, Rust
+`AsyncRoute` or Swift async receiver, and vice versa. Multi-writer `channel` is
+the one gap — a cross-port ABI incompatibility that predates this port and runs
+as an expected-fail for every language.
 
 Idiomatic Zig: `std.posix`/`std.c` for the syscalls, native `@atomic*`
 builtins over the shm fields, and `extern struct` with comptime `@sizeOf`/
