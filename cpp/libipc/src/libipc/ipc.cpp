@@ -27,7 +27,9 @@
 #include "libipc/mem/resource.h"
 #include "libipc/mem/new.h"
 #include "libipc/platform/detail.h"
+#include "libipc/prod_cons.h"
 #include "libipc/circ/elem_array.h"
+#include "libipc/abi_generated.hpp"    // generated ipc::abi (abi/abi.json)
 
 namespace {
 
@@ -62,6 +64,44 @@ struct msg_t : msg_t<0, AlignSize> {
         else std::memcpy(data_, data, size);
     }
 };
+
+// -----------------------------------------------------------------------------
+// ABI conformance — the C++ template-derived layout must match the generated
+// ipc::abi (from abi/abi.json). C++ keeps *deriving* these values from its
+// templates / def.h, so `abi/dump_abi.cpp` remains an independent ground-truth
+// for the semantic gate; these compile-time asserts make C++ a *checked* peer
+// of the generated Rust/Swift/Zig modules rather than collapsing that gate.
+// Byte-exact target: apple_arm64 (AlignSize=8), matching dump_abi.cpp.
+// -----------------------------------------------------------------------------
+namespace {
+using AbiRouteP = ipc::prod_cons_impl<ipc::wr<ipc::relat::single, ipc::relat::multi, ipc::trans::broadcast>>;
+using AbiChanP  = ipc::prod_cons_impl<ipc::wr<ipc::relat::multi,  ipc::relat::multi, ipc::trans::broadcast>>;
+using AbiRouteArr = ipc::circ::elem_array<AbiRouteP, 80, 8>;
+using AbiChanArr  = ipc::circ::elem_array<AbiChanP, 80, 8>;
+
+static_assert(ipc::data_length     == ipc::abi::data_length,     "abi drift: data_length");
+static_assert(ipc::large_msg_align == ipc::abi::large_msg_align, "abi drift: large_msg_align");
+static_assert(ipc::large_msg_cache == ipc::abi::large_msg_cache, "abi drift: large_msg_cache");
+static_assert(AbiRouteArr::elem_max == ipc::abi::ring_size,      "abi drift: ring_size");
+
+static_assert(sizeof(AbiRouteP::elem_t<80, 8>) == ipc::abi::route_elem_size,   "abi drift: route_elem.size");
+static_assert(sizeof(AbiChanP::elem_t<80, 8>)  == ipc::abi::channel_elem_size, "abi drift: channel_elem.size");
+static_assert(sizeof(AbiRouteArr) == ipc::abi::route_ring_size,   "abi drift: route_ring.size");
+static_assert(sizeof(AbiChanArr)  == ipc::abi::channel_ring_size, "abi drift: channel_ring.size");
+// msg_t lives here in ipc.cpp (not a header), so dump_abi.cpp cannot reach it —
+// this sizeof assert extends C++ conformance to the message framing. (Field
+// offsets are left to the matrix: msg_t is a non-standard-layout type, so
+// offsetof on it is ill-formed.)
+static_assert(sizeof(msg_t<64, 8>) == ipc::abi::msg_t_size, "abi drift: msg_t.size");
+
+static_assert(AbiRouteP::ep_mask == ipc::abi::route_ep_mask, "abi drift: route_ep_mask");
+static_assert(AbiRouteP::ep_incr == ipc::abi::route_ep_incr, "abi drift: route_ep_incr");
+static_assert(AbiChanP::rc_mask  == ipc::abi::chan_rc_mask,  "abi drift: chan_rc_mask");
+static_assert(AbiChanP::ep_mask  == ipc::abi::chan_ep_mask,  "abi drift: chan_ep_mask");
+static_assert(AbiChanP::ep_incr  == ipc::abi::chan_ep_incr,  "abi drift: chan_ep_incr");
+static_assert(AbiChanP::ic_mask  == ipc::abi::chan_ic_mask,  "abi drift: chan_ic_mask");
+static_assert(AbiChanP::ic_incr  == ipc::abi::chan_ic_incr,  "abi drift: chan_ic_incr");
+} // namespace
 
 template <typename T>
 ipc::buff_t make_cache(T &data, std::size_t size) {

@@ -168,12 +168,11 @@ fn run_generate(root: &Path, args: &[String]) {
 
     let abi = read_json(&root.join("abi/abi.json"));
     let (rendered, default_out) = match lang.as_str() {
-        // Migrated ports generate into their own tree (consumed directly); C++
-        // still emits the reference copy under abi/generated until it migrates.
+        // Every port generates into its own tree and consumes the module.
         "zig" => (gen_zig(&abi, &target), root.join("zig/libipc/src/abi_generated.zig")),
         "rust" => (gen_rust(&abi, &target), root.join("rust/libipc/src/abi_generated.rs")),
-        "swift" => (gen_swift(&abi, &target), root.join("swift/libipc/Sources/LibIPC/Generated/ABI.swift")),
-        "cpp" => (gen_cpp(&abi, &target), root.join("abi/generated/abi.hpp")),
+        "swift" => (gen_swift(&abi, &target), root.join("swift/libipc/Sources/LibIPC/Generated/abi_generated.swift")),
+        "cpp" => (gen_cpp(&abi, &target), root.join("cpp/libipc/include/libipc/abi_generated.hpp")),
         other => {
             eprintln!("no generator for language '{other}' (have: zig, rust, swift, cpp)");
             std::process::exit(2);

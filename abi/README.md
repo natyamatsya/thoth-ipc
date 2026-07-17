@@ -78,27 +78,26 @@ generated Rust/C++ modules.
 cargo run --manifest-path tools/abi/Cargo.toml -- generate --lang rust
 ```
 
-**Zig, Rust and Swift are migrated** — each consumes its generated module,
-so the rest of the port keeps its public const names and a spec change
-propagates by regeneration:
+**All four ports are migrated** — each generates its module into its own tree
+and consumes it, so a mask/layout change in `abi.json` propagates by
+regeneration. The generated file is named `abi_generated.*` in every port:
 
 | port | generated module | consumed by |
 |---|---|---|
 | Zig | `zig/libipc/src/abi_generated.zig` | `layout.zig` / `channel_multi.zig` / `chunk.zig` re-export |
 | Rust | `rust/libipc/src/abi_generated.rs` (`pub mod abi_generated`) | `channel.rs` constants + layout `const _` asserts |
-| Swift | `swift/libipc/Sources/LibIPC/Generated/ABI.swift` (`enum ABI`) | `Channel.swift` constants + `assertHeaderLayout()` |
+| Swift | `swift/libipc/Sources/LibIPC/Generated/abi_generated.swift` (`enum ABI`) | `Channel.swift` constants + `assertHeaderLayout()` |
+| C++ | `cpp/libipc/include/libipc/abi_generated.hpp` (`namespace ipc::abi`) | `ipc.cpp` compile-time `static_assert` conformance layer |
 
-Both the compile-time layout asserts (struct sizes/offsets checked against the
-generated values) and the xlang matrix confirm each stays byte-exact.
-
-**C++** still emits the reference copy to [`abi/generated/abi.hpp`](generated/) —
-committed, compile-checked and staleness-gated, but **not yet consumed**. It is
-the one remaining hand-source, and a subtle one: the semantic gate
-(`dump_abi.cpp`) extracts ground truth *from* C++, so having C++ re-source the
-dumper-checked surface from the generated header would make that gate
-tautological. Migrating C++ therefore means compile-time `static_assert`s of its
-template-derived layout against `ipc::abi` (keeping the derivations independent),
-not a blind re-source — see Next steps.
+**Rust/Swift/Zig re-source** their constants from the generated module (the value
+literals live only in the module). **C++ is a *checked* peer**: it keeps
+*deriving* its layout from the templates / `def.h` and `static_assert`s the
+result against `ipc::abi`. This is deliberate — the semantic gate
+(`dump_abi.cpp`) extracts ground truth *from* those same C++ derivations, so
+re-sourcing them from the generated header would make that gate tautological. The
+`static_assert`s make C++ conformance compile-time-enforced without collapsing
+the independent gate. Both the compile-time asserts and the xlang matrix confirm
+every port stays byte-exact.
 
 ## ABI versioning
 
@@ -119,13 +118,12 @@ cpp-ipc v1.4.1 and proven across four ports). This is the global contract versio
 
 ## Next steps
 
-1. **Migrate C++** to `static_assert` its `elem_array` / `msg_t` / header layout
-   against the generated `ipc::abi` (a compile-time conformance layer that keeps
-   the template-derived, per-target values independent, so the `dump_abi.cpp`
-   gate stays non-vacuous). This makes C++ a *checked* peer without collapsing
-   the semantic gate. Matrix-verified, like Rust/Swift/Zig.
-2. Extend the migrated ports beyond the transport core to the sync/secure
+1. Extend the migrated ports beyond the transport core to the sync/secure
    surface (`syncabi_*`, `sipc_*`, codec/alg enums, `liveness_slot_*`), which
-   still lives hand-written in `sync_abi` / secure modules.
-3. Grow `abi.json` + dumper coverage (`msg_t` offsets via a small introspection
+   still lives hand-written in the `sync_abi` / secure modules of each port.
+2. Grow `abi.json` + dumper coverage (`msg_t` offsets via a small introspection
    shim, SIPC / SyncAbi framing, naming-template checks).
+3. Per-target generation for the multi-platform ports (Rust/C++): today the
+   align-dependent values (`*_ring_size`) are generated for `apple_arm64` and the
+   ports carry a matching apple-target assert; a Linux/Windows target would want
+   `cfg`/`#if`-gated variants emitted from `abi.json`'s per-target maps.

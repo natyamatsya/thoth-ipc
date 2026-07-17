@@ -327,8 +327,9 @@ jobs:
         done
     - name: Compile-check generated modules
       run: |
-        # Migrated Rust/Swift/Zig modules are compiled by their port builds
-        # (rust/swift/zig jobs). The un-consumed C++ reference copy is checked
-        # standalone until C++ migrates.
+        # All ports consume their generated module and compile it in their own
+        # build (rust/swift/zig/cpp jobs; C++ via ipc.cpp's static_assert layer).
+        # These standalone syntax checks catch generation bugs without a full
+        # port build.
         rustc --edition 2021 --crate-type lib --emit=metadata --out-dir /tmp rust/libipc/src/abi_generated.rs
-        g++ -std=c++17 -fsyntax-only -x c++ abi/generated/abi.hpp
+        g++ -std=c++17 -fsyntax-only -x c++ cpp/libipc/include/libipc/abi_generated.hpp
