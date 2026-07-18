@@ -34,6 +34,19 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(demo);
 
+    // Polyglot pipeline stage (see demo/pipeline/run.sh): source | stage | sink
+    // hops over ipc::route, one process per hop, mixable across languages.
+    const pipe = b.addExecutable(.{
+        .name = "demo_pipeline",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/demo_pipeline.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+    b.installArtifact(pipe);
+
     // `zig build test` runs the byte-exact ABI unit tests (name shortening,
     // calc_size, calc_chunk_size, FNV-1a golden vectors).
     const tests = b.addTest(.{

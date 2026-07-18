@@ -15,6 +15,12 @@ Notable changes to thoth-ipc. The format follows
   stream and tallies by producer (the pattern a single-writer `route` cannot
   express). Roles are mixable across languages — verified with a collector of
   one language receiving from producers of all four.
+- **Polyglot pipeline demo** in all four ports (`demo/pipeline` / `demo_pipeline`)
+  with a launcher [`cpp/libipc/demo/pipeline/run.sh`](cpp/libipc/demo/pipeline/run.sh) —
+  a chain of single-writer→single-reader `ipc::route` hops, one process (and one
+  language) per stage. `source`/`stage`/`sink` roles compose into
+  `Zig → Rust → Swift → C++`, and the sink prints one line showing every language
+  a message crossed (`item-0 [zig] -> rust -> swift -> [cpp sink]`).
 
 ## [0.4.0] — 2026-07-18
 
