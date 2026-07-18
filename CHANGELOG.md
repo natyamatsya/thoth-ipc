@@ -6,6 +6,8 @@ Notable changes to thoth-ipc. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-18
+
 ### Changed
 - **`elem_array` composes `conn_head` (was inheritance); ring-header offsets gated.**
   `elem_array` inherited `conn_head`, and a base class with data members made it
