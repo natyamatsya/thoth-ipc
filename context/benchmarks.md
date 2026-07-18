@@ -14,7 +14,7 @@
 | --- | --- |
 | **C++ ulock** | New `__ulock_wait`/`__ulock_wake` backend (default, private Darwin API) |
 | **C++ Mach** | New `semaphore_t` backend (`-DLIBIPC_APPLE_APP_STORE_SAFE=ON`, public API) |
-| **Rust** | Pure Rust port (`rust/libipc`) using `parking_lot`-style ulock internally |
+| **Rust** | Pure Rust port (`rust/thoth-ipc`) using `parking_lot`-style ulock internally |
 
 ---
 

@@ -4,8 +4,8 @@
 implementation (thoth-ipc is expressly intended for cross-language interop; the
 pure ports currently diverge — this is the target to fix).
 
-**Canonical implementation:** C++ (`cpp/libipc`), the original cpp-ipc lock-free
-`prod_cons`. Rust (`rust/libipc`) and Swift (`swift/libipc`) must match it
+**Canonical implementation:** C++ (`cpp/thoth-ipc`), the original cpp-ipc lock-free
+`prod_cons`. Rust (`rust/thoth-ipc`) and Swift (`swift/thoth-ipc`) must match it
 byte-for-byte and semantically. Verify every change against the C++↔port harness
 (`context/` prototype: C++ writer ↔ port reader message exchange + `recv_count`).
 
@@ -127,7 +127,7 @@ DCLP (on Apple, via `os_unfair_lock_lock`/`unlock`).
 - **pop:** if `cur == wt_` return empty; read `block_[cur++ % 256].data_`; CAS
   `rc_ &= ~connected_id`; message fully consumed when `(rc_ & ep_mask) == 0`.
 
-See `cpp/libipc/src/libipc/prod_cons.h` for the exact CAS/memory-order details —
+See `cpp/thoth-ipc/src/thoth-ipc/prod_cons.h` for the exact CAS/memory-order details —
 match them verbatim.
 
 ## 6a. Identity & message-id counters (self-filtering + reassembly)
@@ -207,9 +207,9 @@ uniform CLI (`<bin> write|read|clear <name> <count> <size>`):
 
 | language | harness | built by |
 |---|---|---|
-| C++ | `xlang_ipc` | `cpp/libipc/test/xlang/xlang.cpp` (CMake, `LIBIPC_BUILD_TESTS`) |
-| Rust | `xlang` | `rust/libipc/src/bin/xlang.rs` (`cargo build --bin xlang`) |
-| Swift | `xlang-harness` | `swift/libipc/Sources/XlangHarness` (SwiftPM) |
+| C++ | `xlang_ipc` | `cpp/thoth-ipc/test/xlang/xlang.cpp` (CMake, `LIBIPC_BUILD_TESTS`) |
+| Rust | `xlang` | `rust/thoth-ipc/src/bin/xlang.rs` (`cargo build --bin xlang`) |
+| Swift | `xlang-harness` | `swift/thoth-ipc/Sources/XlangHarness` (SwiftPM) |
 
 `tools/xlang-runner` (Rust; config `tools/xlang-ci.toml`; formerly
 `tools/xlang_matrix.py`) runs **every writer→reader pairing** (the full N×N

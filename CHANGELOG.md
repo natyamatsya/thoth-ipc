@@ -8,7 +8,7 @@ Notable changes to thoth-ipc. The format follows
 
 ### Added
 - **Channel aggregator demo** in all four ports
-  ([`cpp/libipc/demo/channel_aggregator/`](cpp/libipc/demo/channel_aggregator/),
+  ([`cpp/thoth-ipc/demo/channel_aggregator/`](cpp/thoth-ipc/demo/channel_aggregator/),
   `rust/…/demo_channel_aggregator.rs`, `swift/…/DemoChannelAggregator`,
   `zig/…/demo_channel_aggregator.zig`) — a multi-writer `ipc::channel` fan-in:
   N producers `send` into one channel, a single collector reads the merged
@@ -16,14 +16,14 @@ Notable changes to thoth-ipc. The format follows
   express). Roles are mixable across languages — verified with a collector of
   one language receiving from producers of all four.
 - **Polyglot pipeline demo** in all four ports (`demo/pipeline` / `demo_pipeline`)
-  with a launcher [`cpp/libipc/demo/pipeline/run.sh`](cpp/libipc/demo/pipeline/run.sh) —
+  with a launcher [`cpp/thoth-ipc/demo/pipeline/run.sh`](cpp/thoth-ipc/demo/pipeline/run.sh) —
   a chain of single-writer→single-reader `ipc::route` hops, one process (and one
   language) per stage. `source`/`stage`/`sink` roles compose into
   `Zig → Rust → Swift → C++`, and the sink prints one line showing every language
   a message crossed (`item-0 [zig] -> rust -> swift -> [cpp sink]`).
 - **Cross-language bounded buffer demo** in all four ports
   (`demo/bounded_buffer` / `demo_bounded_buffer`) with a launcher
-  [`cpp/libipc/demo/bounded_buffer/run.sh`](cpp/libipc/demo/bounded_buffer/run.sh) —
+  [`cpp/thoth-ipc/demo/bounded_buffer/run.sh`](cpp/thoth-ipc/demo/bounded_buffer/run.sh) —
   the classic producer/consumer over a shared-memory ring, coordinated by a named
   mutex (guards `head`) + two counting semaphores (`empty`/`full`). Verified with
   a Swift consumer draining C++/Rust/Zig/Swift producers at once through a 4-slot
@@ -35,6 +35,17 @@ Notable changes to thoth-ipc. The format follows
   rejecting a deliberately-broken value, with copy-paste commands.
 
 ### Changed
+- **Renamed `libipc` → `thoth-ipc` throughout the source tree** (the fork's
+  vestigial upstream naming). The four per-language directories (`cpp/libipc/`,
+  `rust/libipc/`, `swift/libipc/`, `zig/libipc/`) are now `*/thoth-ipc/`; the C++
+  include dir `include/libipc/` → `include/thoth-ipc/` (so `#include
+  "thoth-ipc/…"`); the Rust library `libipc` → `thoth_ipc` (`use thoth_ipc::`);
+  and the Swift module `LibIPC` → `ThothIPC` (`import ThothIPC`). **Breaking**
+  for downstream consumers' includes/imports. Deliberately unchanged: the `ipc::`
+  C++ namespace, the internal `LIBIPC_` C++ macro namespace, the shared
+  `secure-crypto-c` package (its `libipc_secure_*` C ABI), the runtime wire/shm
+  identifiers (`__libipc_sync_abi_*`, the `libipc_<hex>` shm-name format), and
+  upstream cpp-ipc attribution.
 - `IpcMutex.openSync(name:)` (Swift) is now `public`, mirroring
   `Route.connectBlocking` — a blocking mutex open for non-async call sites.
 
@@ -79,7 +90,7 @@ Notable changes to thoth-ipc. The format follows
 ## [0.3.0] — 2026-07-17
 
 ### Added
-- **Native Zig port** [`zig/libipc/`](zig/libipc/) — an independent
+- **Native Zig port** [`zig/thoth-ipc/`](zig/thoth-ipc/) — an independent
   reimplementation of the `ipc::route` wire ABI (not an FFI wrapper), proven
   byte-exact against the C++, Rust and Swift ports in every writer→reader
   direction. Joins every matrix scenario except multi-writer `channel`: the
@@ -116,7 +127,7 @@ Notable changes to thoth-ipc. The format follows
   edges (`probe` no-reap, traffic-after-reap), and 63/64/65 + 64KB payload
   boundaries.
 - **Demos for the two headline features**:
-  [`secure_pos`](cpp/libipc/demo/secure_pos/) (C++ + Rust, wire-identical
+  [`secure_pos`](cpp/thoth-ipc/demo/secure_pos/) (C++ + Rust, wire-identical
   roles) — a PCI-style card pipeline where AEAD on a broadcast bus is
   mandatory; and `demo_async_gateway` (Rust) — one event loop multiplexing
   many device channels via `AsyncRoute`.

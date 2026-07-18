@@ -43,19 +43,19 @@ and ABI [§9](context/xlang-channel-abi.md).
 ## Repository layout
 
 ```
-cpp/libipc/    — C++ library (upstream core, extended; Linux/Windows/macOS/FreeBSD)
-rust/libipc/   — Pure Rust port (Linux/Windows/macOS)
-swift/libipc/  — Swift package (macOS 14+; byte-exact with C++/Rust/Zig)
-zig/libipc/    — Native Zig port (macOS; byte-exact, full cross-language parity)
+cpp/thoth-ipc/    — C++ library (upstream core, extended; Linux/Windows/macOS/FreeBSD)
+rust/thoth-ipc/   — Pure Rust port (Linux/Windows/macOS)
+swift/thoth-ipc/  — Swift package (macOS 14+; byte-exact with C++/Rust/Zig)
+zig/thoth-ipc/    — Native Zig port (macOS; byte-exact, full cross-language parity)
 ```
 
 ## Language implementations
 
-### C++ — [`cpp/libipc/`](cpp/libipc/)
+### C++ — [`cpp/thoth-ipc/`](cpp/thoth-ipc/)
 
 [![Build Status](https://github.com/natyamatsya/thoth-ipc/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/natyamatsya/thoth-ipc/actions)
 
-Based on the original [cpp-ipc](https://github.com/mutouyun/cpp-ipc) library. See [`cpp/libipc/README.md`](cpp/libipc/README.md) for full documentation.
+Based on the original [cpp-ipc](https://github.com/mutouyun/cpp-ipc) library. See [`cpp/thoth-ipc/README.md`](cpp/thoth-ipc/README.md) for full documentation.
 
 - C++17 (msvc-2017/gcc-7/clang-4); built with C++23 in this repo
 - No dependencies except STL for the core transport
@@ -63,7 +63,7 @@ Based on the original [cpp-ipc](https://github.com/mutouyun/cpp-ipc) library. Se
 - `ipc::route` (1 writer, N readers) and `ipc::channel` (N writers, N readers)
 - Typed protocol layer: FlatBuffers, Cap'n Proto, Protocol Buffers (opt-in)
 - Opt-in secure codec with AEAD envelope (OpenSSL EVP backend, zero overhead when disabled)
-- Opt-in reactor-integrable async receive: a readiness handle (`native_wait_handle()`) and a stdexec `ipc::async_recv()` sender, so channels multiplex on one event loop instead of one blocking thread each — zero cost when off. See [`cpp/libipc/doc/async-recv.md`](cpp/libipc/doc/async-recv.md)
+- Opt-in reactor-integrable async receive: a readiness handle (`native_wait_handle()`) and a stdexec `ipc::async_recv()` sender, so channels multiplex on one event loop instead of one blocking thread each — zero cost when off. See [`cpp/thoth-ipc/doc/async-recv.md`](cpp/thoth-ipc/doc/async-recv.md)
 
 **macOS support** (not present in upstream cpp-ipc, added in this fork):
 
@@ -78,7 +78,7 @@ Based on the original [cpp-ipc](https://github.com/mutouyun/cpp-ipc) library. Se
 - File-backed mmap fallback (`-DLIBIPC_USE_FILE_SHM=ON`): avoids `shm_open` entirely, sidesteps all `PSHMNAMLEN`/`ftruncate` quirks
 - Universal binary CI: `arm64;x86_64` fat binary verified with `lipo`
 
-### Rust — [`rust/libipc/`](rust/libipc/)
+### Rust — [`rust/thoth-ipc/`](rust/thoth-ipc/)
 
 Pure Rust crate, binary-compatible with the C++ and Swift libraries.
 
@@ -92,13 +92,13 @@ Pure Rust crate, binary-compatible with the C++ and Swift libraries.
   wakes a C++ `async_recv` and vice versa
 
 ```sh
-cd rust/libipc && cargo test
+cd rust/thoth-ipc && cargo test
 ```
 
 **Async receive** — enable the `async-tokio` feature (implies `notify`):
 
 ```rust
-use libipc::async_recv::AsyncRoute;
+use thoth_ipc::async_recv::AsyncRoute;
 
 let mut r = AsyncRoute::connect("st.agent.cmd")?; // receiver
 loop {
@@ -112,10 +112,10 @@ the readiness signal that wakes a C++/Rust async receiver. Runtime-agnostic user
 can drive `native_wait_handle()` (a `RawFd`) on their own reactor instead of
 tokio. See [`context/xlang-channel-abi.md`](context/xlang-channel-abi.md) §8 for
 the byte-exact notify protocol, and the runnable
-[`demo_async_gateway`](rust/libipc/src/bin/demo_async_gateway.rs) (one event
+[`demo_async_gateway`](rust/thoth-ipc/src/bin/demo_async_gateway.rs) (one event
 loop multiplexing many device channels).
 
-### Swift — [`swift/libipc/`](swift/libipc/)
+### Swift — [`swift/thoth-ipc/`](swift/thoth-ipc/)
 
 Swift Package Manager package targeting macOS 14+.
 
@@ -128,14 +128,14 @@ Swift Package Manager package targeting macOS 14+.
 - Bench and demo executables included
 
 ```sh
-cd swift/libipc && swift build
+cd swift/thoth-ipc && swift build
 ```
 
 **Async receive** — a Swift `send()` posts the readiness notify, and
 `AsyncRoute` awaits it on any Swift concurrency executor:
 
 ```swift
-import LibIPC
+import ThothIPC
 
 let r = try await AsyncRoute.connect(name: "st.agent.cmd")   // receiver
 while true {
@@ -144,7 +144,7 @@ while true {
 }
 ```
 
-### Zig — [`zig/libipc/`](zig/libipc/)
+### Zig — [`zig/thoth-ipc/`](zig/thoth-ipc/)
 
 Native Zig port (macOS-first), independently reimplementing the `ipc::route`
 wire ABI — not an FFI wrapper of the C/C++ core. It covers the **core broadcast
@@ -187,7 +187,7 @@ on Apple arm64 variadic args pass on the stack — so it must be declared variad
 (std.c's fixed-arg wrapper corrupts the mode/value → `EINVAL`).
 
 ```sh
-cd zig/libipc && zig build          # -> zig-out/bin/xlang harness
+cd zig/thoth-ipc && zig build          # -> zig-out/bin/xlang harness
 zig build test                      # byte-exact ABI unit tests
 ```
 
@@ -243,10 +243,10 @@ deadlock a parked async receiver, so the async matrix caps payloads at 3 KB.
 
 **Prototype** — unreleased, under active development, APIs and data layouts may change:
 
-- `cpp/libipc/include/libipc/proto/` — typed protocol layer, service registry, process manager, shm_ring, RT priority
-- `cpp/libipc/demo/audio_service/` — FlatBuffers audio service demo with orchestration
-- `cpp/libipc/demo/audio_realtime/` — real-time audio demo with lock-free ring buffer and warm standby failover
-- `rust/libipc/src/bin/demo_rt_audio_*` — Rust 2024 edition RT audio service via C FFI / bindgen
+- `cpp/thoth-ipc/include/thoth-ipc/proto/` — typed protocol layer, service registry, process manager, shm_ring, RT priority
+- `cpp/thoth-ipc/demo/audio_service/` — FlatBuffers audio service demo with orchestration
+- `cpp/thoth-ipc/demo/audio_realtime/` — real-time audio demo with lock-free ring buffer and warm standby failover
+- `rust/thoth-ipc/src/bin/demo_rt_audio_*` — Rust 2024 edition RT audio service via C FFI / bindgen
 
 ## Cross-language testing
 
@@ -258,9 +258,9 @@ pairings as the primary test axis**, driven by a dedicated framework:
 
 The architecture has two halves:
 
-1. **One harness binary per language** (`cpp/libipc/test/xlang/xlang.cpp`,
-   `rust/libipc/src/bin/xlang.rs`, `swift/libipc/Sources/XlangHarness`,
-   `zig/libipc/src/xlang.zig`) with a uniform verb CLI (`write`/`read`,
+1. **One harness binary per language** (`cpp/thoth-ipc/test/xlang/xlang.cpp`,
+   `rust/thoth-ipc/src/bin/xlang.rs`, `swift/thoth-ipc/Sources/XlangHarness`,
+   `zig/thoth-ipc/src/xlang.zig`) with a uniform verb CLI (`write`/`read`,
    `cwrite`/`cread`, `twrite`/`tread`, `swrite`/`sread`, `aread`,
    `hold`/`count`/`probe`, `mhold`/`mtry`/`mlock`, …). Each harness reports its
    build/runtime features via a `caps` verb.
@@ -289,7 +289,7 @@ details, local usage, and how to add a language or scenario.
 
 ## Usage
 
-See: [`cpp/libipc/`](cpp/libipc/) for C++ usage. Rust and Swift usage is documented inline in each subdirectory's source and test files.
+See: [`cpp/thoth-ipc/`](cpp/thoth-ipc/) for C++ usage. Rust and Swift usage is documented inline in each subdirectory's source and test files.
 
 ## Performance
 
@@ -366,13 +366,13 @@ Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [
 - **[macOS Deployment & Distribution](doc/macos-deployment.md)** — code signing, notarization, sandbox restrictions, and XPC alternatives for production shipping
 - **[Typed Protocol Layer](doc/proto-layer.md)** *(prototype)* — FlatBuffers-based typed channels and routes for type-safe, zero-copy IPC messaging
 - **[Process Orchestration & Discovery](doc/orchestration.md)** *(prototype)* — service registry, process management, redundant service groups with automatic failover
-- **[Channel Aggregator Demo](cpp/libipc/demo/channel_aggregator/)** — multi-writer `ipc::channel` fan-in: N producers `send` into one channel, a single collector reads the merged stream and tallies it by producer (what a single-writer `route` cannot do). Implemented in all four ports (`cpp/libipc/demo/channel_aggregator/`, `rust/…/demo_channel_aggregator.rs`, `swift/…/DemoChannelAggregator`, `zig/…/demo_channel_aggregator.zig`), and because the wire format is byte-exact the roles are **mixable across languages** — e.g. a C++ collector receiving from C++/Rust/Swift/Zig producers at once
-- **[Polyglot Pipeline Demo](cpp/libipc/demo/pipeline/)** — a chain of single-writer→single-reader `ipc::route` hops, **one process (and one language) per stage**. The launcher [`demo/pipeline/run.sh`](cpp/libipc/demo/pipeline/run.sh) wires `Zig source → Rust stage → Swift stage → C++ sink`, and the sink prints one line showing every language a message crossed — e.g. `item-0 [zig] -> rust -> swift -> [cpp sink]`. The `source`/`stage`/`sink` roles exist in all four ports, so any stage can be any language
-- **[Cross-Language Bounded Buffer Demo](cpp/libipc/demo/bounded_buffer/)** — the classic producer/consumer over a shared-memory ring, coordinated by a byte-exact named **`IpcMutex`** (guards `head`, so multiple producers contend) and two counting **`IpcSemaphore`s** (`empty`/`full`). The launcher [`demo/bounded_buffer/run.sh`](cpp/libipc/demo/bounded_buffer/run.sh) runs a Swift consumer against C++/Rust/Zig/Swift producers at once through a 4-slot ring — four languages synchronising on shared memory with the sync primitives this release made cross-language
-- **[Secure POS Demo](cpp/libipc/demo/secure_pos/)** — encrypted IPC where it is mandatory (PCI-style card pipeline): pinpad seals, gateway opens, keyless POS fails closed; roles mixable across C++/Rust
-- **[Async Gateway Demo](rust/libipc/src/bin/demo_async_gateway.rs)** — one event loop multiplexing many device channels via `AsyncRoute` (thread-per-channel does not scale; runtimes cannot host blocking recv)
-- **[Audio Service Demo](cpp/libipc/demo/audio_service/)** *(prototype)* — complete example with FlatBuffers protocol, redundancy, crash recovery, and auto-reconnect
-- **[Real-Time Audio Demo](cpp/libipc/demo/audio_realtime/)** *(prototype)* — dropout-free design with lock-free ring buffer, RT thread priority, heartbeat watchdog, and warm standby failover
+- **[Channel Aggregator Demo](cpp/thoth-ipc/demo/channel_aggregator/)** — multi-writer `ipc::channel` fan-in: N producers `send` into one channel, a single collector reads the merged stream and tallies it by producer (what a single-writer `route` cannot do). Implemented in all four ports (`cpp/thoth-ipc/demo/channel_aggregator/`, `rust/…/demo_channel_aggregator.rs`, `swift/…/DemoChannelAggregator`, `zig/…/demo_channel_aggregator.zig`), and because the wire format is byte-exact the roles are **mixable across languages** — e.g. a C++ collector receiving from C++/Rust/Swift/Zig producers at once
+- **[Polyglot Pipeline Demo](cpp/thoth-ipc/demo/pipeline/)** — a chain of single-writer→single-reader `ipc::route` hops, **one process (and one language) per stage**. The launcher [`demo/pipeline/run.sh`](cpp/thoth-ipc/demo/pipeline/run.sh) wires `Zig source → Rust stage → Swift stage → C++ sink`, and the sink prints one line showing every language a message crossed — e.g. `item-0 [zig] -> rust -> swift -> [cpp sink]`. The `source`/`stage`/`sink` roles exist in all four ports, so any stage can be any language
+- **[Cross-Language Bounded Buffer Demo](cpp/thoth-ipc/demo/bounded_buffer/)** — the classic producer/consumer over a shared-memory ring, coordinated by a byte-exact named **`IpcMutex`** (guards `head`, so multiple producers contend) and two counting **`IpcSemaphore`s** (`empty`/`full`). The launcher [`demo/bounded_buffer/run.sh`](cpp/thoth-ipc/demo/bounded_buffer/run.sh) runs a Swift consumer against C++/Rust/Zig/Swift producers at once through a 4-slot ring — four languages synchronising on shared memory with the sync primitives this release made cross-language
+- **[Secure POS Demo](cpp/thoth-ipc/demo/secure_pos/)** — encrypted IPC where it is mandatory (PCI-style card pipeline): pinpad seals, gateway opens, keyless POS fails closed; roles mixable across C++/Rust
+- **[Async Gateway Demo](rust/thoth-ipc/src/bin/demo_async_gateway.rs)** — one event loop multiplexing many device channels via `AsyncRoute` (thread-per-channel does not scale; runtimes cannot host blocking recv)
+- **[Audio Service Demo](cpp/thoth-ipc/demo/audio_service/)** *(prototype)* — complete example with FlatBuffers protocol, redundancy, crash recovery, and auto-reconnect
+- **[Real-Time Audio Demo](cpp/thoth-ipc/demo/audio_realtime/)** *(prototype)* — dropout-free design with lock-free ring buffer, RT thread priority, heartbeat watchdog, and warm standby failover
 - **[Cross-Language Services via C FFI](doc/rust-services.md)** *(prototype)* — Rust 2024 edition service using bindgen-generated FFI bindings to the proto layer, with CMake auto-detection
 
 ## License
@@ -406,7 +406,7 @@ copyright holders:
 
 Files created entirely by thoth-ipc contributors carry only the second copyright
 line; files derived from cpp-ipc carry both. Vendored dependencies under
-`cpp/libipc/3rdparty/` and `swift/libipc/vendor/` keep their own licenses and are
+`cpp/thoth-ipc/3rdparty/` and `swift/thoth-ipc/vendor/` keep their own licenses and are
 not relicensed.
 
 ## Reference

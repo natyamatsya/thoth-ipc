@@ -35,9 +35,9 @@ A constant is one line in [`abi.json`](abi.json):
 every port, in each language's idiom:
 
 ```
-rust   pub const data_length: usize = 64;                    // rust/libipc/src/abi_generated.rs
+rust   pub const data_length: usize = 64;                    // rust/thoth-ipc/src/abi_generated.rs
 swift  public static let data_length: Int = 64               // swift/…/Generated/abi_generated.swift
-zig    pub const data_length: usize = 64;                    // zig/libipc/src/abi_generated.zig
+zig    pub const data_length: usize = 64;                    // zig/thoth-ipc/src/abi_generated.zig
 cpp    inline constexpr std::size_t data_length = 64;        // cpp/…/include/libipc/abi_generated.hpp
 ```
 
@@ -80,10 +80,10 @@ $ cargo run --manifest-path tools/abi/Cargo.toml
    ```sh
    $ for l in zig rust swift cpp; do \
        cargo run --manifest-path tools/abi/Cargo.toml -- generate --lang $l --check; done
-   ✓ zig/libipc/src/abi_generated.zig is up to date with abi.json
-   ✓ rust/libipc/src/abi_generated.rs is up to date with abi.json
-   ✓ swift/libipc/Sources/LibIPC/Generated/abi_generated.swift is up to date with abi.json
-   ✓ cpp/libipc/include/libipc/abi_generated.hpp is up to date with abi.json
+   ✓ zig/thoth-ipc/src/abi_generated.zig is up to date with abi.json
+   ✓ rust/thoth-ipc/src/abi_generated.rs is up to date with abi.json
+   ✓ swift/thoth-ipc/Sources/LibIPC/Generated/abi_generated.swift is up to date with abi.json
+   ✓ cpp/thoth-ipc/include/thoth-ipc/abi_generated.hpp is up to date with abi.json
    ```
 
 4. **Behavioural** — the [xlang matrix](../tools/xlang-runner) proves the
@@ -140,10 +140,10 @@ cargo run --manifest-path tools/abi/Cargo.toml
 
 # 2. Trace one constant into all four ports:
 grep data_length \
-  rust/libipc/src/abi_generated.rs \
-  swift/libipc/Sources/LibIPC/Generated/abi_generated.swift \
-  zig/libipc/src/abi_generated.zig \
-  cpp/libipc/include/libipc/abi_generated.hpp
+  rust/thoth-ipc/src/abi_generated.rs \
+  swift/thoth-ipc/Sources/LibIPC/Generated/abi_generated.swift \
+  zig/thoth-ipc/src/abi_generated.zig \
+  cpp/thoth-ipc/include/thoth-ipc/abi_generated.hpp
 
 # 3. Break a value and watch a gate reject it, then restore:
 cp abi/abi.json /tmp/abi.bak

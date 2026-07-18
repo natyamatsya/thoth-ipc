@@ -39,10 +39,10 @@ Third-party components
 Vendored dependencies keep their own licenses and are NOT relicensed by this
 project:
 
-    cpp/libipc/3rdparty/googletest    — Google Test         (BSD-3-Clause)
-    cpp/libipc/3rdparty/flatbuffers   — FlatBuffers          (Apache-2.0)
-    swift/libipc/vendor/swift-atomics — Swift Atomics        (Apache-2.0 WITH Runtime Library Exception)
-    swift/libipc/vendor/swift-protobuf— Swift Protobuf       (Apache-2.0)
-    swift/libipc/vendor/flatbuffers   — FlatBuffers          (Apache-2.0)
+    cpp/thoth-ipc/3rdparty/googletest    — Google Test         (BSD-3-Clause)
+    cpp/thoth-ipc/3rdparty/flatbuffers   — FlatBuffers          (Apache-2.0)
+    swift/thoth-ipc/vendor/swift-atomics — Swift Atomics        (Apache-2.0 WITH Runtime Library Exception)
+    swift/thoth-ipc/vendor/swift-protobuf— Swift Protobuf       (Apache-2.0)
+    swift/thoth-ipc/vendor/flatbuffers   — FlatBuffers          (Apache-2.0)
 
 See versions.json and .gitmodules for exact revisions.

@@ -205,7 +205,7 @@ occur in Rust. Findings:
   identity release (the Rust analogue of C++ RFC point 3) is possible but has no
   functional payoff; deferred. Present equally in posix.rs.
 
-Tests added (`rust/libipc/tests/test_mutex.rs`):
+Tests added (`rust/thoth-ipc/tests/test_mutex.rs`):
 `clear_storage_orphans_live_handle`, `clear_storage_orphans_shared_node` —
 parity with the C++ gtests; full Rust suite green.
 

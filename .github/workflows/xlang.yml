@@ -37,13 +37,13 @@ jobs:
       run: |
         cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_SECURE_OPENSSL=ON .
         make xlang_ipc -j
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
       env:
         CC: gcc-14
         CXX: g++-14
     - name: Build Rust harness (secure + typed codecs enabled)
       run: cargo build --release --bin xlang --features secure-crypto-openssl,codec-protobuf
-      working-directory: rust/libipc
+      working-directory: rust/thoth-ipc
       env:
         LIBIPC_OPENSSL_PREFIX: /usr
     - name: Build matrix runner
@@ -57,8 +57,8 @@ jobs:
           --require cpp,rust --strict-caps \
           --junit xlang-results.xml
       env:
-        XLANG_CPP_BIN: cpp/libipc/bin/xlang_ipc
-        XLANG_RUST_BIN: rust/libipc/target/release/xlang
+        XLANG_CPP_BIN: cpp/thoth-ipc/bin/xlang_ipc
+        XLANG_RUST_BIN: rust/thoth-ipc/target/release/xlang
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -81,15 +81,15 @@ jobs:
               -DLIBIPC_SECURE_OPENSSL=ON \
               -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" .
         make xlang_ipc -j
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: Build Rust harness (secure + typed codecs enabled)
       run: cargo build --release --bin xlang --features secure-crypto-openssl,codec-protobuf
-      working-directory: rust/libipc
+      working-directory: rust/thoth-ipc
       env:
         LIBIPC_OPENSSL_PREFIX: /opt/homebrew/opt/openssl@3
     - name: Build Swift harness (secure codec enabled)
       run: swift build -c release --product xlang-harness
-      working-directory: swift/libipc
+      working-directory: swift/thoth-ipc
       env:
         LIBIPC_SECURE_OPENSSL: "1"
         LIBIPC_OPENSSL_PREFIX: /opt/homebrew/opt/openssl@3
@@ -102,21 +102,21 @@ jobs:
         version: 0.16.0
     - name: Build Zig harness
       run: zig build -Doptimize=ReleaseSafe
-      working-directory: zig/libipc
+      working-directory: zig/thoth-ipc
     - name: Build matrix runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
     # No --scenario filter: every scenario with participants runs.
     - name: Run cross-language matrix (cpp, rust, swift, zig)
       run: |
-        export XLANG_SWIFT_BIN="$(cd swift/libipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
+        export XLANG_SWIFT_BIN="$(cd swift/thoth-ipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
         tools/xlang-runner/target/release/xlang-runner \
           --config tools/xlang-ci.toml \
           --require cpp,rust,swift,zig --strict-caps \
           --junit xlang-results.xml
       env:
-        XLANG_CPP_BIN: cpp/libipc/bin/xlang_ipc
-        XLANG_RUST_BIN: rust/libipc/target/release/xlang
-        XLANG_ZIG_BIN: zig/libipc/zig-out/bin/xlang
+        XLANG_CPP_BIN: cpp/thoth-ipc/bin/xlang_ipc
+        XLANG_RUST_BIN: rust/thoth-ipc/target/release/xlang
+        XLANG_ZIG_BIN: zig/thoth-ipc/zig-out/bin/xlang
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -141,13 +141,13 @@ jobs:
       run: |
         cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_STDEXEC=ON .
         make xasync xcoro -j
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
       env:
         CC: gcc-14
         CXX: g++-14
     - name: Build Rust async harness
       run: cargo build --release --bin xlang --features async-tokio
-      working-directory: rust/libipc
+      working-directory: rust/thoth-ipc
     - name: Build matrix runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
     - name: Run async matrix (cpp, rust)
@@ -158,9 +158,9 @@ jobs:
           --require cpp-async,cpp-coro,rust-async --strict-caps \
           --junit xlang-results.xml
       env:
-        XLANG_CPP_ASYNC_BIN: cpp/libipc/bin/xasync
-        XLANG_CPP_CORO_BIN: cpp/libipc/bin/xcoro
-        XLANG_RUST_ASYNC_BIN: rust/libipc/target/release/xlang
+        XLANG_CPP_ASYNC_BIN: cpp/thoth-ipc/bin/xasync
+        XLANG_CPP_CORO_BIN: cpp/thoth-ipc/bin/xcoro
+        XLANG_RUST_ASYNC_BIN: rust/thoth-ipc/target/release/xlang
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -179,35 +179,35 @@ jobs:
       run: |
         cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_STDEXEC=ON .
         make xasync xcoro -j
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: Build Rust async harness
       run: cargo build --release --bin xlang --features async-tokio
-      working-directory: rust/libipc
+      working-directory: rust/thoth-ipc
     - name: Build Swift harness (Layer 1 notify + AsyncRoute)
       run: swift build -c release --product xlang-harness
-      working-directory: swift/libipc
+      working-directory: swift/thoth-ipc
     - name: Set up Zig
       uses: mlugg/setup-zig@v2
       with:
         version: 0.16.0
     - name: Build Zig harness (Layer 1 notify + aread)
       run: zig build -Doptimize=ReleaseSafe
-      working-directory: zig/libipc
+      working-directory: zig/thoth-ipc
     - name: Build matrix runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
     - name: Run async matrix (cpp, rust, swift, zig)
       run: |
-        export XLANG_SWIFT_ASYNC_BIN="$(cd swift/libipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
+        export XLANG_SWIFT_ASYNC_BIN="$(cd swift/thoth-ipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
         tools/xlang-runner/target/release/xlang-runner \
           --config tools/xlang-ci.toml \
           --scenario async \
           --require cpp-async,cpp-coro,rust-async,swift-async,zig-async --strict-caps \
           --junit xlang-results.xml
       env:
-        XLANG_CPP_ASYNC_BIN: cpp/libipc/bin/xasync
-        XLANG_CPP_CORO_BIN: cpp/libipc/bin/xcoro
-        XLANG_RUST_ASYNC_BIN: rust/libipc/target/release/xlang
-        XLANG_ZIG_ASYNC_BIN: zig/libipc/zig-out/bin/xlang
+        XLANG_CPP_ASYNC_BIN: cpp/thoth-ipc/bin/xasync
+        XLANG_CPP_CORO_BIN: cpp/thoth-ipc/bin/xcoro
+        XLANG_RUST_ASYNC_BIN: rust/thoth-ipc/target/release/xlang
+        XLANG_ZIG_ASYNC_BIN: zig/thoth-ipc/zig-out/bin/xlang
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -237,10 +237,10 @@ jobs:
         cmake -B build -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_SECURE_OPENSSL=ON \
               -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL-Win64"
         cmake --build build --config Release --target xlang_ipc
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: Build Rust harness (secure + typed codecs enabled)
       run: cargo build --release --bin xlang --features secure-crypto-openssl,codec-protobuf
-      working-directory: rust/libipc
+      working-directory: rust/thoth-ipc
       env:
         LIBIPC_OPENSSL_PREFIX: C:/Program Files/OpenSSL-Win64
     - name: Build matrix runner
@@ -255,8 +255,8 @@ jobs:
           --require cpp,rust --strict-caps \
           --junit xlang-results.xml
       env:
-        XLANG_CPP_BIN: cpp/libipc/build/bin/Release/xlang_ipc.exe
-        XLANG_RUST_BIN: rust/libipc/target/release/xlang.exe
+        XLANG_CPP_BIN: cpp/thoth-ipc/build/bin/Release/xlang_ipc.exe
+        XLANG_RUST_BIN: rust/thoth-ipc/target/release/xlang.exe
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -282,10 +282,10 @@ jobs:
       run: |
         cmake -B build -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_STDEXEC=ON
         cmake --build build --config Release --target xasync xcoro
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: Build Rust async harness
       run: cargo build --release --bin xlang --features async-tokio
-      working-directory: rust/libipc
+      working-directory: rust/thoth-ipc
     - name: Build matrix runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
     - name: Run async matrix (cpp, rust, coro)
@@ -296,9 +296,9 @@ jobs:
           --require cpp-async,cpp-coro,rust-async --strict-caps \
           --junit xlang-results.xml
       env:
-        XLANG_CPP_ASYNC_BIN: cpp/libipc/build/bin/Release/xasync.exe
-        XLANG_CPP_CORO_BIN: cpp/libipc/build/bin/Release/xcoro.exe
-        XLANG_RUST_ASYNC_BIN: rust/libipc/target/release/xlang.exe
+        XLANG_CPP_ASYNC_BIN: cpp/thoth-ipc/build/bin/Release/xasync.exe
+        XLANG_CPP_CORO_BIN: cpp/thoth-ipc/build/bin/Release/xcoro.exe
+        XLANG_RUST_ASYNC_BIN: rust/thoth-ipc/target/release/xlang.exe
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -331,5 +331,5 @@ jobs:
         # build (rust/swift/zig/cpp jobs; C++ via ipc.cpp's static_assert layer).
         # These standalone syntax checks catch generation bugs without a full
         # port build.
-        rustc --edition 2021 --crate-type lib --emit=metadata --out-dir /tmp rust/libipc/src/abi_generated.rs
-        g++ -std=c++17 -fsyntax-only -x c++ cpp/libipc/include/libipc/abi_generated.hpp
+        rustc --edition 2021 --crate-type lib --emit=metadata --out-dir /tmp rust/thoth-ipc/src/abi_generated.rs
+        g++ -std=c++17 -fsyntax-only -x c++ cpp/thoth-ipc/include/thoth-ipc/abi_generated.hpp

@@ -13,11 +13,11 @@
 // IDL adopts more of the surface.
 //
 // Build (the Rust checker does this for you):
-//   c++ -std=c++20 -I cpp/libipc/include -I cpp/libipc/src abi/dump_abi.cpp -o dump_abi
+//   c++ -std=c++20 -I cpp/thoth-ipc/include -I cpp/thoth-ipc/src abi/dump_abi.cpp -o dump_abi
 
-#include "libipc/def.h"
-#include "libipc/prod_cons.h"
-#include "libipc/circ/elem_array.h"
+#include "thoth-ipc/def.h"
+#include "thoth-ipc/prod_cons.h"
+#include "thoth-ipc/circ/elem_array.h"
 
 #include <cstdio>
 #include <cstddef>

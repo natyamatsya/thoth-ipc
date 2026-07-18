@@ -5,7 +5,7 @@
   matrices are green on `windows-latest`/MSVC. Original proposal (authored on
   macOS, untested there) retained below as the design record; see the corrections
   immediately following and the durable reference in
-  [`../cpp/libipc/doc/windows-technical-notes.md`](../cpp/libipc/doc/windows-technical-notes.md)
+  [`../cpp/thoth-ipc/doc/windows-technical-notes.md`](../cpp/thoth-ipc/doc/windows-technical-notes.md)
   and [`../doc/adr/0005-cross-platform-async-readiness-handle.md`](../doc/adr/0005-cross-platform-async-readiness-handle.md).
 
 ## Corrections found during implementation
@@ -42,7 +42,7 @@ Three assumptions in the proposal below were wrong on real hardware:
 
 What already works:
 - **Sync primitives + shm** are implemented for Windows
-  (`cpp/libipc/src/libipc/platform/win/{mutex,semaphore,condition}.h`,
+  (`cpp/thoth-ipc/src/thoth-ipc/platform/win/{mutex,semaphore,condition}.h`,
   `shm_win.cpp`; Rust uses `windows-sys` `Win32_System_Memory`). C++↔C++
   messaging builds and runs on Windows (the `build-windows` CI job exercises it).
 - **Ring/chunk `spin_lock`.** Windows has no `platform/win/spin_lock.h`, so it

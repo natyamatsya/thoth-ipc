@@ -22,22 +22,22 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y g++-14
     - name: cmake
       run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_BUILD_PROTO=ON .
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
       env:
         CC: gcc-14
         CXX: g++-14
     - name: make
       run: make -j
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: test
       run: export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH && ./bin/test-ipc
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: verify Rust service
       run: test -x ./bin/rt_audio_service_rs
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: verify C++23 demo services
       run: test -x ./bin/audio_service && test -x ./bin/rt_audio_service
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
 
   build-macos:
     runs-on: macos-latest
@@ -49,19 +49,19 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
     - name: cmake
       run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_BUILD_BENCHMARKS=ON -DLIBIPC_BUILD_PROTO=ON .
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: make
       run: make -j
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: test
       run: ./bin/test-ipc
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: benchmark
       run: ./bin/bench_ipc 4
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: verify Rust service
       run: test -x ./bin/rt_audio_service_rs
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
 
   build-windows:
     runs-on: windows-latest
@@ -73,16 +73,16 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
     - name: cmake
       run: cmake -B build -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_BUILD_PROTO=ON
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: build
       run: cmake --build build --config Release
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: test
       run: build\bin\Release\test-ipc.exe
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: verify Rust service
       run: if (!(Test-Path build\bin\Release\rt_audio_service_rs.exe)) { exit 1 }
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
 
   build-macos-file-shm:
     runs-on: macos-latest
@@ -92,13 +92,13 @@ jobs:
         submodules: recursive
     - name: cmake
       run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_USE_FILE_SHM=ON .
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: make
       run: make -j
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: test
       run: ./bin/test-ipc
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
 
   build-macos-universal:
     runs-on: macos-latest
@@ -108,10 +108,10 @@ jobs:
         submodules: recursive
     - name: cmake
       run: cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" .
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: make
       run: make -j
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc
     - name: verify architectures
       run: lipo -info lib/libipc.a
-      working-directory: cpp/libipc
+      working-directory: cpp/thoth-ipc

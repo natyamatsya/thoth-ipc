@@ -7,7 +7,7 @@
   [`context/xlang-channel-abi.md`](xlang-channel-abi.md) §8. Swift not yet.)*
 - **Motivating consumer:** Sourcetrail — the agent-UI control channel and the indexer's
   subprocess-result IPC, both of which currently dedicate a blocking thread per channel.
-- **User docs:** [`cpp/libipc/doc/async-recv.md`](../cpp/libipc/doc/async-recv.md).
+- **User docs:** [`cpp/thoth-ipc/doc/async-recv.md`](../cpp/thoth-ipc/doc/async-recv.md).
 
 ## Implementation status
 
@@ -143,8 +143,8 @@ The same applies to the indexer's subprocess-result IPC (dedicated `jthread`s in
 
 ## References
 
-- libipc sync/waiter internals: `cpp/libipc/src/libipc/waiter.h`,
-  `cpp/libipc/src/libipc/platform/apple/*`, `context/macos_ipc_roadmap.md`,
+- libipc sync/waiter internals: `cpp/thoth-ipc/src/thoth-ipc/waiter.h`,
+  `cpp/thoth-ipc/src/thoth-ipc/platform/apple/*`, `context/macos_ipc_roadmap.md`,
   `context/benchmarks.md`.
 - Consumer design: Sourcetrail `context/DESIGN_AGENT_UI_CONTROL.md`,
   `context/ROADMAP_STDEXEC_MIGRATION.md`.

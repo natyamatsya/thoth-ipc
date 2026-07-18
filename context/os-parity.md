@@ -50,7 +50,7 @@ Footnotes / code pointers:
    registry over the Win32 thread pool (`RegisterWaitForSingleObject`); the reaper
    uses `GetProcessTimes` for the start token; and async recv rides `wait_handle_t`
    (a `HANDLE`) — see [ADR-0005](../doc/adr/0005-cross-platform-async-readiness-handle.md)
-   and [`cpp/libipc/doc/windows-technical-notes.md`](../cpp/libipc/doc/windows-technical-notes.md).
+   and [`cpp/thoth-ipc/doc/windows-technical-notes.md`](../cpp/thoth-ipc/doc/windows-technical-notes.md).
 3. **`clear_storage` orphan-safety** (2026-07-14). Clearing a named mutex while
    a handle is still open in-process must orphan (not destroy) the segment; see
    [`refcount-aware-clear-storage-rfc.md`](refcount-aware-clear-storage-rfc.md).

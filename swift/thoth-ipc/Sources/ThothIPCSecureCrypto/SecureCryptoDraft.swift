@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+// SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
+
+import ThothIPC
+
+/// Draft marker module for optional secure crypto integration.
+///
+/// The concrete C-ABI-backed implementation is introduced incrementally to keep
+/// the core ThothIPC target dependency-free by default.
+public enum SecureCryptoDraft {
+    public static let envelopeVersion: UInt8 = 1
+}

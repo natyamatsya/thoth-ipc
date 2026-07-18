@@ -1,16 +1,16 @@
-[submodule "cpp/libipc/3rdparty/googletest"]
-	path = cpp/libipc/3rdparty/googletest
+[submodule "cpp/thoth-ipc/3rdparty/googletest"]
+	path = cpp/thoth-ipc/3rdparty/googletest
 	url = https://github.com/google/googletest.git
-[submodule "cpp/libipc/3rdparty/flatbuffers"]
-	path = cpp/libipc/3rdparty/flatbuffers
+[submodule "cpp/thoth-ipc/3rdparty/flatbuffers"]
+	path = cpp/thoth-ipc/3rdparty/flatbuffers
 	url = https://github.com/google/flatbuffers.git
-[submodule "swift/libipc/vendor/swift-atomics"]
-	path = swift/libipc/vendor/swift-atomics
+[submodule "swift/thoth-ipc/vendor/swift-atomics"]
+	path = swift/thoth-ipc/vendor/swift-atomics
 	url = https://github.com/apple/swift-atomics.git
-[submodule "swift/libipc/vendor/flatbuffers"]
-	path = swift/libipc/vendor/flatbuffers
+[submodule "swift/thoth-ipc/vendor/flatbuffers"]
+	path = swift/thoth-ipc/vendor/flatbuffers
 	url = https://github.com/google/flatbuffers.git
-[submodule "swift/libipc/vendor/swift-protobuf"]
-	path = swift/libipc/vendor/swift-protobuf
+[submodule "swift/thoth-ipc/vendor/swift-protobuf"]
+	path = swift/thoth-ipc/vendor/swift-protobuf
 	url = https://github.com/apple/swift-protobuf.git
 	ignore = untracked

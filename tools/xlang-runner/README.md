@@ -80,16 +80,16 @@ gaps this matrix discovered:
 
 ```sh
 # Build the harnesses with the secure backend:
-(cd cpp/libipc && cmake -B build -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON \
+(cd cpp/thoth-ipc && cmake -B build -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON \
     -DLIBIPC_SECURE_OPENSSL=ON -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" . \
     && cmake --build build --target xlang_ipc -j)
-(cd rust/libipc && cargo build --release --bin xlang --features secure-crypto-openssl,async-tokio)
-(cd swift/libipc && LIBIPC_SECURE_OPENSSL=1 swift build -c release --product xlang-harness)
+(cd rust/thoth-ipc && cargo build --release --bin xlang --features secure-crypto-openssl,async-tokio)
+(cd swift/thoth-ipc && LIBIPC_SECURE_OPENSSL=1 swift build -c release --product xlang-harness)
 
 # Point the config's env vars at them and run (from the repo root):
-export XLANG_CPP_BIN=cpp/libipc/build/bin/xlang_ipc
-export XLANG_RUST_BIN=rust/libipc/target/release/xlang
-export XLANG_SWIFT_BIN="$(cd swift/libipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
+export XLANG_CPP_BIN=cpp/thoth-ipc/build/bin/xlang_ipc
+export XLANG_RUST_BIN=rust/thoth-ipc/target/release/xlang
+export XLANG_SWIFT_BIN="$(cd swift/thoth-ipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
 export XLANG_RUST_ASYNC_BIN=$XLANG_RUST_BIN XLANG_SWIFT_ASYNC_BIN=$XLANG_SWIFT_BIN
 cargo run --release --manifest-path tools/xlang-runner/Cargo.toml -- --config tools/xlang-ci.toml
 ```
@@ -102,7 +102,7 @@ error.
 ## Adding a language
 
 1. Implement the harness CLI in the new language (see
-   `rust/libipc/src/bin/xlang.rs` for the reference contract):
+   `rust/thoth-ipc/src/bin/xlang.rs` for the reference contract):
    `write/read/clear` at minimum, `caps` recommended, plus the verbs of any
    scenario it should join.
 2. Add a `[languages.<name>]` entry to `tools/xlang-ci.toml` with its `bin`

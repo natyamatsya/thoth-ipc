@@ -105,9 +105,9 @@ fn run_check(root: &Path) {
         .args([
             "-std=c++20",
             "-I",
-            root.join("cpp/libipc/include").to_str().unwrap(),
+            root.join("cpp/thoth-ipc/include").to_str().unwrap(),
             "-I",
-            root.join("cpp/libipc/src").to_str().unwrap(),
+            root.join("cpp/thoth-ipc/src").to_str().unwrap(),
             root.join("abi/dump_abi.cpp").to_str().unwrap(),
             "-o",
             bin.to_str().unwrap(),
@@ -169,10 +169,10 @@ fn run_generate(root: &Path, args: &[String]) {
     let abi = read_json(&root.join("abi/abi.json"));
     let (rendered, default_out) = match lang.as_str() {
         // Every port generates into its own tree and consumes the module.
-        "zig" => (gen_zig(&abi, &target), root.join("zig/libipc/src/abi_generated.zig")),
-        "rust" => (gen_rust(&abi, &target), root.join("rust/libipc/src/abi_generated.rs")),
-        "swift" => (gen_swift(&abi, &target), root.join("swift/libipc/Sources/LibIPC/Generated/abi_generated.swift")),
-        "cpp" => (gen_cpp(&abi, &target), root.join("cpp/libipc/include/libipc/abi_generated.hpp")),
+        "zig" => (gen_zig(&abi, &target), root.join("zig/thoth-ipc/src/abi_generated.zig")),
+        "rust" => (gen_rust(&abi, &target), root.join("rust/thoth-ipc/src/abi_generated.rs")),
+        "swift" => (gen_swift(&abi, &target), root.join("swift/thoth-ipc/Sources/ThothIPC/Generated/abi_generated.swift")),
+        "cpp" => (gen_cpp(&abi, &target), root.join("cpp/thoth-ipc/include/thoth-ipc/abi_generated.hpp")),
         other => {
             eprintln!("no generator for language '{other}' (have: zig, rust, swift, cpp)");
             std::process::exit(2);

@@ -8,16 +8,16 @@ multi-writer channel byte-exact.** The full `channel` scenario — every
 two-language sender pair into every reader, at 40/65/3000 B — passes (72/72), and
 the scenario's expected-fail flag has been cleared
 (`tools/xlang-runner/src/config.rs`). Implementations:
-`zig/libipc/src/transport/channel_multi.zig`, `rust/libipc/src/channel.rs`,
-`swift/libipc/Sources/LibIPC/Transport/Channel.swift`. This document is the
+`zig/thoth-ipc/src/transport/channel_multi.zig`, `rust/thoth-ipc/src/channel.rs`,
+`swift/thoth-ipc/Sources/LibIPC/Transport/Channel.swift`. This document is the
 target ABI and the per-language roadmap that closed the last remaining
 cross-language gap in the matrix: multi-writer `ipc::channel`. It complements
 [`xlang-channel-abi.md`](xlang-channel-abi.md), which specifies the
 single-writer `ipc::route` (already byte-exact across all four ports).
 
-**Canonical implementation:** C++ (`cpp/libipc`),
+**Canonical implementation:** C++ (`cpp/thoth-ipc`),
 `prod_cons_impl<multi, multi, broadcast>` in
-[`src/libipc/prod_cons.h`](../cpp/libipc/src/libipc/prod_cons.h) L301-441. Rust,
+[`src/libipc/prod_cons.h`](../cpp/thoth-ipc/src/thoth-ipc/prod_cons.h) L301-441. Rust,
 Swift and Zig must match it byte- and memory-order-exact.
 
 ---
@@ -25,7 +25,7 @@ Swift and Zig must match it byte- and memory-order-exact.
 ## 1. Why it's a gap today
 
 `ipc::route` = `chan<single, multi, broadcast>`; `ipc::channel` =
-`chan<multi, multi, broadcast>` (`cpp/libipc/include/libipc/ipc.h` L258 / L267).
+`chan<multi, multi, broadcast>` (`cpp/thoth-ipc/include/thoth-ipc/ipc.h` L258 / L267).
 They are **different producer-consumer rings**, but every port currently reuses
 the single-writer route ring for both. Two independent problems, both must land:
 
@@ -175,16 +175,16 @@ Waiters (`RD/WT/CC_CONN__`), liveness (`LV_CONN__`) and chunk storage
 
 ## 3. Rollout order
 
-1. **Zig (Phase 1) — ✅ done.** `zig/libipc/src/transport/channel_multi.zig`
+1. **Zig (Phase 1) — ✅ done.** `zig/thoth-ipc/src/transport/channel_multi.zig`
    implements the multi-producer ring + `AC_CONN__` counter + `cwrite`/`cread`
    byte-exact with C++; `cpp+zig → {cpp,zig}` pass at 40/65/3000 B and `zig→zig`
    works. De-risked the hardest lock-free protocol against the reference.
    Scenario stays `xfail` overall until Rust/Swift land.
-2. **Rust (Phase 2) — ✅ done.** `rust/libipc/src/channel.rs` adds the
+2. **Rust (Phase 2) — ✅ done.** `rust/thoth-ipc/src/channel.rs` adds the
    multi-producer ring + `AC_CONN__` counter behind a `multi` flag on `ChanInner`
    (route path untouched; `push_fragment`/`recv` dispatch to `_multi` variants).
    All `{cpp,rust,zig}` channel pairings pass.
-3. **Swift (Phase 3) — ✅ done.** `swift/libipc/Sources/LibIPC/Transport/Channel.swift`
+3. **Swift (Phase 3) — ✅ done.** `swift/thoth-ipc/Sources/LibIPC/Transport/Channel.swift`
    adds the multi-producer ring + `AC_CONN__` counter behind the same `multi`
    flag on `ChanInner` (route path untouched; `pushFragment`/`recv` dispatch to
    `pushFragmentMulti`/`recvMulti`). All `{cpp,rust,swift,zig}` channel pairings pass.
@@ -211,16 +211,16 @@ Reuses all of the route port's infrastructure (shm, waiters, liveness, chunk,
 notify, framing); only the ring element and push/pop protocol are new.
 
 **Files**
-- `zig/libipc/src/transport/channel_ring.zig` *(new)* — the multi-producer ring:
+- `zig/thoth-ipc/src/transport/channel_ring.zig` *(new)* — the multi-producer ring:
   the 96-byte `elem_t`, the `ct_`/`epoch_` header helpers, and `push`/`pop` per
   §2.4/§2.5 with comptime `@sizeOf`/`@offsetOf` guards (`elem_t` = 96, ring total
   ≈24832, `ct_`@64, `epoch_`@128).
-- `zig/libipc/src/transport/channel.zig` — factor the shared open/connect/
+- `zig/thoth-ipc/src/transport/channel.zig` — factor the shared open/connect/
   disconnect (DCLP init, `cc_` connect, waiters, liveness) so a `ChannelInner`
   can pick the multi-producer ring while `ChanInner` keeps the route ring;
   add the `AC_CONN__<name>` id counter (open the segment, `fetch_add(1)` per
   message) used by the channel send path.
-- `zig/libipc/src/xlang.zig` — `cwrite`/`cread` verbs (mirror `write`/`read` but
+- `zig/thoth-ipc/src/xlang.zig` — `cwrite`/`cread` verbs (mirror `write`/`read` but
   over the channel ring; reader expects `2*count`).
 - `tools/xlang-ci.toml` — add `"channel"` to `[languages.zig].modes`.
 
@@ -240,14 +240,14 @@ notify, framing); only the ring element and push/pop protocol are new.
 ### 4.3 Rust — Phase 2 (✅ done)
 
 **Files**
-- `rust/libipc/src/channel.rs` — today `Route` and `Channel` are both thin
+- `rust/thoth-ipc/src/channel.rs` — today `Route` and `Channel` are both thin
   wrappers over one `ChanInner` (88-byte route ring; comment L997-999 says so).
   Split `Channel` onto a new multi-producer inner: 96-byte `ElemT`
   (`f_ct_` field; drop the `size_of == 88` assert for the channel variant),
   `RingHeader` with `ct_`/`epoch_` instead of `write_cursor`, and the §2.4/§2.5
   protocol. Add the `AC_CONN__<name>` counter for `msg_t.id_` (replace the
   process-local `send_seq`, L255/L532-533).
-- `rust/libipc/src/bin/xlang.rs` — `cwrite`/`cread` already call
+- `rust/thoth-ipc/src/bin/xlang.rs` — `cwrite`/`cread` already call
   `Channel::connect` (L29-72); no verb change, just point at the new inner.
 
 **Green criteria:** all `{cpp, rust, zig}` channel pairings pass.
@@ -255,13 +255,13 @@ notify, framing); only the ring element and push/pop protocol are new.
 ### 4.4 Swift — Phase 3 (✅ done)
 
 **Files**
-- `swift/libipc/Sources/LibIPC/Transport/Channel.swift` +
+- `swift/thoth-ipc/Sources/LibIPC/Transport/Channel.swift` +
   `ChannelTail.swift` — `Route` and `Channel` share `ChanInner`
   (`elemStride 88`, `writeCursor`@64, `ringShmSizeBytes 22784`). Add a
   multi-producer variant: 96-byte stride, `ct_`/`epoch_` header, channel `rc_`
   math, the §2.4/§2.5 protocol, ring size ≈24832, and the `AC_CONN__` id counter
   (replace `sendSeq`, L158/L364).
-- `swift/libipc/Sources/XlangHarness/main.swift` — `doCwrite`/`doCread` already
+- `swift/thoth-ipc/Sources/XlangHarness/main.swift` — `doCwrite`/`doCread` already
   wired (L344-359); point them at the channel inner.
 
 **Green criteria:** the full 4-language `channel` matrix passes; flip the xfail.
