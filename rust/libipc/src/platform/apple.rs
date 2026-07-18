@@ -45,17 +45,37 @@ const SPIN_COUNT: i32 = 40;
 
 struct CachedShm {
     mem: *mut u8,
-    size: usize,
-    ref_count: AtomicI32,
+    size: usize,          // total mapped size (user 8 bytes + trailing acc_)
+    ref_count: AtomicI32, // process-local handle count
+    posix_name: String,   // for the last-owner unlink in Drop
 }
 
 unsafe impl Send for CachedShm {}
 unsafe impl Sync for CachedShm {}
 
+/// The trailing cross-process ref counter C++ appends to every shm segment
+/// (`shm_posix.cpp` `acc_of`): `atomic<int32>` at `mem + total_size - 4`. The
+/// C++/Swift mutex `open()` re-initialises the lock only when this counter reads
+/// <= 1 ("first opener"), so a port holding the mutex MUST maintain it or a
+/// cross-language prober will reset the live lock. See the primitives
+/// "rust holds mutex" investigation.
+#[inline]
+unsafe fn mutex_acc(mem: *mut u8, total_size: usize) -> &'static AtomicI32 {
+    &*(mem.add(total_size - 4) as *const AtomicI32)
+}
+
 impl Drop for CachedShm {
     fn drop(&mut self) {
         if !self.mem.is_null() {
+            // Decrement the cross-process ref counter (mirrors C++ sub_ref); the
+            // last owner unlinks the name so a stale locked state can't outlive it.
+            let prev = unsafe { mutex_acc(self.mem, self.size).fetch_sub(1, Ordering::AcqRel) };
             unsafe { libc::munmap(self.mem as *mut libc::c_void, self.size) };
+            if prev <= 1 {
+                if let Ok(c) = std::ffi::CString::new(self.posix_name.as_bytes()) {
+                    unsafe { libc::shm_unlink(c.as_ptr()) };
+                }
+            }
         }
     }
 }
@@ -75,7 +95,10 @@ fn mutex_cache() -> &'static Mutex<ShmCache> {
 
 fn acquire_mutex_shm(logical_name: &str) -> io::Result<Arc<CachedShm>> {
     let posix_name = shm_name::make_shm_name(logical_name);
-    let size = 8usize; // sizeof(ulock_mutex_t): u32 state + u32 holder
+    // sizeof(ulock_mutex_t) = 8 (u32 state + u32 holder), plus C++'s trailing
+    // acc_ ref counter — calc_size(8) = 12, byte-exact with the C++ segment.
+    let user_size = 8usize;
+    let size = crate::platform::posix::calc_size(user_size);
 
     let mut cache = mutex_cache().lock().unwrap();
 
@@ -144,7 +167,8 @@ fn acquire_mutex_shm(logical_name: &str) -> io::Result<Arc<CachedShm>> {
 
     let mem = mem as *mut u8;
 
-    // First opener: initialise state=0, holder=0.
+    // First opener: initialise state=0, holder=0. (The trailing acc_ counter is
+    // already zero in the freshly ftruncated, zero-filled segment.)
     if is_new {
         unsafe {
             (mem as *mut AtomicU32).write(AtomicU32::new(0));
@@ -152,10 +176,16 @@ fn acquire_mutex_shm(logical_name: &str) -> io::Result<Arc<CachedShm>> {
         }
     }
 
+    // Register this process as a live owner (mirrors C++ get_mem's acc_.fetch_add).
+    // A cross-language prober now sees ref > 1 while we hold the mutex and will
+    // not treat itself as the first opener that re-initialises the lock.
+    unsafe { mutex_acc(mem, size).fetch_add(1, Ordering::AcqRel) };
+
     let entry = Arc::new(CachedShm {
         mem,
         size,
         ref_count: AtomicI32::new(1),
+        posix_name: posix_name.clone(),
     });
     cache
         .map

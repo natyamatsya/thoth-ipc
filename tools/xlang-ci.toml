@@ -20,10 +20,6 @@ reader_warmup_ms = 400
 # of "scenario:case id"; such cases run as expected-fail and are flagged when
 # they start passing). Remove entries as the ports close the gaps.
 #  - C++ <-> port semaphores don't interop (different backing objects/ABI).
-#  - Mutual exclusion is broken while a RUST process holds the mutex: probers
-#    of every language (rust included) can acquire it — rust mutex init
-#    appears to re-initialize live state (flaky same-language, so all three
-#    prober directions are listed).
 xfail = [
     "primitives:cpp posts 3 -> rust",
     "primitives:cpp posts 3 -> swift",
@@ -31,12 +27,6 @@ xfail = [
     "primitives:rust posts 3 -> cpp",
     "primitives:swift posts 3 -> cpp",
     "primitives:zig posts 3 -> cpp",
-    # A live Rust holder does not exclude probers (rust mutex re-inits live
-    # state). The Zig prober is NOT affected — it never re-inits, so it reads
-    # `busy` correctly — hence zig is deliberately excluded here.
-    "primitives:rust holds mutex -> cpp",
-    "primitives:rust holds mutex -> rust",
-    "primitives:rust holds mutex -> swift",
 ]
 
 [languages.cpp]
