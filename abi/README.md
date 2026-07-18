@@ -140,21 +140,21 @@ cpp-ipc v1.4.1 and proven across four ports). This is the global contract versio
   header-only), and independently recomputes the notify `fnv1a_64` in Rust — and
   C++ `static_assert`s the hash at compile time. (The wire-name namespace is
   `__THOTH_SHM__…` / `thoth.ntf.…`.)
+- **Every port is a checked peer for shm names.** The `names[]` goldens are
+  generated into each module, and Rust/Swift/Zig each carry a unit test asserting
+  their name-builders equal the goldens for the canonical binding (Rust also
+  extracted the previously-inlined builders into shared functions used by both
+  `open()` and `clear_storage()`). C++ is covered by the dumper gate above.
 
 **Remaining**, roughly in priority order:
 
-1. **Per-port name-builder golden tests.** The naming gate makes *C++* a checked
-   peer for shm names, but the Rust/Swift/Zig builders are still only
-   matrix-verified. Generate the `names[]` goldens into each module and add a unit
-   test asserting `name_builder(canonical) == golden` — closing the loop for all
-   four ports (the last hand-maintained wire surface without a static gate).
-2. **shm-name shortening.** The goldens are all *logical* names; the POSIX
+1. **shm-name shortening.** The goldens are all *logical* names; the POSIX
    shortening (`/<truncated>_<hex>` FNV path for names over `SHM_NAME_MAX`) is
    matrix-only. Add a long-name binding whose golden exercises it — the dumper can
    emit the shortened form now that the builder is header-only.
-3. **`msg_t` field offsets.** Its size is gated, but the field offsets stay
+2. **`msg_t` field offsets.** Its size is gated, but the field offsets stay
    matrix-only: `msg_t` is non-standard-layout, so `offsetof` is ill-formed. Cover
    them with a small standard-layout mirror or an introspection shim.
-4. **Native x86_64 / Windows.** x86_64 is verified by Rosetta cross-compile today;
+3. **Native x86_64 / Windows.** x86_64 is verified by Rosetta cross-compile today;
    a native Linux run would drop the emulation, and a Windows target entry would
    pin its object-namespace prefix.

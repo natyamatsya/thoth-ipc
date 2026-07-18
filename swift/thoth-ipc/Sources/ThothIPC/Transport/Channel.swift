@@ -139,6 +139,7 @@ func ringName(_ prefix: String, _ name: String) -> String {
 // cc_id endpoint-identity counter is PREFIX-GLOBAL (no channel name), matching
 // C++ cc_acc — else a C++ sender and a Swift receiver collide on cc_id.
 func ccIdName(_ prefix: String) -> String { "\(fullPrefix(prefix))CA_CONN__" }
+func msgIdName(_ prefix: String, _ name: String) -> String { "\(fullPrefix(prefix))AC_CONN__\(name)" }
 
 /// C++ conn_head_base::init() DCLP via os_unfair_lock — so a C++ peer that sees
 /// constructed_ == 0 does not re-zero the header and wipe our connection bit.
@@ -214,7 +215,7 @@ final class ChanInner: @unchecked Sendable {
         let acIdShm: ShmHandle?
         let acIdPtr: UnsafeMutableRawPointer?
         if multi {
-            let h = try ShmHandle.acquire(name: "\(fp)AC_CONN__\(name)", size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
+            let h = try ShmHandle.acquire(name: msgIdName(prefix, name), size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
             acIdPtr = h.ptr   // borrow-read before the consume-move below
             acIdShm = consume h
         } else {
@@ -279,7 +280,7 @@ final class ChanInner: @unchecked Sendable {
         let acIdShm: ShmHandle?
         let acIdPtr: UnsafeMutableRawPointer?
         if multi {
-            let h = try ShmHandle.acquire(name: "\(fp)AC_CONN__\(name)", size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
+            let h = try ShmHandle.acquire(name: msgIdName(prefix, name), size: MemoryLayout<UInt32>.size, mode: .createOrOpen)
             acIdPtr = h.ptr   // borrow-read before the consume-move below
             acIdShm = consume h
         } else {

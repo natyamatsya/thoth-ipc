@@ -132,3 +132,15 @@ test "makeShmName shortens over 31 on macOS" {
     try std.testing.expect(out[0] == '/');
     try std.testing.expect(out[out.len - 17] == '_');
 }
+
+test "shm-name goldens — byte-exact with abi/abi.json names[]" {
+    const abi = @import("../abi_generated.zig");
+    const liveness = @import("../transport/liveness.zig");
+    var buf: [128]u8 = undefined;
+    // Each build writes `buf`, compared before the next overwrites it.
+    try std.testing.expectEqualStrings(abi.name_golden_ring, ringName(&buf, "", "xchan"));
+    try std.testing.expectEqualStrings(abi.name_golden_cc_id, ccIdName(&buf, ""));
+    try std.testing.expectEqualStrings(abi.name_golden_msg_id, acConnName(&buf, "", "xchan"));
+    try std.testing.expectEqualStrings(abi.name_golden_chunk, chunkShmName(&buf, "", 1024));
+    try std.testing.expectEqualStrings(abi.name_golden_liveness, liveness.livenessName(&buf, "", "xchan"));
+}

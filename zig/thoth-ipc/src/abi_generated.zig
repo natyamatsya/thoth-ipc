@@ -113,3 +113,11 @@ pub const syncabi_stamp_ver_minor_off: usize = 8;
 pub const syncabi_stamp_backend_id_off: usize = 12;
 pub const syncabi_stamp_primitive_id_off: usize = 16;
 pub const syncabi_stamp_payload_size_off: usize = 20;
+
+// --- shm-name goldens (canonical binding — see abi/README.md) ---
+pub const name_golden_ring: []const u8 = "__THOTH_SHM__QU_CONN__xchan__64__8";
+pub const name_golden_cc_id: []const u8 = "__THOTH_SHM__CA_CONN__";
+pub const name_golden_msg_id: []const u8 = "__THOTH_SHM__AC_CONN__xchan";
+pub const name_golden_liveness: []const u8 = "__THOTH_SHM__LV_CONN__xchan";
+pub const name_golden_chunk: []const u8 = "__THOTH_SHM__CHUNK_INFO__1024";
+pub const name_golden_notify_key: []const u8 = "thoth.ntf.098e889ce378ae04";

@@ -103,4 +103,12 @@ public enum ABI {
     public static let syncabi_stamp_backend_id_off: Int = 12
     public static let syncabi_stamp_primitive_id_off: Int = 16
     public static let syncabi_stamp_payload_size_off: Int = 20
+
+    // MARK: shm-name goldens (canonical binding — see abi/README.md)
+    public static let name_golden_ring: String = "__THOTH_SHM__QU_CONN__xchan__64__8"
+    public static let name_golden_cc_id: String = "__THOTH_SHM__CA_CONN__"
+    public static let name_golden_msg_id: String = "__THOTH_SHM__AC_CONN__xchan"
+    public static let name_golden_liveness: String = "__THOTH_SHM__LV_CONN__xchan"
+    public static let name_golden_chunk: String = "__THOTH_SHM__CHUNK_INFO__1024"
+    public static let name_golden_notify_key: String = "thoth.ntf.098e889ce378ae04"
 }

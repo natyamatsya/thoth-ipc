@@ -44,6 +44,38 @@ const RING_ALIGN: usize = {
     if DATA_LENGTH < a { DATA_LENGTH } else { a }
 };
 
+// Byte-exact wire-ABI shm object names (see `abi/README.md` `names[]`). Centralised
+// here so `open()` and `clear_storage()` can never drift, and asserted against the
+// generated goldens in `mod name_goldens` below. `prefix` is the raw user prefix.
+fn ring_shm_name(prefix: &str, name: &str) -> String {
+    format!("{prefix}__THOTH_SHM__QU_CONN__{name}__{DATA_LENGTH}__{RING_ALIGN}")
+}
+fn cc_id_shm_name(prefix: &str) -> String {
+    format!("{prefix}__THOTH_SHM__CA_CONN__")
+}
+fn msg_id_shm_name(prefix: &str, name: &str) -> String {
+    format!("{prefix}__THOTH_SHM__AC_CONN__{name}")
+}
+fn liveness_shm_name(prefix: &str, name: &str) -> String {
+    format!("{prefix}__THOTH_SHM__LV_CONN__{name}")
+}
+
+#[cfg(test)]
+mod name_goldens {
+    use super::{cc_id_shm_name, liveness_shm_name, msg_id_shm_name, ring_shm_name};
+    use crate::abi_generated as abi;
+    /// The shm object names this port builds must be byte-exact with the generated
+    /// goldens for the canonical binding (prefix="", name="xchan"), and thus with
+    /// every other port — making Rust a checked peer for the shm-name contract.
+    #[test]
+    fn shm_names_match_generated_goldens() {
+        assert_eq!(ring_shm_name("", "xchan"), abi::name_golden_ring);
+        assert_eq!(cc_id_shm_name(""), abi::name_golden_cc_id);
+        assert_eq!(msg_id_shm_name("", "xchan"), abi::name_golden_msg_id);
+        assert_eq!(liveness_shm_name("", "xchan"), abi::name_golden_liveness);
+    }
+}
+
 /// Number of ring slots (matches C++ `elem_max = 256`). The slot index is the
 /// write cursor truncated to u8 (wraps at 256); also used directly in the
 /// channel `recv_multi` next-lap free-flag arithmetic.
@@ -383,7 +415,7 @@ impl ChanInner {
         let full_prefix = format!("{prefix}__THOTH_SHM__");
         // chunk_prefix includes the channel name so each channel has isolated chunk storage.
         let chunk_prefix = format!("{full_prefix}{name}_");
-        let ring_name = format!("{full_prefix}QU_CONN__{name}__{DATA_LENGTH}__{RING_ALIGN}");
+        let ring_name = ring_shm_name(prefix, name);
         let wt_name = format!("{full_prefix}WT_CONN__{name}");
         let rd_name = format!("{full_prefix}RD_CONN__{name}");
         let cc_name = format!("{full_prefix}CC_CONN__{name}");
@@ -391,9 +423,9 @@ impl ChanInner {
         // byte-exact with C++ cc_acc(prefix) = "__THOTH_SHM__CA_CONN__". A
         // per-channel counter would collide a C++ sender's cc_id with a Rust
         // receiver's and the receiver would drop every message as "self".
-        let cc_id_name = format!("{full_prefix}CA_CONN__");
+        let cc_id_name = cc_id_shm_name(prefix);
         // Dead-connection reaper owner table (byte-exact with C++ LV_CONN__).
-        let lv_name = format!("{full_prefix}LV_CONN__{name}");
+        let lv_name = liveness_shm_name(prefix, name);
 
         // Channel and route share the ring NAME but not the size/layout: the
         // multi-writer ring has 96-byte slots (24832 B total) vs the route's 88.
@@ -409,7 +441,7 @@ impl ChanInner {
         // receiver's reassembly cache. Route uses a process-local send_seq.
         let ac_id_shm = if multi {
             Some(ShmHandle::acquire(
-                &format!("{full_prefix}AC_CONN__{name}"),
+                &msg_id_shm_name(prefix, name),
                 std::mem::size_of::<u32>(),
                 ShmOpenMode::CreateOrOpen,
             )?)
@@ -1243,13 +1275,13 @@ impl Route {
     /// Remove all backing storage with a prefix.
     pub fn clear_storage_with_prefix(prefix: &str, name: &str) {
         let full_prefix = format!("{prefix}__THOTH_SHM__");
-        ShmHandle::clear_storage(&format!("{full_prefix}QU_CONN__{name}__{DATA_LENGTH}__{RING_ALIGN}"));
+        ShmHandle::clear_storage(&ring_shm_name(prefix, name));
         // NB: the cc_id counter CA_CONN__ is prefix-global (no channel name) and
         // intentionally persistent, like C++ cc_acc — never cleared here. The
         // per-channel multi-writer msg-id counter AC_CONN__<name> IS cleared,
         // byte-exact with C++ channel::clear_storage.
-        ShmHandle::clear_storage(&format!("{full_prefix}AC_CONN__{name}"));
-        ShmHandle::clear_storage(&format!("{full_prefix}LV_CONN__{name}"));
+        ShmHandle::clear_storage(&msg_id_shm_name(prefix, name));
+        ShmHandle::clear_storage(&liveness_shm_name(prefix, name));
         Waiter::clear_storage(&format!("{full_prefix}WT_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}RD_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}CC_CONN__{name}"));

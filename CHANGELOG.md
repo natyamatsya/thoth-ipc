@@ -7,6 +7,15 @@ Notable changes to thoth-ipc. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Every port is now a checked peer for the shm-name contract.** The `abi.json`
+  `names[]` goldens are generated into each port's `abi_generated` module
+  (`name_golden_*`, ring per-target), and Rust/Swift/Zig each carry a unit test
+  asserting their name-builders produce the goldens for the canonical binding
+  (`prefix=""`, `name="xchan"`) — so a wrong shm name is caught statically per
+  port, not only by the behavioural matrix. Rust additionally **extracted** the
+  ring/cc_id/msg_id/liveness names (previously inlined in two places, `open()` and
+  `clear_storage()`) into shared builders; Swift gained a `msgIdName` builder for
+  symmetry. C++ remains covered by the dumper's checked-peer gate.
 - **Branded the shm-name wire namespace: `__IPC_SHM__` → `__THOTH_SHM__`,
   `ipc.ntf.` → `thoth.ntf.`, `ipcntf_` → `thothntf_`.** These are the byte-exact
   shm object-name / libnotify-key identifiers all four ports must agree on; they

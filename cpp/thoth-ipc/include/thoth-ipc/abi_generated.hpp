@@ -114,4 +114,16 @@ inline constexpr std::size_t syncabi_stamp_backend_id_off = 12;
 inline constexpr std::size_t syncabi_stamp_primitive_id_off = 16;
 inline constexpr std::size_t syncabi_stamp_payload_size_off = 20;
 
+// --- shm-name goldens (canonical binding — see abi/README.md) ---
+#if defined(__APPLE__) && defined(__aarch64__)
+inline constexpr const char* name_golden_ring = "__THOTH_SHM__QU_CONN__xchan__64__8";
+#else
+inline constexpr const char* name_golden_ring = "__THOTH_SHM__QU_CONN__xchan__64__16";
+#endif
+inline constexpr const char* name_golden_cc_id = "__THOTH_SHM__CA_CONN__";
+inline constexpr const char* name_golden_msg_id = "__THOTH_SHM__AC_CONN__xchan";
+inline constexpr const char* name_golden_liveness = "__THOTH_SHM__LV_CONN__xchan";
+inline constexpr const char* name_golden_chunk = "__THOTH_SHM__CHUNK_INFO__1024";
+inline constexpr const char* name_golden_notify_key = "thoth.ntf.098e889ce378ae04";
+
 } // namespace thoth::abi

@@ -185,6 +185,18 @@ fn chunk_shm_name(full_prefix: &str, chunk_size: usize) -> String {
     format!("{full_prefix}CHUNK_INFO__{chunk_size}")
 }
 
+#[cfg(test)]
+mod name_golden {
+    use super::chunk_shm_name;
+    use crate::abi_generated as abi;
+    /// Byte-exact with the generated chunk-name golden (canonical chunk_size=1024;
+    /// full_prefix = "" + "__THOTH_SHM__").
+    #[test]
+    fn chunk_shm_name_matches_generated_golden() {
+        assert_eq!(chunk_shm_name("__THOTH_SHM__", 1024), abi::name_golden_chunk);
+    }
+}
+
 /// Open (or create) the chunk-storage shm for `chunk_size`-byte chunks.
 #[cfg(unix)]
 pub fn open_chunk_shm(full_prefix: &str, chunk_size: usize) -> io::Result<ChunkShmHandle> {

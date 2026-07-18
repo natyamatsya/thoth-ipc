@@ -367,6 +367,14 @@ fn gen_zig(abi: &Value, target: &str) -> String {
             o.push_str(&format!("pub const {name}_{fname}_off: usize = {};\n", resolve_int(&f["offset"], target).unwrap()));
         }
     }
+
+    o.push_str("\n// --- shm-name goldens (canonical binding — see abi/README.md) ---\n");
+    for n in abi["names"].as_array().unwrap_or(&vec![]) {
+        if let Some(g) = n.get("golden").and_then(|g| resolve_str(g, target)) {
+            let nm = n["name"].as_str().unwrap();
+            o.push_str(&format!("pub const name_golden_{nm}: []const u8 = {g:?};\n"));
+        }
+    }
     o
 }
 
@@ -495,6 +503,14 @@ fn gen_rust(abi: &Value, _target: &str) -> String {
             emit_rust(&mut o, &format!("pub const {name}_{fname}_off: usize"), &ts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
         }
     }
+
+    o.push_str("\n// --- shm-name goldens (canonical binding — see abi/README.md) ---\n");
+    for n in abi["names"].as_array().unwrap_or(&Vec::new()) {
+        if n.get("golden").is_some() {
+            let nm = n["name"].as_str().unwrap();
+            emit_rust(&mut o, &format!("pub const name_golden_{nm}: &str"), &ts, |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()));
+        }
+    }
     o
 }
 
@@ -550,6 +566,14 @@ fn gen_swift(abi: &Value, target: &str) -> String {
         o.push_str(&format!("    public static let {name}_size: Int = {}\n", resolve_int(&s["size"], target).unwrap()));
         for f in each_field(s) {
             o.push_str(&format!("    public static let {name}_{}_off: Int = {}\n", f["name"].as_str().unwrap(), resolve_int(&f["offset"], target).unwrap()));
+        }
+    }
+
+    o.push_str("\n    // MARK: shm-name goldens (canonical binding — see abi/README.md)\n");
+    for n in abi["names"].as_array().unwrap_or(&vec![]) {
+        if let Some(g) = n.get("golden").and_then(|g| resolve_str(g, target)) {
+            let nm = n["name"].as_str().unwrap();
+            o.push_str(&format!("    public static let name_golden_{nm}: String = {g:?}\n"));
         }
     }
     o.push_str("}\n");
@@ -611,6 +635,14 @@ fn gen_cpp(abi: &Value, _target: &str) -> String {
         for f in each_field(s) {
             let fname = f["name"].as_str().unwrap();
             emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_{fname}_off"), "", &ts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
+        }
+    }
+
+    o.push_str("\n// --- shm-name goldens (canonical binding — see abi/README.md) ---\n");
+    for n in abi["names"].as_array().unwrap_or(&Vec::new()) {
+        if n.get("golden").is_some() {
+            let nm = n["name"].as_str().unwrap();
+            emit_cpp(&mut o, &format!("inline constexpr const char* name_golden_{nm}"), "", &ts, |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()));
         }
     }
     o.push_str("\n} // namespace thoth::abi\n");

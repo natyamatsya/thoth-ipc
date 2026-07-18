@@ -629,6 +629,11 @@ mod tests {
     fn notify_hash_matches_cpp_golden() {
         assert_eq!(notify_hash("", "xchan"), "098e889ce378ae04");
         assert_eq!(notify_hash("app", "st.agent.cmd"), "ad223836b598bfaa");
+        // The libnotify key is "thoth.ntf." + the hash; match the generated golden.
+        assert_eq!(
+            format!("thoth.ntf.{}", notify_hash("", "xchan")),
+            crate::abi_generated::name_golden_notify_key
+        );
     }
 
     // Pin the Windows named-Event assembly `<ns>thothntf_<hash>_<slot>`. The C++
