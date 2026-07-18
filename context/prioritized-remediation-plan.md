@@ -5,150 +5,80 @@
 
 ## Scope
 
-This plan prioritizes implementation gaps across C++, Rust, and Swift for:
-
-- Cross-language sync ABI/profile parity
-- CI coverage for cross-language interop
-- Secure codec validation, benchmarks, and deployment guidance
-- Documentation/roadmap correctness
+Cross-language (C++/Rust/Swift/Zig) parity and hardening backlog. The original
+P0 blockers and the secure test-matrix work have **shipped** (see below); what
+remains is security *evidence* + *guidance* and doc hygiene.
 
 ---
 
-## P0 — Blockers (do first)
+## Shipped (for the record)
 
-### 1) Add cross-language interop CI matrix
-
-- **Why:** ADR requires pairwise validation across languages, but CI is currently C++-centric.
-- **Actions:**
-  - Add CI jobs for:
-    - C++ ↔ Rust interop
-    - C++ ↔ Swift interop
-    - Rust ↔ Swift interop
-  - Include sync primitive scenarios: lock/unlock, wait/notify, timeout, dead-owner/robustness behavior.
-  - Gate merges on matrix success.
-- **Definition of done:**
-  - Pairwise interop jobs run on every PR.
-  - ABI/profile mismatches fail fast with actionable error output.
+- **P0.1 — Cross-language interop CI matrix.** `.github/workflows/xlang.yml` runs
+  the pairwise matrix (C++↔Rust on Linux; the full cpp/rust/swift/zig matrix on
+  macOS), driven by `tools/xlang-runner`, and gates merges (`--require`).
+- **P0.2 — Backend/profile contract.** The sync backend/profile is now a
+  generated, checked contract: `abi/abi.json` + `sync_abi` (magic `LISA`, backend
+  id `apple_ulock`), with the cross-platform policy documented in
+  [`os-parity.md`](os-parity.md).
+- **P1.4 — Secure test matrix (OpenSSL-backed + negative interop).** The
+  `secure`, `secure-badkey`, and `secure-negative` scenarios run OpenSSL-backed
+  AEAD across all ports (tamper / algorithm-mismatch / key-mismatch / bad-key-id),
+  fail-closed, in the gated matrix.
 
 ---
 
-### 2) Resolve backend contract/profile mismatch policy
+## Open items
 
-- **Why:** Current platform backend IDs/profiles are not consistently aligned across languages.
-- **Actions:**
-  - Decide and document platform policy explicitly:
-    - Linux: whether C++ `linux_a0` and Rust/Swift pthread profiles are expected to interoperate.
-    - macOS: whether Apple Mach profile is required outside C++ and how App Store-safe mode maps across languages.
-  - Implement policy in all language bindings (or hard-fail unsupported combinations at runtime).
-  - Ensure sync ABI stamps/backends are consistent with that policy.
-- **Definition of done:**
-  - A single documented backend/profile contract exists.
-  - Runtime guardrails reject unsupported cross-profile combinations deterministically.
+### P1.3 — Secure-path benchmark suite (all languages)
 
----
-
-## P1 — Security validation and performance proof
-
-### 3) Add secure-path benchmark suite (all languages)
-
-- **Why:** ADR Phase D/follow-up calls for secure vs non-secure throughput/latency evidence.
+- **Why:** secure vs non-secure throughput/latency evidence is still missing —
+  [`benchmarks.md`](benchmarks.md) has no secure rows.
 - **Actions:**
   - Add benchmark targets for secure typed route/channel paths.
-  - Measure secure vs non-secure baselines under comparable message sizes and thread topologies.
-  - Capture and publish reproducible benchmark methodology.
+  - Measure secure vs non-secure baselines under comparable message sizes and
+    thread topologies.
+  - Capture and publish a reproducible benchmark methodology.
 - **Definition of done:**
   - Bench outputs include secure/non-secure throughput and latency deltas.
-  - Results are reproducible in CI/nightly (or documented benchmark workflow).
+  - Results are reproducible via a documented benchmark workflow.
 
----
+### P1.5 — Threat model + key provisioning/rotation guidance
 
-### 4) Close secure test matrix gaps (OpenSSL-backed + negative interop)
-
-- **Why:** Follow-up work requests end-to-end OpenSSL-backed policy tests and negative scenarios across languages.
+- **Why:** security *deployment* guidance is still only implicit in ADR-0003 /
+  ADR-0004; there is no standalone security-operations doc.
 - **Actions:**
-  - Add cross-language e2e tests using OpenSSL-backed cipher policy.
-  - Add negative tests across C++/Rust/Swift for:
-    - tamper detection
-    - algorithm mismatch
-    - key mismatch
-    - truncated envelope
-  - Ensure fail-closed behavior is verified consistently.
+  - Add a security operations doc covering: threat-model assumptions, key
+    provisioning paths, key rotation procedures, recommended defaults and
+    failure handling.
+  - Link it from the top-level docs index.
 - **Definition of done:**
-  - Secure e2e tests run in CI for all supported language pairings.
-  - Negative cases consistently fail-closed across all implementations.
+  - Versioned security guidance exists and is discoverable from README/docs.
 
----
+### P2.6 — Doc-link hygiene
 
-### 5) Publish threat model + key provisioning/rotation guidance
-
-- **Why:** Security deployment guidance is explicitly pending in ADRs.
+- **Why:** docs still accumulate path/API drift as the tree evolves (this
+  `context/` audit is part of the ongoing effort).
 - **Actions:**
-  - Add a security operations doc covering:
-    - threat model assumptions
-    - key provisioning paths
-    - key rotation procedures
-    - recommended defaults and failure handling
-  - Link it from top-level docs.
-- **Definition of done:**
-  - Versioned security guidance exists and is discoverable from README/docs index.
-
----
-
-## P2 — Documentation and roadmap consistency
-
-### 6) Fix README links and stale protocol docs
-
-- **Why:** Current docs contain path drift and API drift.
-- **Actions:**
-  - Fix top-level README links to actual doc locations.
-  - Update protocol-layer docs to match current secure codec API and build wiring.
+  - Keep top-level README / protocol-layer docs pointing at real locations.
   - Add a simple link-check step in CI if feasible.
 - **Definition of done:**
-  - No broken links in primary docs.
-  - Protocol-layer docs reflect current header/build behavior.
+  - No broken links in primary docs; protocol-layer docs match current headers.
 
----
+### P2.7 — Align the Swift roadmap with package/workflow reality
 
-### 7) Align Swift roadmap with package/workflow reality
-
-- **Why:** Roadmap expectations and current package/workflow state diverge.
+- **Why:** `swift/thoth-ipc/ROADMAP.md` status can diverge from implemented
+  products, demos, and CI jobs.
 - **Actions:**
-  - Reconcile roadmap entries with implemented products, demos, and CI jobs.
-  - Mark each roadmap item clearly as: implemented, in progress, planned.
+  - Reconcile roadmap entries with what actually ships; mark each item
+    implemented / in progress / planned.
 - **Definition of done:**
-  - Roadmap status matches current repository state.
-  - Gaps are intentional and explicitly tracked.
+  - Roadmap status matches the repository state; gaps are intentional and tracked.
 
 ---
 
-## Recommended execution sequence
+## Suggested execution order
 
-1. P0.1 CI matrix
-2. P0.2 backend/profile contract alignment
-3. P1.3 secure benchmarks
-4. P1.4 secure e2e + negative matrix
-5. P1.5 threat model + deployment guidance
-6. P2.6 docs/link fixes
-7. P2.7 Swift roadmap alignment
-
----
-
-## Suggested PR breakdown
-
-### PR A (P0): Interop CI + contract guardrails
-
-- CI matrix jobs
-- Backend/profile policy doc
-- Runtime validation updates
-
-### PR B (P1): Secure validation + benchmarks
-
-- Secure benchmark harnesses
-- OpenSSL-backed e2e tests
-- Cross-language negative tests
-
-### PR C (P1/P2): Security docs + doc consistency
-
-- Threat model and key operations guidance
-- README/proto-layer fixes
-- Swift roadmap status normalization
+1. P1.3 secure benchmarks
+2. P1.5 threat model + key-ops guidance
+3. P2.6 doc-link hygiene
+4. P2.7 Swift roadmap alignment

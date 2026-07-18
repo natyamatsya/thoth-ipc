@@ -17,7 +17,7 @@ single-writer `thoth::route` (already byte-exact across all four ports).
 
 **Canonical implementation:** C++ (`cpp/thoth-ipc`),
 `prod_cons_impl<multi, multi, broadcast>` in
-[`src/libipc/prod_cons.h`](../cpp/thoth-ipc/src/thoth-ipc/prod_cons.h) L301-441. Rust,
+[`src/thoth-ipc/prod_cons.h`](../cpp/thoth-ipc/src/thoth-ipc/prod_cons.h) L301-441. Rust,
 Swift and Zig must match it byte- and memory-order-exact.
 
 ---

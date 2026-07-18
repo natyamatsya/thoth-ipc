@@ -1,11 +1,10 @@
 # RFC: Dead-connection reaping for broadcast routes
 
-Status: **Phases 1–4 implemented (C++, Rust, Swift)** · Author: agent-control
+Status: **Phases 1–4 implemented (C++, Rust, Swift, Zig)** · Author: agent-control
 integration ·
 Revised after cross-language review (owner table is now an xlang ABI; notify
 cleanup added) and again to record the lock-free implementation ·
-Relates to [`macos_ipc_roadmap.md`](macos_ipc_roadmap.md) (reuses its PID-liveness
-primitive) and [`xlang-channel-abi.md`](xlang-channel-abi.md) (the byte-exact
+Relates to [`xlang-channel-abi.md`](xlang-channel-abi.md) (the byte-exact
 cross-language contract this extends).
 
 ## Problem
@@ -259,7 +258,7 @@ notify key. The properties:
 - **What each port must implement to participate:** map/create `LV_CONN__<name>`
   (512 B, `slot_owner[32]`, offsets per §1); write `{getpid(), start_token()}` under
   `lc_` at connect and clear at disconnect; compute `start_token` by the identical
-  formula (§5). C++ owns the reaper; Rust/Swift need only the *owner-table*
+  formula (§5). C++ owns the reaper; Rust/Swift/Zig need only the *owner-table*
   population to be reapable (they may also expose a `reap()` entry point).
 - **Verification.** Add to `xlang-channel-abi.md` a "§9 liveness owner table"
   section (name, 16-byte `slot_owner` layout, start-token formula, golden token for
@@ -287,13 +286,14 @@ on) dead slots.
    ring-reclamation stalls; keeps live-but-draining readers instead of the blanket
    disconnect. (No separate in-flight element sweep needed for `route` — §4.)
 3. **Start-token hardening (§5).** PID-reuse safety. *(done)*
-4. **Cross-language: Rust + Swift populate the owner table (§8) + xlang §9 + the
-   reaping matrix scenario.** *(done)* Rust (`liveness.rs`) and Swift
-   (`Liveness.swift`) mirror `liveness.h` byte-exact — same LV_CONN__ segment,
-   16-byte `slot_owner`, and start-token formula — and reap on connect. The
-   `xlang_matrix.py --reap-lang` scenario runs every holder×reaper×{dead,live}
-   pairing (18/18 across C++/Rust/Swift): each reaps the others' dead receivers
-   and never false-reaps a live one (which confirms the token formula matches).
+4. **Cross-language: Rust, Swift + Zig populate the owner table (§8) + xlang §9 + the
+   reaping matrix scenario.** *(done)* Rust (`liveness.rs`), Swift
+   (`Liveness.swift`) and Zig (`liveness.zig`) mirror `liveness.h` byte-exact — same
+   LV_CONN__ segment, 16-byte `slot_owner`, and start-token formula — and reap on
+   connect. The `tools/xlang-runner` `reap` scenario (which superseded the legacy
+   `xlang_matrix.py --reap-lang`) runs every holder×reaper×{dead,live} pairing
+   (64/64 across C++/Rust/Swift/Zig): each reaps the others' dead receivers and
+   never false-reaps a live one (which confirms the token formula matches).
 5. **Optional heartbeat** for hung-but-alive detection, opt-in.
 
 Phase 1 alone removes the observed breakage on C++-only channels; 2 makes it robust

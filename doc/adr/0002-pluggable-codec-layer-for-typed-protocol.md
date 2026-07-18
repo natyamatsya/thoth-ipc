@@ -93,7 +93,9 @@ Interop tests must be added for every supported codec/profile pair before claimi
 4. **Phase D (optional negotiation envelope):**
    - Add codec envelope only if dynamic codec selection per channel is required.
 
-See `context/serialization-phase-a-plan.md` for the minimal concrete patch plan.
+The codec seam described here has since shipped in all ports (see
+`cpp/thoth-ipc/include/thoth-ipc/proto/codec.h` and the `typed`/`secure`
+cross-language scenarios in `tools/xlang-runner`).
 
 ## Alternatives considered
 

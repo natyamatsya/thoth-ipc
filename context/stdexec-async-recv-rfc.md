@@ -1,7 +1,7 @@
-# RFC: Optional stdexec async receive (senders/receivers) for libipc (C++)
+# RFC: Optional stdexec async receive (senders/receivers) for thoth-ipc (C++)
 
 - **Status:** Implemented (POSIX; Windows backend pending) — see *Implementation status* below.
-- **Scope:** C++ `libipc` only (opt-in). The wire format is untouched. *(Update: the
+- **Scope:** C++ `thoth-ipc` only (opt-in). The wire format is untouched. *(Update: the
   Layer-1 notify protocol has since been ported to Rust byte-exact so a Rust
   `send()` wakes a C++ `async_recv` and vice versa — see
   [`context/xlang-channel-abi.md`](xlang-channel-abi.md) §8. Swift not yet.)*
@@ -117,7 +117,7 @@ The same applies to the indexer's subprocess-result IPC (dedicated `jthread`s in
 
 1. **Sender over the existing blocking `recv` (no fd).** Gives the ergonomics + structured
    cancellation, but each `async_recv` still needs a thread blocked on the ulock (ulock can't
-   be multiplexed). It **relocates** the consumer's thread into libipc without reducing the
+   be multiplexed). It **relocates** the consumer's thread into thoth-ipc without reducing the
    thread count. Acceptable only as a fallback if Layer 1 slips; not the primary path.
 2. **Poll `try_recv()` on a timer.** No fd needed, but perpetual idle wakeups + latency —
    worse than a *sleeping* thread for low-traffic channels.
@@ -143,8 +143,7 @@ The same applies to the indexer's subprocess-result IPC (dedicated `jthread`s in
 
 ## References
 
-- libipc sync/waiter internals: `cpp/thoth-ipc/src/thoth-ipc/waiter.h`,
-  `cpp/thoth-ipc/src/thoth-ipc/platform/apple/*`, `context/macos_ipc_roadmap.md`,
-  `context/benchmarks.md`.
+- thoth-ipc sync/waiter internals: `cpp/thoth-ipc/src/thoth-ipc/waiter.h`,
+  `cpp/thoth-ipc/src/thoth-ipc/platform/apple/*`, `context/benchmarks.md`.
 - Consumer design: Sourcetrail `context/DESIGN_AGENT_UI_CONTROL.md`,
   `context/ROADMAP_STDEXEC_MIGRATION.md`.
