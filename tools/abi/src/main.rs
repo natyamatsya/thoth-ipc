@@ -76,7 +76,7 @@ fn run_check(root: &Path) {
     let validator = jsonschema::validator_for(&schema).expect("compile abi.schema.json");
     let errors: Vec<String> = validator
         .iter_errors(&abi)
-        .map(|e| format!("{} (at {})", e, e.instance_path))
+        .map(|e| format!("{} (at {})", e, e.instance_path()))
         .collect();
     if !errors.is_empty() {
         eprintln!("✗ abi.json failed schema validation:");
