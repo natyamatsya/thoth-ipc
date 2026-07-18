@@ -19,8 +19,11 @@ Notable changes to thoth-ipc. The format follows
   compile-time `static_assert` checked-peers in their own TU, except
   `ring_header.size` (a padded field layout with no clean `sizeof`), which stays
   matrix-verified — the checker's coverage note is reworded to say so accurately.
-- Renamed the internal macro `IPC_CONSTEXPR_` → `THOTH_IPC_CONSTEXPR_` (an
-  `IPC_`-prefixed leftover the earlier `LIBIPC_` → `THOTH_IPC_` pass didn't cover).
+- Renamed the internal `IPC_`-prefixed utility macros the earlier `LIBIPC_` →
+  `THOTH_IPC_` pass didn't cover: `IPC_CONSTEXPR_`, `IPC_LOCK_PAUSE_`,
+  `IPC_STBIND_`, `IPC_CONCEPT_` → `THOTH_IPC_*`. Also removed a stale dev artifact
+  (`rust/thoth-ipc/test_yield.patch`, a yield-tuning experiment against a
+  no-longer-existent `include/thoth_ipc/` path).
 
 ## [0.5.0] — 2026-07-18
 

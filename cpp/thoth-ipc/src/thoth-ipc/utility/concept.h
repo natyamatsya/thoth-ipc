@@ -9,11 +9,11 @@ namespace thoth {
 template <bool Cond, typename R = void>
 using require = typename std::enable_if<Cond, R>::type;
 
-#ifdef IPC_CONCEPT_
-#   error "IPC_CONCEPT_ has been defined."
+#ifdef THOTH_IPC_CONCEPT_
+#   error "THOTH_IPC_CONCEPT_ has been defined."
 #endif
 
-#define IPC_CONCEPT_(NAME, WHAT)                                       \
+#define THOTH_IPC_CONCEPT_(NAME, WHAT)                                       \
 template <typename T>                                                  \
 class NAME {                                                           \
 private:                                                               \

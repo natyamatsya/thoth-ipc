@@ -12,8 +12,8 @@
 /// Gives hint to processor that improves performance of spin-wait loops.
 ////////////////////////////////////////////////////////////////
 
-#pragma push_macro("IPC_LOCK_PAUSE_")
-#undef  IPC_LOCK_PAUSE_
+#pragma push_macro("THOTH_IPC_LOCK_PAUSE_")
+#undef  THOTH_IPC_LOCK_PAUSE_
 
 #if defined(_MSC_VER)
 #include <windows.h>    // YieldProcessor
@@ -21,7 +21,7 @@
     See: http://msdn.microsoft.com/en-us/library/windows/desktop/ms687419(v=vs.85).aspx
     Not for intel c++ compiler, so ignore http://software.intel.com/en-us/forums/topic/296168
 */
-#   define IPC_LOCK_PAUSE_() YieldProcessor()
+#   define THOTH_IPC_LOCK_PAUSE_() YieldProcessor()
 #elif defined(__GNUC__)
 #if defined(__i386__) || defined(__x86_64__)
 /*
@@ -29,14 +29,14 @@
          PAUSE-Spin Loop Hint, 4-57
          http://www.intel.com/content/www/us/en/architecture-and-technology/64-ia-32-architectures-software-developer-instruction-set-reference-manual-325383.html?wapkw=instruction+set+reference
 */
-#   define IPC_LOCK_PAUSE_() __asm__ __volatile__("pause")
+#   define THOTH_IPC_LOCK_PAUSE_() __asm__ __volatile__("pause")
 #elif defined(__ia64__) || defined(__ia64)
 /*
     See: Intel(R) Itanium(R) Architecture Developer's Manual, Vol.3
          hint - Performance Hint, 3:145
          http://www.intel.com/content/www/us/en/processors/itanium/itanium-architecture-vol-3-manual.html
 */
-#   define IPC_LOCK_PAUSE_() __asm__ __volatile__ ("hint @pause")
+#   define THOTH_IPC_LOCK_PAUSE_() __asm__ __volatile__ ("hint @pause")
 #elif defined(__arm64__) || defined(__aarch64__)
 /*
     ARM64 / Apple Silicon: isb sy is the recommended spin-wait hint.
@@ -44,22 +44,22 @@
     equivalent to x86 PAUSE. The 32-bit ARM "yield" hint is weaker.
     See: ARM Architecture Reference Manual, ISB instruction.
 */
-#   define IPC_LOCK_PAUSE_() __asm__ __volatile__("isb sy" ::: "memory")
+#   define THOTH_IPC_LOCK_PAUSE_() __asm__ __volatile__("isb sy" ::: "memory")
 #elif defined(__arm__)
 /*
     See: ARM Architecture Reference Manuals (YIELD)
          http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.subset.architecture.reference/index.html
 */
-#   define IPC_LOCK_PAUSE_() __asm__ __volatile__ ("yield")
+#   define THOTH_IPC_LOCK_PAUSE_() __asm__ __volatile__ ("yield")
 #endif
 #endif/*compilers*/
 
-#if !defined(IPC_LOCK_PAUSE_)
+#if !defined(THOTH_IPC_LOCK_PAUSE_)
 /*
     Just use a compiler fence, prevent compiler from optimizing loop
 */
-#   define IPC_LOCK_PAUSE_() std::atomic_signal_fence(std::memory_order_seq_cst)
-#endif/*!defined(IPC_LOCK_PAUSE_)*/
+#   define THOTH_IPC_LOCK_PAUSE_() std::atomic_signal_fence(std::memory_order_seq_cst)
+#endif/*!defined(THOTH_IPC_LOCK_PAUSE_)*/
 
 ////////////////////////////////////////////////////////////////
 /// Yield to other threads
@@ -71,7 +71,7 @@ template <typename K>
 inline void yield(K& k) noexcept {
     if (k < 4)  { /* Do nothing */ }
     else
-    if (k < 16) { IPC_LOCK_PAUSE_(); }
+    if (k < 16) { THOTH_IPC_LOCK_PAUSE_(); }
     else {
         std::this_thread::yield();
     }
@@ -89,7 +89,7 @@ inline void sleep(K& k, F&& f) {
         if (k < 8) {
             K count = static_cast<K>(1) << k;
             for (K i = 0; i < count; ++i)
-                IPC_LOCK_PAUSE_();
+                THOTH_IPC_LOCK_PAUSE_();
         } else {
             std::this_thread::yield();
         }
@@ -110,7 +110,7 @@ inline void sleep(K& k) {
 
 } // namespace thoth
 
-#pragma pop_macro("IPC_LOCK_PAUSE_")
+#pragma pop_macro("THOTH_IPC_LOCK_PAUSE_")
 
 namespace thoth {
 

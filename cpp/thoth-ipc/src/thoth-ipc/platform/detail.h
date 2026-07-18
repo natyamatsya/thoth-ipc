@@ -15,8 +15,8 @@
 
 // pre-defined
 
-#ifdef IPC_STBIND_
-#   error "IPC_STBIND_ has been defined."
+#ifdef THOTH_IPC_STBIND_
+#   error "THOTH_IPC_STBIND_ has been defined."
 #endif
 #ifdef THOTH_IPC_CONSTEXPR_
 #   error "THOTH_IPC_CONSTEXPR_ has been defined."
@@ -24,12 +24,12 @@
 
 #if __cplusplus >= 201703L
 
-#define IPC_STBIND_(A, B, ...) auto [A, B] = __VA_ARGS__
+#define THOTH_IPC_STBIND_(A, B, ...) auto [A, B] = __VA_ARGS__
 #define THOTH_IPC_CONSTEXPR_   constexpr
 
 #else /*__cplusplus < 201703L*/
 
-#define IPC_STBIND_(A, B, ...)       \
+#define THOTH_IPC_STBIND_(A, B, ...)       \
     auto tp___ = __VA_ARGS__         \
     auto A     = std::get<0>(tp___); \
     auto B     = std::get<1>(tp___)
