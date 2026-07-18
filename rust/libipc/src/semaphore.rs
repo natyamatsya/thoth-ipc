@@ -15,7 +15,9 @@ use crate::shm_name;
 /// On macOS, timed waits are emulated via `sem_trywait` polling (macOS lacks
 /// `sem_timedwait`). On Windows this uses `CreateSemaphore`.
 pub struct IpcSemaphore {
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
+    inner: AppleSemaphore,
+    #[cfg(all(unix, not(target_os = "macos")))]
     inner: PosixSemaphore,
     #[cfg(windows)]
     inner: WindowsSemaphore,
@@ -24,7 +26,9 @@ pub struct IpcSemaphore {
 impl IpcSemaphore {
     /// Open (or create) a named semaphore with the given initial count.
     pub fn open(name: &str, count: u32) -> io::Result<Self> {
-        #[cfg(unix)]
+        #[cfg(target_os = "macos")]
+        let inner = AppleSemaphore::open(name, count)?;
+        #[cfg(all(unix, not(target_os = "macos")))]
         let inner = PosixSemaphore::open(name, count)?;
         #[cfg(windows)]
         let inner = WindowsSemaphore::open(name, count)?;
@@ -52,7 +56,9 @@ impl IpcSemaphore {
 
     /// Remove the backing storage for a named semaphore.
     pub fn clear_storage(name: &str) {
-        #[cfg(unix)]
+        #[cfg(target_os = "macos")]
+        AppleSemaphore::clear_storage(name);
+        #[cfg(all(unix, not(target_os = "macos")))]
         PosixSemaphore::clear_storage(name);
         #[cfg(windows)]
         {
@@ -62,21 +68,144 @@ impl IpcSemaphore {
 }
 
 // ---------------------------------------------------------------------------
+// macOS: ulock-based counting semaphore in shared memory — byte-exact with the
+// C++ `apple/semaphore_impl.h` (`ulock_sem_t { atomic<u32> count; }`). A POSIX
+// `sem_open` object (the generic-unix path below) is a different kernel object
+// and does not interoperate with the C++ shm-ulock semaphore; this one does.
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "macos")]
+mod apple {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::{Duration, Instant};
+
+    const UL_COMPARE_AND_WAIT_SHARED: u32 = 3;
+
+    extern "C" {
+        fn __ulock_wait(operation: u32, addr: *mut u32, value: u64, timeout_us: u32) -> libc::c_int;
+        fn __ulock_wake(operation: u32, addr: *mut u32, wake_value: u64) -> libc::c_int;
+    }
+
+    pub(super) struct AppleSemaphore {
+        shm: crate::shm::ShmHandle,
+    }
+
+    unsafe impl Send for AppleSemaphore {}
+    unsafe impl Sync for AppleSemaphore {}
+
+    impl AppleSemaphore {
+        #[inline]
+        fn count_ptr(&self) -> *mut u32 {
+            self.shm.get() as *mut u32
+        }
+        #[inline]
+        fn count(&self) -> &AtomicU32 {
+            unsafe { &*(self.count_ptr() as *const AtomicU32) }
+        }
+
+        pub(super) fn open(name: &str, count: u32) -> io::Result<Self> {
+            if name.is_empty() {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "name is empty"));
+            }
+            // The harness passes the fully-qualified logical name ("<name>_s");
+            // hash it to the byte-exact shm object name (C++ shm::acquire(name)).
+            let posix_name = shm_name::make_shm_name(name);
+            // sizeof(ulock_sem_t) = 4 (atomic<u32> count); ShmHandle appends the
+            // C++ trailing acc_ ref counter (calc_size(4) = 8).
+            let shm = crate::shm::ShmHandle::acquire(
+                &posix_name,
+                std::mem::size_of::<u32>(),
+                crate::shm::ShmOpenMode::CreateOrOpen,
+            )?;
+            let sem = Self { shm };
+            // First opener initialises the count (mirrors C++ `ref() <= 1`).
+            if sem.shm.ref_count() <= 1 {
+                sem.count().store(count, Ordering::Release);
+            }
+            Ok(sem)
+        }
+
+        pub(super) fn wait(&self, timeout_ms: Option<u64>) -> io::Result<bool> {
+            let deadline = timeout_ms.map(|ms| Instant::now() + Duration::from_millis(ms));
+            loop {
+                // Try to decrement (CAS loop); succeeds while count > 0.
+                let mut cur = self.count().load(Ordering::Acquire);
+                while cur > 0 {
+                    match self.count().compare_exchange_weak(
+                        cur,
+                        cur - 1,
+                        Ordering::Acquire,
+                        Ordering::Relaxed,
+                    ) {
+                        Ok(_) => return Ok(true),
+                        Err(c) => cur = c,
+                    }
+                }
+                // count == 0: sleep until it changes (or timeout).
+                let timeout_us = match deadline {
+                    Some(dl) => {
+                        let now = Instant::now();
+                        if now >= dl {
+                            return Ok(false);
+                        }
+                        let rem = (dl - now).as_micros();
+                        if rem == 0 {
+                            return Ok(false);
+                        }
+                        rem.min(u32::MAX as u128) as u32
+                    }
+                    None => 0, // infinite
+                };
+                let ret = unsafe {
+                    __ulock_wait(UL_COMPARE_AND_WAIT_SHARED, self.count_ptr(), 0, timeout_us)
+                };
+                if ret < 0 {
+                    let e = io::Error::last_os_error();
+                    match e.raw_os_error() {
+                        Some(libc::EINTR) => {} // retry
+                        Some(libc::ETIMEDOUT) if deadline.is_some() => return Ok(false),
+                        _ => {} // spurious / other: re-check the count
+                    }
+                }
+                // Woken or spurious: loop back and retry the CAS.
+            }
+        }
+
+        pub(super) fn post(&self, count: u32) -> io::Result<()> {
+            for _ in 0..count {
+                self.count().fetch_add(1, Ordering::Release);
+                unsafe { __ulock_wake(UL_COMPARE_AND_WAIT_SHARED, self.count_ptr(), 0) };
+            }
+            Ok(())
+        }
+
+        pub(super) fn clear_storage(name: &str) {
+            let posix_name = shm_name::make_shm_name(name);
+            crate::shm::ShmHandle::clear_storage(&posix_name);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+use apple::AppleSemaphore;
+
+// ---------------------------------------------------------------------------
 // POSIX implementation
 // ---------------------------------------------------------------------------
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 struct PosixSemaphore {
     handle: *mut libc::sem_t,
     sem_name: std::ffi::CString,
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 unsafe impl Send for PosixSemaphore {}
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 unsafe impl Sync for PosixSemaphore {}
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 impl PosixSemaphore {
     fn open(name: &str, count: u32) -> io::Result<Self> {
         if name.is_empty() {
@@ -177,7 +306,7 @@ impl PosixSemaphore {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 impl Drop for PosixSemaphore {
     fn drop(&mut self) {
         if self.handle != libc::SEM_FAILED {

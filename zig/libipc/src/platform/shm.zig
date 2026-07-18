@@ -108,6 +108,12 @@ pub const ShmHandle = struct {
         return self.mem.ptr;
     }
 
+    /// Current value of the trailing acc_ ref-counter (mirrors C++ handle::ref()
+    /// / Rust ShmHandle::ref_count). After acquire, the first opener sees 1.
+    pub fn refCount(self: *const ShmHandle) i32 {
+        return @atomicLoad(i32, self.refCountPtr(), .acquire);
+    }
+
     fn refCountPtr(self: *const ShmHandle) *i32 {
         return @ptrCast(@alignCast(self.mem.ptr + self.mem.len - 4));
     }

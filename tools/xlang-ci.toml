@@ -19,15 +19,10 @@ reader_warmup_ms = 400
 # Known cross-language gaps, discovered by this matrix (matched as substrings
 # of "scenario:case id"; such cases run as expected-fail and are flagged when
 # they start passing). Remove entries as the ports close the gaps.
-#  - C++ <-> port semaphores don't interop (different backing objects/ABI).
-xfail = [
-    "primitives:cpp posts 3 -> rust",
-    "primitives:cpp posts 3 -> swift",
-    "primitives:cpp posts 3 -> zig",
-    "primitives:rust posts 3 -> cpp",
-    "primitives:swift posts 3 -> cpp",
-    "primitives:zig posts 3 -> cpp",
-]
+#
+# (none — the cpp<->port semaphore gap was closed by reimplementing the ports'
+# macOS semaphore as a shm-ulock counter byte-exact with C++ apple/semaphore_impl.h.)
+xfail = []
 
 [languages.cpp]
 bin = "${XLANG_CPP_BIN}"

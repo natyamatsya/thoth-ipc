@@ -1,95 +1,114 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
-// Named inter-process semaphore via POSIX sem_open (matches the Rust/Swift
-// ports). macOS lacks sem_timedwait, so timed waits poll sem_trywait with
-// adaptive backoff. The name is makeShmName("<name>_s"); the C++ semaphore uses
-// a different backing object, so cpp<->port semaphore interop is a known gap
-// (tracked as expected-fail in tools/xlang-ci.toml).
+// Named inter-process semaphore — Apple ulock-based counting semaphore in shared
+// memory, byte-exact with cpp/libipc apple/semaphore_impl.h and the Rust/Swift
+// ports (so cpp<->zig<->rust<->swift semaphores interoperate).
+//
+// Shared state is a single 32-bit atomic count at offset 0 of the shm user
+// region (C++ `struct ulock_sem_t { atomic<u32> count; }`, sizeof 4). ShmHandle
+// appends C++'s trailing acc_ ref counter (calcSize(4) = 8).
+//
+//   post(n): for each: count += 1, then __ulock_wake one waiter.
+//   wait(tm): CAS-decrement while count > 0; when count == 0, __ulock_wait on
+//             &count (value 0) until it changes, then retry.
 
 const std = @import("std");
-const c = std.c;
-const shmname = @import("../platform/shmname.zig");
+const shm = @import("../platform/shm.zig");
+const ulock = @import("ulock.zig");
 const layout = @import("../transport/layout.zig");
 
-// SEM_FAILED is ((sem_t*)-1) — an all-ones (misaligned) sentinel that is only
-// ever compared, never dereferenced, so we test it as an integer.
-const SEM_FAILED_ADDR: usize = std.math.maxInt(usize);
-const O_CREAT: c_int = @bitCast(c.O{ .CREAT = true });
-const EAGAIN = @intFromEnum(c.E.AGAIN);
-
-// std.c has the sem_* family except sem_unlink (POSIX; no wrapper here).
-extern "c" fn sem_unlink(name: [*:0]const u8) c_int;
-// sem_open must be called *variadically*: on Apple arm64 variadic args pass on
-// the stack, so std.c's non-variadic (fixed mode_t) declaration corrupts the
-// mode/value the kernel reads (→ EINVAL). Declare it variadic and pass both
-// trailing args as c_uint, matching the Rust/Swift ports.
-extern "c" fn sem_open(name: [*:0]const u8, oflag: c_int, ...) *c.sem_t;
+const ShmHandle = shm.ShmHandle;
 
 pub const Error = error{OpenFailed};
 
 pub const Semaphore = struct {
-    handle: *c.sem_t,
-    name_buf: [256]u8,
-    name_len: usize,
+    data: ShmHandle,
 
     pub fn open(name: []const u8, count: u32) Error!Semaphore {
-        var self: Semaphore = undefined;
-        var nbuf: [256]u8 = undefined;
-        const logical = std.fmt.bufPrint(&nbuf, "{s}_s", .{name}) catch return Error.OpenFailed;
-        const posix = shmname.makeShmName(&self.name_buf, logical);
-        self.name_len = posix.len;
-        var cbuf: [257]u8 = undefined;
-        @memcpy(cbuf[0..posix.len], posix);
-        cbuf[posix.len] = 0;
-        const h = sem_open(@ptrCast(&cbuf), O_CREAT, @as(c_uint, 0o666), @as(c_uint, count));
-        if (@intFromPtr(h) == SEM_FAILED_ADDR) return Error.OpenFailed;
-        self.handle = h;
+        // The harness passes the fully-qualified logical name ("<name>_s");
+        // ShmHandle.acquire hashes it (makeShmName) to the byte-exact shm object
+        // name, matching C++ shm::acquire("<name>_s"). A SINGLE transform — do
+        // NOT append another "_s".
+        // sizeof(ulock_sem_t) = 4 (atomic<u32> count); ShmHandle appends the C++
+        // trailing acc_ ref counter (calcSize(4) = 8).
+        const data = ShmHandle.acquire(name, @sizeOf(u32), .create_or_open) catch
+            return Error.OpenFailed;
+        const self = Semaphore{ .data = data };
+        // First opener initialises the count (mirrors C++ `ref() <= 1`).
+        if (self.data.refCount() <= 1) {
+            @atomicStore(u32, self.countPtr(), count, .release);
+        }
         return self;
+    }
+
+    inline fn countPtr(self: *const Semaphore) *u32 {
+        return @ptrCast(@alignCast(self.data.ptr()));
     }
 
     pub fn post(self: *const Semaphore, count: u32) void {
         var i: u32 = 0;
-        while (i < count) : (i += 1) _ = c.sem_post(self.handle);
+        while (i < count) : (i += 1) {
+            _ = @atomicRmw(u32, self.countPtr(), .Add, 1, .release);
+            // Wake one waiter per post.
+            ulock.wake(self.countPtr());
+        }
     }
 
+    /// Block until a token is available (infinite wait).
     pub fn wait(self: *const Semaphore) void {
-        _ = c.sem_wait(self.handle);
+        while (true) {
+            var cur = @atomicLoad(u32, self.countPtr(), .acquire);
+            while (cur > 0) {
+                if (@cmpxchgWeak(u32, self.countPtr(), cur, cur - 1, .acquire, .monotonic)) |c| {
+                    cur = c;
+                } else {
+                    return;
+                }
+            }
+            // count == 0: sleep until it changes; loop on EINTR/spurious.
+            _ = ulock.wait(self.countPtr(), 0, 0);
+        }
     }
 
     /// Wait up to `timeout_ns`. Returns true if a token was acquired.
     pub fn waitTimeout(self: *const Semaphore, timeout_ns: i128) bool {
         const deadline = layout.nowNs() + timeout_ns;
-        var k: u32 = 0;
         while (true) {
-            if (c.sem_trywait(self.handle) == 0) return true;
-            if (c._errno().* != EAGAIN) return false;
-            if (layout.nowNs() >= deadline) return false;
-            layout.adaptiveYield(&k);
+            // Try to decrement (CAS loop); succeeds while count > 0.
+            var cur = @atomicLoad(u32, self.countPtr(), .acquire);
+            while (cur > 0) {
+                if (@cmpxchgWeak(u32, self.countPtr(), cur, cur - 1, .acquire, .monotonic)) |c| {
+                    cur = c;
+                } else {
+                    return true;
+                }
+            }
+            // count == 0: sleep until it changes (or timeout).
+            const now = layout.nowNs();
+            if (now >= deadline) return false;
+            const timeout_us = usUntil(deadline, now);
+            if (timeout_us == 0) return false;
+            const ret = ulock.wait(self.countPtr(), 0, timeout_us);
+            if (ret < 0 and ulock.errno() == ulock.ETIMEDOUT) return false;
+            // Woken, EINTR or spurious: loop back and retry the CAS.
         }
     }
 
-    fn posixName(self: *const Semaphore) []const u8 {
-        return self.name_buf[0..self.name_len];
-    }
-
     pub fn deinit(self: *Semaphore) void {
-        _ = c.sem_close(self.handle);
-        var cbuf: [257]u8 = undefined;
-        const p = self.posixName();
-        @memcpy(cbuf[0..p.len], p);
-        cbuf[p.len] = 0;
-        _ = sem_unlink(@ptrCast(&cbuf));
+        self.data.release();
     }
 
     pub fn clearStorage(name: []const u8) void {
-        var nbuf: [256]u8 = undefined;
-        const logical = std.fmt.bufPrint(&nbuf, "{s}_s", .{name}) catch return;
-        var pbuf: [256]u8 = undefined;
-        const posix = shmname.makeShmName(&pbuf, logical);
-        var cbuf: [257]u8 = undefined;
-        @memcpy(cbuf[0..posix.len], posix);
-        cbuf[posix.len] = 0;
-        _ = sem_unlink(@ptrCast(&cbuf));
+        // Same SINGLE name transform as open (makeShmName on "<name>_s").
+        ShmHandle.clearStorage(name);
     }
 };
+
+/// Microseconds from `now` until `deadline` (both monotonic ns), clamped to u32.
+fn usUntil(deadline: i128, now: i128) u32 {
+    const us = @divTrunc(deadline - now, 1000);
+    if (us <= 0) return 0;
+    if (us >= std.math.maxInt(u32)) return std.math.maxInt(u32);
+    return @intCast(us);
+}

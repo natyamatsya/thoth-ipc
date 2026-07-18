@@ -340,7 +340,8 @@ fn openCondition(name: []const u8) ?Condition {
 }
 fn openSemaphore(name: []const u8) ?Semaphore {
     var sbuf: [256]u8 = undefined;
-    // Semaphore.open appends its own "_s", matching the Rust/Swift ports.
+    // Pass the fully-qualified logical name "<name>_s"; Semaphore.open hashes it
+    // directly (single transform), matching C++ shm::acquire("<name>_s").
     return Semaphore.open(derived(&sbuf, name, 's'), 0) catch {
         perr("[zig-prim] open semaphore failed", .{});
         return null;
