@@ -4,6 +4,44 @@ Notable changes to thoth-ipc. The format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow SemVer
 (pre-1.0: minor bumps may include behavioural changes).
 
+## [0.4.0] — 2026-07-18
+
+### Added
+- **Multi-writer `ipc::channel` across all four ports.** Zig, Rust and Swift
+  gained the multi-producer broadcast ring (96-byte commit-flag slots, the
+  shared `AC_CONN__` message-id counter, the channel `rc_` region packing),
+  byte-exact with C++. The `channel` matrix scenario — every two-language sender
+  pair into every reader — is now expected-pass (72/72). See
+  [`context/xlang-channel-multiwriter-rfc.md`](context/xlang-channel-multiwriter-rfc.md).
+- **Language-neutral ABI, consumed by every port.** `abi/abi.json` (+ JSON
+  Schema) is the single source of truth; `tools/abi` validates it against a C++
+  conformance dump and generates a per-language module. Zig, Rust and Swift
+  re-source their transport / sync / secure / liveness / chunk constants from
+  their generated module; C++ is a compile-time *checked* peer
+  (`static_assert` against `ipc::abi`). See [`abi/README.md`](abi/README.md).
+
+### Fixed
+- **Every cross-language parity gap closed — the matrix expected-failure list is
+  now empty.**
+  - **C++↔port semaphores** now interoperate: the ports' macOS semaphore was
+    reimplemented from POSIX `sem_open` to a shared-memory ulock counter
+    byte-exact with C++ `apple/semaphore_impl.h` (a `sem_open` object cannot
+    share state with C++'s shm word). Also fixes a doubled `_s` in the object
+    name.
+  - **Rust Apple mutex** now maintains C++'s trailing cross-process `acc_` shm
+    ref counter, so a cpp/swift prober no longer mis-detects "first opener" and
+    re-initialises a live rust-held lock (mutual-exclusion violation).
+  - **Chunk-pool clear race** eliminated: the ports no longer unlink the
+    prefix-global `CHUNK_INFO__<size>` pools in a per-channel `clearStorage`
+    (matching C++), which under parallel matrix runs could split a concurrent
+    channel's writer and reader across shm inodes (the intermittent secure
+    `cpp→zig` "open failed").
+  - **Rust slot payload soundness**: the route/channel ring slots wrap their
+    `data_` in `UnsafeCell` so the in-shm interior mutation through a shared
+    `&self` is no longer UB (`#[repr(transparent)]`, layout unchanged).
+- Corrected a `syncabi_magic` typo in `abi.json` (`"LEYA"` → `"LISA"`,
+  `0x4C495341`) that the new C++ ABI `static_assert` surfaced.
+
 ## [0.3.0] — 2026-07-17
 
 ### Added

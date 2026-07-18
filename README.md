@@ -20,9 +20,8 @@ primitives (mutex/condition/semaphore), the typed codec layer, and **encrypted
 channels**: AEAD envelopes (AES-256-GCM, ChaCha20-Poly1305) sealed by one
 language open in every other, with tampered, wrong-key, wrong-key-id or
 algorithm-mismatched envelopes rejected fail-closed. (Zig is macOS-first; on
-Linux and Windows the matrix pairs C++ and Rust.) The one remaining parity gap
-the matrix tracks (C++↔port semaphores) runs as a tracked expected-failure — see
-[`tools/xlang-runner/README.md`](tools/xlang-runner/README.md#known-gaps-expected-fail).
+Linux and Windows the matrix pairs C++ and Rust.) Every pairing the matrix
+exercises now passes byte-exact — the expected-failure list is empty.
 
 **Dead-connection reaping.** A `SIGKILL`ed broadcast receiver used to leave a
 phantom `cc_` bit that stalled the ring, exhausted the 32 connection slots, and
@@ -230,16 +229,17 @@ macOS. Swift: macOS 14+. Zig: macOS (arm64).
 Every port targets both the single-writer `ipc::route` and the multi-writer
 `ipc::channel`; both are cross-language byte-exact across all four ports.
 
-**Known cross-language parity gaps** — discovered by the matrix and tracked as
-expected-failures in [`tools/xlang-ci.toml`](tools/xlang-ci.toml) until closed:
+**Cross-language parity** — every pairing the matrix exercises now passes
+byte-exact; the expected-failure list in
+[`tools/xlang-ci.toml`](tools/xlang-ci.toml) is empty. Gaps the matrix uncovered
+and that have since been closed include the multi-writer `ipc::channel` layout
+(all four ports), the C++↔port semaphore backing object (the ports' POSIX
+`sem_open` replaced by a shared shm-ulock counter byte-exact with C++), and a
+Rust Apple-mutex cross-process ref-count bug that let a prober re-initialise a
+held lock.
 
-- Semaphore: C++ ↔ port semaphores don't interop in either direction (different
-  backing objects); the pure ports (Rust/Swift/Zig) interoperate.
-- Mutex: mutual exclusion is broken while a **Rust** process holds the lock — its
-  mutex open re-initializes live state, so C++/Rust/Swift probers can acquire a
-  held lock. The Zig prober never re-inits and reports contention correctly.
-- Async receive: messages above ring capacity (16 KB) deadlock a parked async
-  receiver, so the async matrix caps payloads at 3 KB.
+**Known limitation** — async receive: messages above ring capacity (16 KB)
+deadlock a parked async receiver, so the async matrix caps payloads at 3 KB.
 
 **Prototype** — unreleased, under active development, APIs and data layouts may change:
 
@@ -250,10 +250,11 @@ expected-failures in [`tools/xlang-ci.toml`](tools/xlang-ci.toml) until closed:
 
 ## Cross-language testing
 
-Same-language test suites cannot catch ABI drift between the ports — every bug
-in the list above shipped with green per-language suites. The repo therefore
-treats **cross-language pairings as the primary test axis**, driven by a
-dedicated framework: [`tools/xlang-runner`](tools/xlang-runner) (Rust).
+Same-language test suites cannot catch ABI drift between the ports — every one
+of the gaps described above shipped with green per-language suites and was found
+only by cross-language pairing. The repo therefore treats **cross-language
+pairings as the primary test axis**, driven by a dedicated framework:
+[`tools/xlang-runner`](tools/xlang-runner) (Rust).
 
 The architecture has two halves:
 
@@ -278,10 +279,11 @@ and `secure`/`secure-badkey`/`secure-negative` (AEAD envelope interop:
 sealed by any language, opened by every other; tampered, wrong-key,
 wrong-key-id and algorithm-mismatched envelopes rejected fail-closed).
 
-Known gaps run as **expected-failures**: documented in every run, non-fatal,
-and flagged `UNEXPECTED-pass` the moment a fix lands so the expectation gets
-flipped — the matrix is simultaneously the regression suite and the live
-ledger of remaining parity work. See
+Any residual gap runs as an **expected-failure**: documented in every run,
+non-fatal, and flagged `UNEXPECTED-pass` the moment a fix lands so the
+expectation gets flipped — the matrix is simultaneously the regression suite and
+the live ledger of parity work. The expected-failure list is currently empty:
+every pairing passes. See
 [`tools/xlang-runner/README.md`](tools/xlang-runner/README.md) for scenario
 details, local usage, and how to add a language or scenario.
 

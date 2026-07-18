@@ -3,7 +3,7 @@
 # SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 
 cmake_minimum_required(VERSION 3.30)
-project(thoth-ipc VERSION 0.3.0)
+project(thoth-ipc VERSION 0.4.0)
 
 option(LIBIPC_BUILD_TESTS       "Build all of libipc's own tests."                      OFF)
 option(LIBIPC_BUILD_DEMOS       "Build all of libipc's own demos."                      OFF)
