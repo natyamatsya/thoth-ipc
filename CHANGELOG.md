@@ -6,6 +6,8 @@ Notable changes to thoth-ipc. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-07-18
+
 ### Added
 - **Channel aggregator demo** in all four ports
   ([`cpp/thoth-ipc/demo/channel_aggregator/`](cpp/thoth-ipc/demo/channel_aggregator/),
