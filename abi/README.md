@@ -91,7 +91,7 @@ regeneration. The generated file is named `abi_generated.*` in every port:
 |---|---|---|
 | Zig | `zig/thoth-ipc/src/abi_generated.zig` | `layout.zig` / `channel_multi.zig` / `chunk.zig` re-export |
 | Rust | `rust/thoth-ipc/src/abi_generated.rs` (`pub mod abi_generated`) | `channel.rs` constants + layout `const _` asserts |
-| Swift | `swift/thoth-ipc/Sources/LibIPC/Generated/abi_generated.swift` (`enum ABI`) | `Channel.swift` constants + `assertHeaderLayout()` |
+| Swift | `swift/thoth-ipc/Sources/ThothIPC/Generated/abi_generated.swift` (`enum ABI`) | `Channel.swift` constants + `assertHeaderLayout()` |
 | C++ | `cpp/thoth-ipc/include/thoth-ipc/abi_generated.hpp` (`namespace thoth::abi`) | `ipc.cpp` compile-time `static_assert` conformance layer |
 
 **Rust/Swift/Zig re-source** their constants from the generated module (the value

@@ -9,7 +9,7 @@ two-language sender pair into every reader, at 40/65/3000 B — passes (72/72), 
 the scenario's expected-fail flag has been cleared
 (`tools/xlang-runner/src/config.rs`). Implementations:
 `zig/thoth-ipc/src/transport/channel_multi.zig`, `rust/thoth-ipc/src/channel.rs`,
-`swift/thoth-ipc/Sources/LibIPC/Transport/Channel.swift`. This document is the
+`swift/thoth-ipc/Sources/ThothIPC/Transport/Channel.swift`. This document is the
 target ABI and the per-language roadmap that closed the last remaining
 cross-language gap in the matrix: multi-writer `thoth::channel`. It complements
 [`xlang-channel-abi.md`](xlang-channel-abi.md), which specifies the
@@ -184,7 +184,7 @@ Waiters (`RD/WT/CC_CONN__`), liveness (`LV_CONN__`) and chunk storage
    multi-producer ring + `AC_CONN__` counter behind a `multi` flag on `ChanInner`
    (route path untouched; `push_fragment`/`recv` dispatch to `_multi` variants).
    All `{cpp,rust,zig}` channel pairings pass.
-3. **Swift (Phase 3) — ✅ done.** `swift/thoth-ipc/Sources/LibIPC/Transport/Channel.swift`
+3. **Swift (Phase 3) — ✅ done.** `swift/thoth-ipc/Sources/ThothIPC/Transport/Channel.swift`
    adds the multi-producer ring + `AC_CONN__` counter behind the same `multi`
    flag on `ChanInner` (route path untouched; `pushFragment`/`recv` dispatch to
    `pushFragmentMulti`/`recvMulti`). All `{cpp,rust,swift,zig}` channel pairings pass.
@@ -255,7 +255,7 @@ notify, framing); only the ring element and push/pop protocol are new.
 ### 4.4 Swift — Phase 3 (✅ done)
 
 **Files**
-- `swift/thoth-ipc/Sources/LibIPC/Transport/Channel.swift` +
+- `swift/thoth-ipc/Sources/ThothIPC/Transport/Channel.swift` +
   `ChannelTail.swift` — `Route` and `Channel` share `ChanInner`
   (`elemStride 88`, `writeCursor`@64, `ringShmSizeBytes 22784`). Add a
   multi-producer variant: 96-byte stride, `ct_`/`epoch_` header, channel `rc_`

@@ -212,7 +212,7 @@ parity with the C++ gtests; full Rust suite green.
 **Swift audit (2026-07-14) — already correct, no change.** ~~Swift consumes
 libipc through the C++ core, so it inherits the fix.~~ **Struck: it does
 not.** Swift is a native reimplementation over a thin C shm shim
-(`Sources/LibIPCShim`), not a C++-core wrapper — so it needed its own audit.
+(`Sources/ThothIPCShim`), not a C++-core wrapper — so it needed its own audit.
 It turns out to already match the fixed behavior: `CachedShm` is a
 reference-counted `final class` (ARC is the orphan-list), `ShmHandle` is
 `~Copyable` and munmaps only in `deinit` (so a live handle keeps its mapping),
@@ -220,7 +220,7 @@ and `IpcMutex.clearStorage` / `IpcCondition.clearStorage` already call
 `ShmCache.purge` (unconditional `map.removeValue`) — the same
 orphan-by-removal as posix.rs and the C++ fix. `IpcSemaphore` uses
 `sem_unlink` (no cache). It carries the same benign by-name `release`-on-deinit
-wart as Rust. A parity test was added (`Tests/LibIPCTests/TestMutex.swift`:
+wart as Rust. A parity test was added (`Tests/ThothIPCTests/TestMutex.swift`:
 `clearStorageOrphansLiveHandle`); the Swift mutex suite passes (15 tests).
 
 Remaining: add the double-owner scenario to the cross-language parity test

@@ -124,32 +124,32 @@ This plan introduces a codec abstraction while keeping FlatBuffers behavior and 
 
 ### Swift new files
 
-1. `swift/thoth-ipc/Sources/LibIPC/Proto/Codec.swift`
+1. `swift/thoth-ipc/Sources/ThothIPC/Proto/Codec.swift`
    - Define codec protocol:
      - `associatedtype Message`
      - `static var codecId: UInt8`
      - `encode/decode/verify`
 
-2. `swift/thoth-ipc/Sources/LibIPC/Proto/Codecs/FlatBuffersCodec.swift`
+2. `swift/thoth-ipc/Sources/ThothIPC/Proto/Codecs/FlatBuffersCodec.swift`
    - Implement codec adapter around existing `FlatBuffers` APIs.
 
-3. `swift/thoth-ipc/Sources/LibIPC/Proto/TypedChannelCodec.swift`
+3. `swift/thoth-ipc/Sources/ThothIPC/Proto/TypedChannelCodec.swift`
    - Generic typed wrapper over raw `Channel`.
 
-4. `swift/thoth-ipc/Sources/LibIPC/Proto/TypedRouteCodec.swift`
+4. `swift/thoth-ipc/Sources/ThothIPC/Proto/TypedRouteCodec.swift`
    - Generic typed wrapper over raw `Route`.
 
 ### Swift existing file updates
 
-1. `swift/thoth-ipc/Sources/LibIPC/Proto/Message.swift`
+1. `swift/thoth-ipc/Sources/ThothIPC/Proto/Message.swift`
    - Keep current public API as FlatBuffers compatibility facade.
    - Move reusable verification/decode helpers to codec adapter where possible.
 
-2. `swift/thoth-ipc/Sources/LibIPC/Proto/TypedChannel.swift`
+2. `swift/thoth-ipc/Sources/ThothIPC/Proto/TypedChannel.swift`
    - Keep `TypedChannel<T>` public name/behavior.
    - Implement as facade over generic codec wrapper with FlatBuffers codec.
 
-3. `swift/thoth-ipc/Sources/LibIPC/Proto/TypedRoute.swift`
+3. `swift/thoth-ipc/Sources/ThothIPC/Proto/TypedRoute.swift`
    - Keep `TypedRoute<T>` public name/behavior.
    - Implement as facade over generic codec wrapper with FlatBuffers codec.
 
