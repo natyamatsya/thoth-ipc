@@ -137,7 +137,13 @@ fn run_check(root: &Path) {
     let uncovered: Vec<&str> = flat.keys().map(String::as_str).filter(|k| !dobj.contains_key(*k)).collect();
     println!("✓ semantic: {checked} value(s) match the deployed C++, {mismatches} mismatch(es)");
     if !uncovered.is_empty() {
-        println!("  ({} not yet C++-dumped, matrix-verified only: {})", uncovered.len(), uncovered.join(", "));
+        println!(
+            "  ({} not dumper-reachable — verified by the xlang matrix, and header-resident \
+             types additionally by a compile-time static_assert vs thoth::abi in their own TU \
+             (sync_abi.h / secure_codec.h): {})",
+            uncovered.len(),
+            uncovered.join(", ")
+        );
     }
     if mismatches > 0 {
         std::process::exit(1);

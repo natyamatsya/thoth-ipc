@@ -6,6 +6,22 @@ Notable changes to thoth-ipc. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **ABI semantic gate now covers the message/chunk framing.** Extracted the
+  ABI-impacting wire-layout types (`msg_t`, `chunk_t`, `chunk_info_t`,
+  `chunk_header_size`) out of `ipc.cpp`'s anonymous namespace into a private
+  header `src/thoth-ipc/msg_layout.h`, so `abi/dump_abi.cpp` can measure them as
+  ground truth instead of leaving them matrix-only. The dumper's semantic gate
+  now diffs **19** values against `abi.json` (was 15): added `msg_t.size`,
+  `chunk_header_size`, `chunk_info_size`, and `liveness_slot.size`. Also closed a
+  real coverage gap by `static_assert`ing `syncabi_backend_ulock` (2 = apple
+  ulock) against `thoth::abi`. Remaining not-dumper-reachable values are
+  compile-time `static_assert` checked-peers in their own TU, except
+  `ring_header.size` (a padded field layout with no clean `sizeof`), which stays
+  matrix-verified — the checker's coverage note is reworded to say so accurately.
+- Renamed the internal macro `IPC_CONSTEXPR_` → `THOTH_IPC_CONSTEXPR_` (an
+  `IPC_`-prefixed leftover the earlier `LIBIPC_` → `THOTH_IPC_` pass didn't cover).
+
 ## [0.5.0] — 2026-07-18
 
 ### Added

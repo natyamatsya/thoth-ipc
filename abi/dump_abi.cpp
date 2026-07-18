@@ -7,10 +7,15 @@
 // and diffs the output against abi.json, so the language-neutral IDL can never
 // silently drift from the deployed C++ wire format.
 //
-// Scope: the header-introspectable surface (ring element/total sizes, the rc_
-// masks, the core def.h constants). msg_t lives in ipc.cpp (not a header) so its
-// field offsets are matrix-verified rather than dumped here. Extend this as the
-// IDL adopts more of the surface.
+// Scope: the header-reachable surface. The message/chunk wire types (msg_t,
+// chunk_t, chunk_info_t) were moved out of ipc.cpp into the private header
+// thoth-ipc/msg_layout.h precisely so this probe can measure them as ground
+// truth; the ring header, liveness slot, and chunk sizes are dumped here too.
+// Values still only reachable from heavier headers (syncabi_stamp, the SIPC
+// envelope) stay compile-time static_assert'd against thoth::abi in their own
+// TUs (sync_abi.h / secure_codec.h) — see the "abi drift:" asserts there.
+// msg_t field offsets are not dumped: it is a non-standard-layout type, so
+// offsetof is ill-formed (its size is checked here, offsets stay matrix-verified).
 //
 // Build (the Rust checker does this for you):
 //   c++ -std=c++20 -I cpp/thoth-ipc/include -I cpp/thoth-ipc/src abi/dump_abi.cpp -o dump_abi
@@ -18,6 +23,8 @@
 #include "thoth-ipc/def.h"
 #include "thoth-ipc/prod_cons.h"
 #include "thoth-ipc/circ/elem_array.h"
+#include "thoth-ipc/msg_layout.h"   // detail::msg_t / chunk_t / chunk_info_t / chunk_header_size
+#include "thoth-ipc/liveness.h"     // detail::slot_owner
 
 #include <cstdio>
 #include <cstddef>
@@ -41,6 +48,11 @@ int main() {
     std::printf("  \"channel_elem.size\": %zu,\n", sizeof(ChanP::elem_t<80, 8>));
     std::printf("  \"route_ring.size\": %zu,\n",   sizeof(RouteArr));
     std::printf("  \"channel_ring.size\": %zu,\n", sizeof(ChanArr));
+
+    std::printf("  \"msg_t.size\": %zu,\n",         sizeof(detail::msg_t<64, 8>));
+    std::printf("  \"chunk_header_size\": %zu,\n",  detail::chunk_header_size);
+    std::printf("  \"chunk_info_size\": %zu,\n",    sizeof(detail::chunk_info_t));
+    std::printf("  \"liveness_slot.size\": %zu,\n", sizeof(detail::slot_owner));
 
     std::printf("  \"route_ep_mask\": \"0x%016llx\",\n", static_cast<unsigned long long>(RouteP::ep_mask));
     std::printf("  \"route_ep_incr\": \"0x%016llx\",\n", static_cast<unsigned long long>(RouteP::ep_incr));

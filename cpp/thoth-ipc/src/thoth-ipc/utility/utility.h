@@ -26,12 +26,12 @@ constexpr decltype(auto) static_switch(std::size_t i, F&& f, D&& def) {
 }
 
 template <typename F, std::size_t...I>
-IPC_CONSTEXPR_ void static_for(std::index_sequence<I...>, F&& f) {
+THOTH_IPC_CONSTEXPR_ void static_for(std::index_sequence<I...>, F&& f) {
     THOTH_IPC_UNUSED auto expand = { (std::forward<F>(f)(std::integral_constant<std::size_t, I>{}), 0)... };
 }
 
 template <std::size_t N, typename F>
-IPC_CONSTEXPR_ void static_for(F&& f) {
+THOTH_IPC_CONSTEXPR_ void static_for(F&& f) {
     static_for(std::make_index_sequence<N>{}, std::forward<F>(f));
 }
 
@@ -44,7 +44,7 @@ enum {
 // #endif/*__cplusplus < 201703L*/
 };
 
-IPC_CONSTEXPR_ std::size_t make_align(std::size_t align, std::size_t size) {
+THOTH_IPC_CONSTEXPR_ std::size_t make_align(std::size_t align, std::size_t size) {
     // align must be 2^n
     return (size + align - 1) & ~(align - 1);
 }

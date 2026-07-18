@@ -60,11 +60,15 @@ struct expected_t {
 // truth); these compile-time asserts make C++ a *checked* peer of the generated
 // Rust/Swift/Zig sync modules. stamp_t is standard-layout (six same-typed atomic
 // fields, no bases), so offsetof is well-formed.
-// (syncabi_backend_ulock == 2 is not asserted: the C++ backend id is an inline
-//  platform literal in backend_id(), not an independently-named constant.)
+// syncabi_backend_ulock (2) is the Apple ulock backend id that backend_id()
+// returns below; assert the literal against the generated constant on that
+// configuration (backend_id() is a runtime #if switch, so not constexpr-usable).
 // -----------------------------------------------------------------------------
 static_assert(static_cast<std::uint32_t>(sync_abi_magic) == thoth::abi::syncabi_magic,
               "abi drift: syncabi_magic");
+#if defined(THOTH_IPC_OS_APPLE) && !defined(THOTH_IPC_APPLE_APP_STORE_SAFE)
+static_assert(2u == thoth::abi::syncabi_backend_ulock, "abi drift: syncabi_backend_ulock");
+#endif
 
 static_assert(sizeof(stamp_t) == thoth::abi::syncabi_stamp_size,
               "abi drift: syncabi_stamp.size");

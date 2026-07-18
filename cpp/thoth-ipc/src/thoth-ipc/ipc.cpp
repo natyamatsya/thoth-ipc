@@ -29,6 +29,7 @@
 #include "thoth-ipc/platform/detail.h"
 #include "thoth-ipc/prod_cons.h"
 #include "thoth-ipc/circ/elem_array.h"
+#include "thoth-ipc/msg_layout.h"         // extracted msg_t / chunk_t / chunk_info_t (+ their ABI asserts)
 #include "thoth-ipc/abi_generated.hpp"    // generated thoth::abi (abi/abi.json)
 
 namespace {
@@ -36,34 +37,14 @@ namespace {
 using msg_id_t = std::uint32_t;
 using acc_t    = std::atomic<msg_id_t>;
 
-template <std::size_t DataSize, std::size_t AlignSize>
-struct msg_t;
-
-template <std::size_t AlignSize>
-struct msg_t<0, AlignSize> {
-    msg_id_t     cc_id_;
-    msg_id_t     id_;
-    std::int32_t remain_;
-    bool         storage_;
-};
-
-template <std::size_t DataSize, std::size_t AlignSize>
-struct msg_t : msg_t<0, AlignSize> {
-    alignas(AlignSize) thoth::byte_t data_[DataSize] {};
-
-    msg_t() = default;
-    msg_t(msg_id_t cc_id, msg_id_t id, std::int32_t remain, void const * data, std::size_t size)
-        : msg_t<0, AlignSize> {cc_id, id, remain, (data == nullptr) || (size == 0)} {
-        if (this->storage_) {
-            if (data != nullptr) {
-                // copy storage-id
-                *reinterpret_cast<thoth::storage_id_t*>(data_) =
-                     *static_cast<thoth::storage_id_t const *>(data);
-            }
-        }
-        else std::memcpy(data_, data, size);
-    }
-};
+// The message/chunk wire-layout types moved to thoth-ipc/msg_layout.h so the ABI
+// dumper (abi/dump_abi.cpp) can measure them as ground truth. Re-expose them here
+// so the rest of this TU refers to them unqualified, as before.
+using thoth::detail::msg_t;
+using thoth::detail::chunk_t;
+using thoth::detail::chunk_info_t;
+using thoth::detail::align_chunk_size;
+using thoth::detail::calc_chunk_size;
 
 // -----------------------------------------------------------------------------
 // ABI conformance — the C++ template-derived layout must match the generated
@@ -88,11 +69,10 @@ static_assert(sizeof(AbiRouteP::elem_t<80, 8>) == thoth::abi::route_elem_size,  
 static_assert(sizeof(AbiChanP::elem_t<80, 8>)  == thoth::abi::channel_elem_size, "abi drift: channel_elem.size");
 static_assert(sizeof(AbiRouteArr) == thoth::abi::route_ring_size,   "abi drift: route_ring.size");
 static_assert(sizeof(AbiChanArr)  == thoth::abi::channel_ring_size, "abi drift: channel_ring.size");
-// msg_t lives here in ipc.cpp (not a header), so dump_abi.cpp cannot reach it —
-// this sizeof assert extends C++ conformance to the message framing. (Field
-// offsets are left to the matrix: msg_t is a non-standard-layout type, so
-// offsetof on it is ill-formed.)
-static_assert(sizeof(msg_t<64, 8>) == thoth::abi::msg_t_size, "abi drift: msg_t.size");
+// (msg_t.size / chunk_* are asserted in msg_layout.h now, next to their
+// definitions, so dump_abi.cpp reaches them too. ring_header.size stays
+// matrix-verified: its 192-byte padded field layout — epoch @128 + a 64-byte
+// cache line — has no clean sizeof, as the header spans a base class + member.)
 
 static_assert(AbiRouteP::ep_mask == thoth::abi::route_ep_mask, "abi drift: route_ep_mask");
 static_assert(AbiRouteP::ep_incr == thoth::abi::route_ep_incr, "abi drift: route_ep_incr");
@@ -281,64 +261,9 @@ struct conn_info_head {
     }
 };
 
-IPC_CONSTEXPR_ std::size_t align_chunk_size(std::size_t size) noexcept {
-    return (((size - 1) / thoth::large_msg_align) + 1) * thoth::large_msg_align;
-}
-
-IPC_CONSTEXPR_ std::size_t calc_chunk_size(std::size_t size) noexcept {
-    return thoth::make_align(alignof(std::max_align_t), align_chunk_size(
-           thoth::make_align(alignof(std::max_align_t), sizeof(std::atomic<thoth::circ::cc_t>)) + size));
-}
-
-struct chunk_t {
-    std::atomic<thoth::circ::cc_t> &conns() noexcept {
-        return *reinterpret_cast<std::atomic<thoth::circ::cc_t> *>(this);
-    }
-
-    void *data() noexcept {
-        return reinterpret_cast<thoth::byte_t *>(this)
-             + thoth::make_align(alignof(std::max_align_t), sizeof(std::atomic<thoth::circ::cc_t>));
-    }
-};
-
-struct chunk_info_t {
-    thoth::id_pool<> pool_;
-    thoth::spin_lock lock_;
-
-    IPC_CONSTEXPR_ static std::size_t chunks_mem_size(std::size_t chunk_size) noexcept {
-        return thoth::id_pool<>::max_count * chunk_size;
-    }
-
-    thoth::byte_t *chunks_mem() noexcept {
-        return reinterpret_cast<thoth::byte_t *>(this + 1);
-    }
-
-    chunk_t *at(std::size_t chunk_size, thoth::storage_id_t id) noexcept {
-        if (id < 0) return nullptr;
-        return reinterpret_cast<chunk_t *>(chunks_mem() + (chunk_size * id));
-    }
-};
-
-// -----------------------------------------------------------------------------
-// ABI conformance — the large-message chunk layout must match the generated
-// thoth::abi (from abi/abi.json). chunk_info_t / chunk_t live in this TU (not a
-// header), so dump_abi.cpp cannot reach them; C++ keeps deriving these values
-// from its own definitions (chunk_info_t, make_align, def.h). The per-chunk
-// header size is the same make_align expression chunk_t::data() uses.
-//
-// Apple-only: both values depend on alignof(std::max_align_t) (8 on Apple, 16 on
-// Linux/Win x86-64) — chunk_header directly, chunk_info via the lock's alignment.
-// The generated values are the apple_arm64 target, so guard the check to Apple
-// (the transport asserts above stay portable only because they force AlignSize=8
-// through the elem_array template parameter, which is not possible here).
-// -----------------------------------------------------------------------------
-#if defined(__APPLE__)
-namespace {
-static_assert(sizeof(chunk_info_t) == thoth::abi::chunk_info_size, "abi drift: chunk_info.size");
-static_assert(thoth::make_align(alignof(std::max_align_t), sizeof(std::atomic<thoth::circ::cc_t>))
-                  == thoth::abi::chunk_header_size, "abi drift: chunk_header_size");
-} // namespace
-#endif
+// align_chunk_size / calc_chunk_size / chunk_t / chunk_info_t (and their
+// Apple-guarded ABI static_asserts) now live in thoth-ipc/msg_layout.h, imported
+// via the `using` declarations above, so abi/dump_abi.cpp can measure them.
 
 auto& chunk_storages() {
     class chunk_handle_t {

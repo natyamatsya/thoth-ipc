@@ -18,14 +18,14 @@
 #ifdef IPC_STBIND_
 #   error "IPC_STBIND_ has been defined."
 #endif
-#ifdef IPC_CONSTEXPR_
-#   error "IPC_CONSTEXPR_ has been defined."
+#ifdef THOTH_IPC_CONSTEXPR_
+#   error "THOTH_IPC_CONSTEXPR_ has been defined."
 #endif
 
 #if __cplusplus >= 201703L
 
 #define IPC_STBIND_(A, B, ...) auto [A, B] = __VA_ARGS__
-#define IPC_CONSTEXPR_   constexpr
+#define THOTH_IPC_CONSTEXPR_   constexpr
 
 #else /*__cplusplus < 201703L*/
 
@@ -34,7 +34,7 @@
     auto A     = std::get<0>(tp___); \
     auto B     = std::get<1>(tp___)
 
-#define IPC_CONSTEXPR_ inline
+#define THOTH_IPC_CONSTEXPR_ inline
 
 #endif/*__cplusplus < 201703L*/
 
