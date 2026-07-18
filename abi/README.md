@@ -138,4 +138,5 @@ cpp-ipc v1.4.1 and proven across four ports). This is the global contract versio
    macOS-arm64-only, single value). The conformance probe uses the runtime
    `AlignSize`, so `cargo run -p abi -- check --target x86_64` cross-compiles the
    dumper (`-arch`, Rosetta) and gate-checks the x86_64 layout too — both targets
-   pass 20/20. Remaining: wire the x86_64 check into CI (currently local-only).
+   pass 20/20. CI runs both on an Apple-Silicon runner (the `abi-conformance` job:
+   apple_arm64 natively + x86_64 via cross-compile), so neither target can drift.

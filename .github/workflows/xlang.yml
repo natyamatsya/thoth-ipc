@@ -306,20 +306,25 @@ jobs:
         path: xlang-results.xml
 
   # ABI conformance: validate the language-neutral spec (abi/abi.json) against
-  # its JSON Schema, then against the deployed C++ (abi/dump_abi.cpp) — so the
-  # single source of truth cannot silently drift from the wire format.
+  # its JSON Schema, then against the deployed C++ (abi/dump_abi.cpp) for BOTH
+  # align classes — so the single source of truth cannot silently drift from the
+  # wire format on either target. Runs on Apple Silicon: apple_arm64 natively
+  # (AlignSize 8), and x86_64 by cross-compiling the dumper (`-arch x86_64`, run
+  # under Rosetta; AlignSize 16).
   abi-conformance:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: recursive
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
-    - name: Check ABI conformance (schema + C++ dump)
-      run: cargo run --manifest-path tools/abi/Cargo.toml
-      env:
-        CXX: g++
+    - name: Ensure Rosetta 2 (runs the cross-compiled x86_64 dumper)
+      run: softwareupdate --install-rosetta --agree-to-license
+    - name: Check ABI conformance — apple_arm64 (host, align 8)
+      run: cargo run --manifest-path tools/abi/Cargo.toml -- check
+    - name: Check ABI conformance — x86_64 (cross-compile + Rosetta, align 16)
+      run: cargo run --manifest-path tools/abi/Cargo.toml -- check --target x86_64
     - name: Check generated ABI modules are up to date with abi.json
       run: |
         for lang in zig rust swift cpp; do
