@@ -23,11 +23,14 @@
 #include "thoth-ipc/def.h"
 #include "thoth-ipc/prod_cons.h"
 #include "thoth-ipc/circ/elem_array.h"
-#include "thoth-ipc/msg_layout.h"   // detail::msg_t / chunk_t / chunk_info_t / chunk_header_size
-#include "thoth-ipc/liveness.h"     // detail::slot_owner
+#include "thoth-ipc/msg_layout.h"            // detail::msg_t / chunk_t / chunk_info_t / chunk_header_size
+#include "thoth-ipc/liveness.h"              // detail::slot_owner
+#include "thoth-ipc/mem/resource.h"          // make_public_abi_prefix (header-only)
+#include "thoth-ipc/platform/posix/shm_name.h" // posix_::detail::fnv1a_64 / to_hex
 
 #include <cstdio>
 #include <cstddef>
+#include <string>
 
 using namespace thoth;
 
@@ -58,6 +61,23 @@ int main() {
     std::printf("  \"chunk_header_size\": %zu,\n",  detail::chunk_header_size);
     std::printf("  \"chunk_info_size\": %zu,\n",    sizeof(detail::chunk_info_t));
     std::printf("  \"liveness_slot.size\": %zu,\n", sizeof(detail::slot_owner));
+
+    // Public wire-ABI shm names built by C++ make_public_abi_prefix for the canonical
+    // binding (prefix="", name="xchan") — the naming gate diffs these vs abi.json goldens,
+    // making C++ a checked peer for the shm-name contract too. ring embeds the runtime
+    // AlignSize (A), so it is per-target like the layout values above.
+    {
+        std::string pfx, nm = "xchan";
+        std::printf("  \"name:ring\": \"%s\",\n",     make_public_abi_prefix(pfx, "QU_CONN__", nm, "__", static_cast<std::size_t>(data_length), "__", A).c_str());
+        std::printf("  \"name:cc_id\": \"%s\",\n",    make_public_abi_prefix(pfx, "CA_CONN__").c_str());
+        std::printf("  \"name:msg_id\": \"%s\",\n",   make_public_abi_prefix(pfx, "AC_CONN__", nm).c_str());
+        std::printf("  \"name:liveness\": \"%s\",\n", make_public_abi_prefix(pfx, "LV_CONN__", nm).c_str());
+        std::printf("  \"name:chunk\": \"%s\",\n",    make_public_abi_prefix(pfx, "CHUNK_INFO__", static_cast<std::size_t>(1024)).c_str());
+        std::string nid = make_public_abi_prefix(pfx, "NOTIFY__", nm);
+        char hex[17] = {};
+        posix_::detail::to_hex(posix_::detail::fnv1a_64(nid.data(), nid.size()), hex);
+        std::printf("  \"name:notify_key\": \"ipc.ntf.%.*s\",\n", 16, hex);
+    }
 
     std::printf("  \"route_ep_mask\": \"0x%016llx\",\n", static_cast<unsigned long long>(RouteP::ep_mask));
     std::printf("  \"route_ep_incr\": \"0x%016llx\",\n", static_cast<unsigned long long>(RouteP::ep_incr));

@@ -88,7 +88,7 @@ are byte-exact across C++/Rust/Swift ([`xlang-channel-abi.md`](xlang-channel-abi
 overlaying a table on them would break that contract. A new segment is purely
 additive and independently versioned:
 
-- **Name** `make_prefix(prefix, "LV_CONN__", name)` = `"{prefix}__IPC_SHM__LV_CONN__{name}"`
+- **Name** `make_public_abi_prefix(prefix, "LV_CONN__", name)` = `"{prefix}__IPC_SHM__LV_CONN__{name}"`
   (same convention as `QU_CONN__` etc.), reached via `conn_info_head` alongside the
   existing waiters.
 - **Layout** — one `slot_owner` per `cc_` bit, indexed by bit position

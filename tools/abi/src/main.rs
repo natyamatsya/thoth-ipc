@@ -72,11 +72,13 @@ fn fnv1a_64(data: &[u8]) -> u64 {
     h
 }
 
-/// Naming gate: resolve each `names[]` template against the canonical binding
-/// (prefix="", name="xchan", data_length, align_size per-target, chunk_size=1024)
-/// and check it equals the stored golden; then independently recompute the notify
-/// FNV-1a-64 to validate the notify_hash golden. Returns true on full agreement.
-fn check_naming(abi: &Value, target: &str) -> bool {
+/// Naming gate: for each `names[]` template, (a) resolve it against the canonical
+/// binding (prefix="", name="xchan", data_length, align_size per-target,
+/// chunk_size=1024) and check it equals the stored golden, and (b) diff the name
+/// C++ actually built (`dumped["name:<n>"]`, via make_public_abi_prefix) against
+/// that golden — making C++ a checked peer for the shm-name contract. Then
+/// independently recompute the notify FNV-1a-64. Returns true on full agreement.
+fn check_naming(abi: &Value, target: &str, dumped: &serde_json::Map<String, Value>) -> bool {
     let constant = |n: &str| abi["constants"].as_array().unwrap().iter().find(|c| c["name"] == n);
     let data_length = constant("data_length").and_then(|c| resolve_int(&c["value"], target)).expect("data_length");
     let align_size = resolve_int(&abi["targets"][target]["align_size"], target)
@@ -91,10 +93,11 @@ fn check_naming(abi: &Value, target: &str) -> bool {
         .replace("{chunk_size}", "1024")
         .replace("{notify_hash}", notify_hash);
 
-    let (mut ok, mut bad) = (0usize, 0usize);
+    let (mut ok, mut cpp_ok, mut bad) = (0usize, 0usize, 0usize);
     for n in abi["names"].as_array().unwrap_or(&vec![]) {
         let name = n["name"].as_str().unwrap();
         let Some(golden) = n.get("golden").and_then(|g| resolve_str(g, target)) else { continue };
+        // (a) template resolution vs golden — abi.json self-consistency.
         let resolved = subst(n["template"].as_str().unwrap());
         if resolved == golden {
             ok += 1;
@@ -102,9 +105,18 @@ fn check_naming(abi: &Value, target: &str) -> bool {
             bad += 1;
             println!("  ✗ name {name}: template resolves to {resolved:?} but golden = {golden:?}");
         }
+        // (b) the name C++ actually built vs golden — make_public_abi_prefix checked peer.
+        if let Some(cpp) = dumped.get(&format!("name:{name}")).and_then(|v| v.as_str()) {
+            if cpp == golden {
+                cpp_ok += 1;
+            } else {
+                bad += 1;
+                println!("  ✗ name {name}: C++ built {cpp:?} but golden = {golden:?}");
+            }
+        }
     }
 
-    // Independent check of the notify_hash golden: hash make_prefix("", "NOTIFY__", "xchan").
+    // Independent check of the notify_hash golden: hash make_public_abi_prefix("", "NOTIFY__", "xchan").
     let notify_id = "__IPC_SHM__NOTIFY__xchan";
     let computed = format!("{:016x}", fnv1a_64(notify_id.as_bytes()));
     let fnv_ok = computed == notify_hash;
@@ -114,7 +126,7 @@ fn check_naming(abi: &Value, target: &str) -> bool {
     }
 
     println!(
-        "{} naming ({target}): {ok} template(s) resolve to their golden; notify FNV-1a-64 {}",
+        "{} naming ({target}): {ok} template(s) + {cpp_ok} C++-built name(s) match golden; notify FNV-1a-64 {}",
         if bad == 0 { "✓" } else { "✗" },
         if fnv_ok { "verified" } else { "FAILED" }
     );
@@ -219,7 +231,7 @@ fn run_check(root: &Path, args: &[String]) {
     let (mut checked, mut mismatches) = (0usize, 0usize);
     let dobj = dumped.as_object().expect("dumper emitted a JSON object");
     for (k, v) in dobj {
-        let cpp = as_u64(v).unwrap_or_else(|| panic!("dumper value for '{k}' is not a u64"));
+        let Some(cpp) = as_u64(v) else { continue }; // "name:*" strings checked by check_naming
         match flat.get(k) {
             Some(&abi_v) if abi_v == cpp => checked += 1,
             Some(&abi_v) => {
@@ -240,7 +252,7 @@ fn run_check(root: &Path, args: &[String]) {
             uncovered.join(", ")
         );
     }
-    let naming_ok = check_naming(&abi, &target);
+    let naming_ok = check_naming(&abi, &target, dobj);
 
     if mismatches > 0 || !naming_ok {
         std::process::exit(1);

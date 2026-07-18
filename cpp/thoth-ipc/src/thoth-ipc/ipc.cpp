@@ -114,7 +114,7 @@ acc_t *cc_acc(std::string const &pref) {
     std::lock_guard<std::mutex> guard {lock};
     auto it = phs->find(pref);
     if (it == phs->end()) {
-        std::string shm_name {thoth::make_prefix(pref, "CA_CONN__")};
+        std::string shm_name {thoth::make_public_abi_prefix(pref, "CA_CONN__")};
         thoth::shm::handle h;
         if (!h.acquire(shm_name.c_str(), sizeof(acc_t))) {
             log.error("[cc_acc] acquire failed: ", shm_name);
@@ -207,11 +207,11 @@ struct conn_info_head {
         , cc_id_ {} {}
 
     void init() {
-        if (!cc_waiter_.valid()) cc_waiter_.open(thoth::make_prefix(prefix_, "CC_CONN__", name_).c_str());
-        if (!wt_waiter_.valid()) wt_waiter_.open(thoth::make_prefix(prefix_, "WT_CONN__", name_).c_str());
-        if (!rd_waiter_.valid()) rd_waiter_.open(thoth::make_prefix(prefix_, "RD_CONN__", name_).c_str());
-        if (!acc_h_.valid()) acc_h_.acquire(thoth::make_prefix(prefix_, "AC_CONN__", name_).c_str(), sizeof(acc_t));
-        if (!lv_h_.valid()) lv_h_.acquire(thoth::make_prefix(prefix_, "LV_CONN__", name_).c_str(), sizeof(thoth::detail::conn_liveness));
+        if (!cc_waiter_.valid()) cc_waiter_.open(thoth::make_public_abi_prefix(prefix_, "CC_CONN__", name_).c_str());
+        if (!wt_waiter_.valid()) wt_waiter_.open(thoth::make_public_abi_prefix(prefix_, "WT_CONN__", name_).c_str());
+        if (!rd_waiter_.valid()) rd_waiter_.open(thoth::make_public_abi_prefix(prefix_, "RD_CONN__", name_).c_str());
+        if (!acc_h_.valid()) acc_h_.acquire(thoth::make_public_abi_prefix(prefix_, "AC_CONN__", name_).c_str(), sizeof(acc_t));
+        if (!lv_h_.valid()) lv_h_.acquire(thoth::make_public_abi_prefix(prefix_, "LV_CONN__", name_).c_str(), sizeof(thoth::detail::conn_liveness));
         if (cc_id_ != 0) {
             return;
         }
@@ -238,11 +238,11 @@ struct conn_info_head {
     static void clear_storage(char const * prefix, char const * name) noexcept {
         auto p = thoth::make_string(prefix);
         auto n = thoth::make_string(name);
-        thoth::detail::waiter::clear_storage(thoth::make_prefix(p, "CC_CONN__", n).c_str());
-        thoth::detail::waiter::clear_storage(thoth::make_prefix(p, "WT_CONN__", n).c_str());
-        thoth::detail::waiter::clear_storage(thoth::make_prefix(p, "RD_CONN__", n).c_str());
-        thoth::shm::handle::clear_storage(thoth::make_prefix(p, "AC_CONN__", n).c_str());
-        thoth::shm::handle::clear_storage(thoth::make_prefix(p, "LV_CONN__", n).c_str());
+        thoth::detail::waiter::clear_storage(thoth::make_public_abi_prefix(p, "CC_CONN__", n).c_str());
+        thoth::detail::waiter::clear_storage(thoth::make_public_abi_prefix(p, "WT_CONN__", n).c_str());
+        thoth::detail::waiter::clear_storage(thoth::make_public_abi_prefix(p, "RD_CONN__", n).c_str());
+        thoth::shm::handle::clear_storage(thoth::make_public_abi_prefix(p, "AC_CONN__", n).c_str());
+        thoth::shm::handle::clear_storage(thoth::make_public_abi_prefix(p, "LV_CONN__", n).c_str());
 #if defined(THOTH_IPC_NOTIFY_FD)
         thoth::detail::notify_clear_storage(p, n);
 #endif
@@ -288,7 +288,7 @@ auto& chunk_storages() {
         chunk_info_t *get_info(conn_info_head *inf, std::size_t chunk_size) {
             THOTH_IPC_LOG();
             std::string pref {(inf == nullptr) ? std::string{} : inf->prefix_};
-            std::string shm_name {thoth::make_prefix(pref, "CHUNK_INFO__", chunk_size)};
+            std::string shm_name {thoth::make_public_abi_prefix(pref, "CHUNK_INFO__", chunk_size)};
             thoth::shm::handle *h;
             {
                 std::lock_guard<std::mutex> guard {lock_};
@@ -462,7 +462,7 @@ struct queue_generator {
         void init() {
             conn_info_head::init();
             if (!que_.valid()) {
-                que_.open(thoth::make_prefix(prefix_,
+                que_.open(thoth::make_public_abi_prefix(prefix_,
                           "QU_CONN__",
                           this->name_,
                           "__", DataSize,
@@ -481,7 +481,7 @@ struct queue_generator {
         }
 
         static void clear_storage(char const * prefix, char const * name) noexcept {
-            queue_t::clear_storage(thoth::make_prefix(prefix, 
+            queue_t::clear_storage(thoth::make_public_abi_prefix(prefix, 
                                    "QU_CONN__", 
                                    name, 
                                    "__", DataSize, 

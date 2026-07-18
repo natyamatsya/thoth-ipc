@@ -378,7 +378,7 @@ struct ChanInner {
 
 impl ChanInner {
     fn open(prefix: &str, name: &str, mode: Mode, multi: bool) -> io::Result<Self> {
-        // Byte-exact with C++ make_prefix: prefix + "__IPC_SHM__" + TAG + name;
+        // Byte-exact with C++ make_public_abi_prefix: prefix + "__IPC_SHM__" + TAG + name;
         // the ring additionally carries the __<DataSize>__<AlignSize> geometry.
         let full_prefix = format!("{prefix}__IPC_SHM__");
         // chunk_prefix includes the channel name so each channel has isolated chunk storage.
@@ -541,7 +541,7 @@ impl ChanInner {
     fn chunk_shm_base(&mut self, chunk_size: usize) -> Option<*mut u8> {
         if !self.chunk_shm.contains_key(&chunk_size) {
             // Prefix-global chunk-shm name (no channel name), byte-exact with
-            // C++ make_prefix(prefix, "CHUNK_INFO__", chunk_size).
+            // C++ make_public_abi_prefix(prefix, "CHUNK_INFO__", chunk_size).
             let full_prefix = format!("{}__IPC_SHM__", self.prefix);
             let shm = cs::open_chunk_shm(&full_prefix, chunk_size).ok()?;
             self.chunk_shm.insert(chunk_size, shm);

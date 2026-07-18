@@ -53,7 +53,7 @@
 #include <string>
 
 #include "thoth-ipc/circ/elem_def.h"                 // thoth::circ::cc_t
-#include "thoth-ipc/mem/resource.h"                  // thoth::make_prefix
+#include "thoth-ipc/mem/resource.h"                  // thoth::make_public_abi_prefix
 #include "thoth-ipc/platform/posix/shm_name.h"       // fnv1a_64 / to_hex
 
 namespace thoth {
@@ -62,7 +62,7 @@ namespace detail {
 // Short, filesystem-/service-safe identity for a channel: a 16-hex FNV-1a hash
 // of the (possibly long, prefixed) channel name.
 inline std::string notify_hash(std::string const &prefix, std::string const &name) {
-    std::string id = thoth::make_prefix(prefix, "NOTIFY__", name);
+    std::string id = thoth::make_public_abi_prefix(prefix, "NOTIFY__", name);
     char hex[16];
     thoth::posix_::detail::to_hex(
         thoth::posix_::detail::fnv1a_64(id.data(), id.size()), hex);

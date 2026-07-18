@@ -82,7 +82,7 @@ func chunkPayloadPtr(_ base: UnsafeMutableRawPointer, chunkSize: Int, id: Storag
 
 // MARK: - Public API
 
-/// Byte-exact chunk-shm name (C++ make_prefix(prefix, "CHUNK_INFO__", chunkSize)):
+/// Byte-exact chunk-shm name (C++ make_public_abi_prefix(prefix, "CHUNK_INFO__", chunkSize)):
 /// prefix-global (no channel name).
 func chunkShmName(prefix: String, chunkSize: Int) -> String {
     "\(fullPrefix(prefix))CHUNK_INFO__\(chunkSize)"

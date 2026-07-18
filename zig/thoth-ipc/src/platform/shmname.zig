@@ -81,8 +81,8 @@ pub fn makeShmName(buf: []u8, name: []const u8) []const u8 {
     return buf[0..n];
 }
 
-// --- Byte-exact logical object names (C++ make_prefix) ----------------------
-// make_prefix(prefix, TAG, name) = prefix + "__IPC_SHM__" + TAG + name.
+// --- Byte-exact logical object names (C++ make_public_abi_prefix) ----------------------
+// make_public_abi_prefix(prefix, TAG, name) = prefix + "__IPC_SHM__" + TAG + name.
 // The default channel prefix is "" (see Swift Route.connect / Rust).
 
 /// Ring: __IPC_SHM__QU_CONN__<name>__<DataSize>__<AlignSize>.

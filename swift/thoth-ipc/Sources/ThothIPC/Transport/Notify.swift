@@ -13,7 +13,7 @@
 import Darwin
 import ThothIPCShim
 
-/// 16-hex FNV-1a-64 of make_prefix(prefix, "NOTIFY__", name). Byte-exact with C++/Rust.
+/// 16-hex FNV-1a-64 of make_public_abi_prefix(prefix, "NOTIFY__", name). Byte-exact with C++/Rust.
 func notifyHash(_ prefix: String, _ name: String) -> String {
     toHex16(fnv1a64("\(fullPrefix(prefix))NOTIFY__\(name)".utf8))
 }

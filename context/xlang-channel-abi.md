@@ -23,7 +23,7 @@ header (below).
 
 ## 1. Object names (per channel)
 
-C++ `make_prefix(prefix, TAG, name, …) = prefix + "__IPC_SHM__" + TAG + name + …`;
+C++ `make_public_abi_prefix(prefix, TAG, name, …) = prefix + "__IPC_SHM__" + TAG + name + …`;
 POSIX names then get `/` prefixed and, when > `THOTH_IPC_SHM_NAME_MAX` (31 on macOS),
 FNV-1a-shortened to `/<first-13-chars>_<16-hex>`.
 
@@ -240,7 +240,7 @@ registers a readiness fd** — so for a port send to wake a C++ `async_recv`, th
 notify identity must be byte-exact.
 
 - **Channel identity hash** — `notify_hash(prefix, name)` = 16-lowercase-hex of
-  `fnv1a_64("{prefix}__IPC_SHM__NOTIFY__{name}")` (i.e. `make_prefix(prefix,
+  `fnv1a_64("{prefix}__IPC_SHM__NOTIFY__{name}")` (i.e. `make_public_abi_prefix(prefix,
   "NOTIFY__", name)`). Golden: `("", "xchan") → d7484adebb2d170d`;
   `("app", "st.agent.cmd") → ad223836b598bfaa`.
 - **macOS backend — libnotify** (default on Apple): service key
@@ -281,7 +281,7 @@ participant (any language) can reap a slot whose owner process has died. Because
 any language's reaper may check any language's owner, the table **and** the token
 formula are cross-language ABI.
 
-- **Segment** `make_prefix(prefix, "LV_CONN__", name)` =
+- **Segment** `make_public_abi_prefix(prefix, "LV_CONN__", name)` =
   `"{prefix}__IPC_SHM__LV_CONN__{name}"`, size **512 B**.
 - **`slot_owner`** (one per `cc_` bit, indexed by `ctz(bit)`), **16 B**:
   `pid` (int32) `@0`, `start_tok` (uint64) `@8`. Array `slot_owner[32]`.

@@ -7,6 +7,17 @@ Notable changes to thoth-ipc. The format follows
 ## [Unreleased]
 
 ### Changed
+- **`make_prefix` → `make_public_abi_prefix`, decoupled from the `fmt` library.**
+  The shm-name builder (part of the byte-exact cross-language wire contract) was
+  renamed to flag its significance and reimplemented as plain `std::string`
+  concatenation + `std::to_string` (byte-identical output — matrix stays green)
+  instead of the heavyweight printf-emulation `fmt`. It is now **header-only**, so
+  `abi/dump_abi.cpp` builds real shm names with no library link — upgrading the
+  naming gate to a true **C++ checked peer** (the gate diffs C++'s actual
+  `make_public_abi_prefix` output against the goldens, both targets). `fnv1a_64`/
+  `to_hex` are now `constexpr`, and C++ `static_assert`s the notify hash at compile
+  time. (Blanket header-only-ifying `fmt` itself was rejected — 39-TU blast radius
+  with heavy `<sstream>`/`<iomanip>` deps; the `.cpp` split stays.)
 - **ABI naming-template gate.** Each `abi.json` `names[]` template now carries a
   `golden` (its resolution for a canonical binding: `prefix=""`, `name="xchan"`,
   `data_length=64`, `align_size` per-target, `chunk_size=1024`). The `abi` checker
