@@ -4,8 +4,8 @@
   "description": "thoth-ipc cross-language ABI — language-neutral source of truth. Structurally validated by abi.schema.json; semantically validated against the deployed C++ by abi/dump_abi.cpp via the `tools/abi` Rust checker; behaviourally validated by the xlang matrix. This is an initial slice (ring layouts + core constants); extend it as the codegen adopts more of the surface.",
 
   "targets": {
-    "apple_arm64": { "align_size": 8, "description": "macOS arm64 — the implemented target; AlignSize = min(64, alignof(max_align_t)) = 8" },
-    "x86_64":      { "align_size": 16, "description": "x86-64 / Linux aarch64 — AlignSize = 16 (not yet a Zig target)" }
+    "apple_arm64": { "align_size": 8, "shm_name_max": 31, "description": "macOS arm64 — the implemented target; AlignSize = min(64, alignof(max_align_t)) = 8; PSHMNAMLEN = 31" },
+    "x86_64":      { "align_size": 16, "shm_name_max": 0, "description": "x86-64 / Linux aarch64 — AlignSize = 16; shm_name_max = 0 (no shortening off macOS)" }
   },
 
   "constants": [
@@ -112,7 +112,7 @@
   ],
 
   "names": [
-    { "name": "ring",       "template": "{prefix}__THOTH_SHM__QU_CONN__{name}__{data_length}__{align_size}", "golden": { "apple_arm64": "__THOTH_SHM__QU_CONN__xchan__64__8", "x86_64": "__THOTH_SHM__QU_CONN__xchan__64__16" }, "description": "route AND channel ring (distinguished by layout, not name)" },
+    { "name": "ring",       "template": "{prefix}__THOTH_SHM__QU_CONN__{name}__{data_length}__{align_size}", "golden": { "apple_arm64": "__THOTH_SHM__QU_CONN__xchan__64__8", "x86_64": "__THOTH_SHM__QU_CONN__xchan__64__16" }, "posix_golden": { "apple_arm64": "/__THOTH_SHM___7d090bf7fa85c547", "x86_64": "/__THOTH_SHM__QU_CONN__xchan__64__16" }, "description": "route AND channel ring (distinguished by layout, not name). posix_golden = make_shm_name(golden): the ring name (35 chars) exceeds macOS PSHMNAMLEN=31 so it shortens to /<13 body chars>_<16-hex fnv1a_64 of the /-name>; off macOS it just gets a leading /." },
     { "name": "cc_id",      "template": "{prefix}__THOTH_SHM__CA_CONN__",                                     "golden": "__THOTH_SHM__CA_CONN__",             "description": "prefix-global endpoint identity counter" },
     { "name": "msg_id",     "template": "{prefix}__THOTH_SHM__AC_CONN__{name}",                              "golden": "__THOTH_SHM__AC_CONN__xchan",        "description": "per-channel shared message-id counter" },
     { "name": "liveness",   "template": "{prefix}__THOTH_SHM__LV_CONN__{name}",                              "golden": "__THOTH_SHM__LV_CONN__xchan",        "description": "dead-connection reaper owner table" },

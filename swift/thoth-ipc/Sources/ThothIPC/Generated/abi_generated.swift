@@ -106,6 +106,7 @@ public enum ABI {
 
     // MARK: shm-name goldens (canonical binding — see abi/README.md)
     public static let name_golden_ring: String = "__THOTH_SHM__QU_CONN__xchan__64__8"
+    public static let name_golden_ring_posix: String = "/__THOTH_SHM___7d090bf7fa85c547"
     public static let name_golden_cc_id: String = "__THOTH_SHM__CA_CONN__"
     public static let name_golden_msg_id: String = "__THOTH_SHM__AC_CONN__xchan"
     public static let name_golden_liveness: String = "__THOTH_SHM__LV_CONN__xchan"

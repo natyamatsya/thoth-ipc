@@ -73,6 +73,11 @@ mod name_goldens {
         assert_eq!(cc_id_shm_name(""), abi::name_golden_cc_id);
         assert_eq!(msg_id_shm_name("", "xchan"), abi::name_golden_msg_id);
         assert_eq!(liveness_shm_name("", "xchan"), abi::name_golden_liveness);
+        // POSIX shortening: the 35-char ring name shortens on macOS (SHM_NAME_MAX=31).
+        assert_eq!(
+            crate::shm_name::make_shm_name(abi::name_golden_ring),
+            abi::name_golden_ring_posix
+        );
     }
 }
 

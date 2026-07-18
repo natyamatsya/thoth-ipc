@@ -15,5 +15,7 @@ struct TestNameGoldens {
         #expect(msgIdName("", "xchan") == ABI.name_golden_msg_id)
         #expect(chunkShmName(prefix: "", chunkSize: 1024) == ABI.name_golden_chunk)
         #expect(livenessName("", "xchan") == ABI.name_golden_liveness)
+        // POSIX shortening: the 35-char ring name shortens on macOS (shmNameMax=31).
+        #expect(makeShmName(ABI.name_golden_ring) == ABI.name_golden_ring_posix)
     }
 }

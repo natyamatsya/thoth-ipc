@@ -72,6 +72,21 @@ fn fnv1a_64(data: &[u8]) -> u64 {
     h
 }
 
+/// Reference `make_shm_name` — the POSIX shm-name shortening, byte-identical to
+/// C++ `shm_name.h` and every port: prepend '/', and if that exceeds
+/// `shm_name_max` (> 0), replace with `/<first 13 body chars>_<16-hex fnv1a of the
+/// whole /-name>`. `shm_name_max == 0` disables shortening (off macOS).
+fn make_shm_name(name: &str, shm_name_max: usize) -> String {
+    let result = if name.starts_with('/') { name.to_string() } else { format!("/{name}") };
+    if shm_name_max == 0 || result.len() <= shm_name_max {
+        return result;
+    }
+    let hash = fnv1a_64(result.as_bytes());
+    let prefix_len = if shm_name_max > 17 + 1 { shm_name_max - 17 - 1 } else { 0 };
+    let body: String = result.chars().skip(1).take(prefix_len).collect();
+    format!("/{body}_{hash:016x}")
+}
+
 /// Naming gate: for each `names[]` template, (a) resolve it against the canonical
 /// binding (prefix="", name="xchan", data_length, align_size per-target,
 /// chunk_size=1024) and check it equals the stored golden, and (b) diff the name
@@ -83,6 +98,7 @@ fn check_naming(abi: &Value, target: &str, dumped: &serde_json::Map<String, Valu
     let data_length = constant("data_length").and_then(|c| resolve_int(&c["value"], target)).expect("data_length");
     let align_size = resolve_int(&abi["targets"][target]["align_size"], target)
         .unwrap_or_else(|| panic!("no align_size for target '{target}'"));
+    let shm_name_max = resolve_int(&abi["targets"][target]["shm_name_max"], target).unwrap_or(0) as usize;
     let notify_hash = constant("notify_hash_xchan").and_then(|c| c["value"].as_str()).expect("notify_hash_xchan");
 
     let subst = |t: &str| t
@@ -93,7 +109,7 @@ fn check_naming(abi: &Value, target: &str, dumped: &serde_json::Map<String, Valu
         .replace("{chunk_size}", "1024")
         .replace("{notify_hash}", notify_hash);
 
-    let (mut ok, mut cpp_ok, mut bad) = (0usize, 0usize, 0usize);
+    let (mut ok, mut cpp_ok, mut posix_ok, mut bad) = (0usize, 0usize, 0usize, 0usize);
     for n in abi["names"].as_array().unwrap_or(&vec![]) {
         let name = n["name"].as_str().unwrap();
         let Some(golden) = n.get("golden").and_then(|g| resolve_str(g, target)) else { continue };
@@ -114,6 +130,16 @@ fn check_naming(abi: &Value, target: &str, dumped: &serde_json::Map<String, Valu
                 println!("  ✗ name {name}: C++ built {cpp:?} but golden = {golden:?}");
             }
         }
+        // (c) POSIX shortening: reference make_shm_name(golden) vs posix_golden.
+        if let Some(pg) = n.get("posix_golden").and_then(|g| resolve_str(g, target)) {
+            let computed = make_shm_name(golden, shm_name_max);
+            if computed == pg {
+                posix_ok += 1;
+            } else {
+                bad += 1;
+                println!("  ✗ name {name}: make_shm_name({golden:?}) = {computed:?} but posix_golden = {pg:?}");
+            }
+        }
     }
 
     // Independent check of the notify_hash golden: hash make_public_abi_prefix("", "NOTIFY__", "xchan").
@@ -126,7 +152,8 @@ fn check_naming(abi: &Value, target: &str, dumped: &serde_json::Map<String, Valu
     }
 
     println!(
-        "{} naming ({target}): {ok} template(s) + {cpp_ok} C++-built name(s) match golden; notify FNV-1a-64 {}",
+        "{} naming ({target}): {ok} template(s) + {cpp_ok} C++-built name(s) match golden; \
+         {posix_ok} shortened POSIX name(s) match; notify FNV-1a-64 {}",
         if bad == 0 { "✓" } else { "✗" },
         if fnv_ok { "verified" } else { "FAILED" }
     );
@@ -370,9 +397,12 @@ fn gen_zig(abi: &Value, target: &str) -> String {
 
     o.push_str("\n// --- shm-name goldens (canonical binding — see abi/README.md) ---\n");
     for n in abi["names"].as_array().unwrap_or(&vec![]) {
+        let nm = n["name"].as_str().unwrap();
         if let Some(g) = n.get("golden").and_then(|g| resolve_str(g, target)) {
-            let nm = n["name"].as_str().unwrap();
             o.push_str(&format!("pub const name_golden_{nm}: []const u8 = {g:?};\n"));
+        }
+        if let Some(p) = n.get("posix_golden").and_then(|g| resolve_str(g, target)) {
+            o.push_str(&format!("pub const name_golden_{nm}_posix: []const u8 = {p:?};\n"));
         }
     }
     o
@@ -506,9 +536,12 @@ fn gen_rust(abi: &Value, _target: &str) -> String {
 
     o.push_str("\n// --- shm-name goldens (canonical binding — see abi/README.md) ---\n");
     for n in abi["names"].as_array().unwrap_or(&Vec::new()) {
+        let nm = n["name"].as_str().unwrap();
         if n.get("golden").is_some() {
-            let nm = n["name"].as_str().unwrap();
             emit_rust(&mut o, &format!("pub const name_golden_{nm}: &str"), &ts, |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()));
+        }
+        if n.get("posix_golden").is_some() {
+            emit_rust(&mut o, &format!("pub const name_golden_{nm}_posix: &str"), &ts, |t| format!("{:?}", resolve_str(&n["posix_golden"], t).unwrap()));
         }
     }
     o
@@ -571,9 +604,12 @@ fn gen_swift(abi: &Value, target: &str) -> String {
 
     o.push_str("\n    // MARK: shm-name goldens (canonical binding — see abi/README.md)\n");
     for n in abi["names"].as_array().unwrap_or(&vec![]) {
+        let nm = n["name"].as_str().unwrap();
         if let Some(g) = n.get("golden").and_then(|g| resolve_str(g, target)) {
-            let nm = n["name"].as_str().unwrap();
             o.push_str(&format!("    public static let name_golden_{nm}: String = {g:?}\n"));
+        }
+        if let Some(p) = n.get("posix_golden").and_then(|g| resolve_str(g, target)) {
+            o.push_str(&format!("    public static let name_golden_{nm}_posix: String = {p:?}\n"));
         }
     }
     o.push_str("}\n");
@@ -640,9 +676,12 @@ fn gen_cpp(abi: &Value, _target: &str) -> String {
 
     o.push_str("\n// --- shm-name goldens (canonical binding — see abi/README.md) ---\n");
     for n in abi["names"].as_array().unwrap_or(&Vec::new()) {
+        let nm = n["name"].as_str().unwrap();
         if n.get("golden").is_some() {
-            let nm = n["name"].as_str().unwrap();
             emit_cpp(&mut o, &format!("inline constexpr const char* name_golden_{nm}"), "", &ts, |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()));
+        }
+        if n.get("posix_golden").is_some() {
+            emit_cpp(&mut o, &format!("inline constexpr const char* name_golden_{nm}_posix"), "", &ts, |t| format!("{:?}", resolve_str(&n["posix_golden"], t).unwrap()));
         }
     }
     o.push_str("\n} // namespace thoth::abi\n");

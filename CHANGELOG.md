@@ -7,6 +7,14 @@ Notable changes to thoth-ipc. The format follows
 ## [Unreleased]
 
 ### Changed
+- **POSIX shm-name shortening is now statically gated.** `abi.json` gained
+  `shm_name_max` per target (macOS 31, else 0) and a `posix_golden` for the ring
+  name (its 35-char form exceeds macOS `PSHMNAMLEN`, so it shortens to
+  `/__THOTH_SHM___7d090bf7fa85c547` = `/<13 body chars>_<16-hex fnv1a of the
+  /-name>`). The `abi` checker reference-implements `make_shm_name` and diffs it
+  against the golden (both targets), and Rust/Swift/Zig each run their own
+  `make_shm_name` against the generated `name_golden_ring_posix` — so the
+  shortening algorithm is verified per port, previously matrix-only.
 - **Every port is now a checked peer for the shm-name contract.** The `abi.json`
   `names[]` goldens are generated into each port's `abi_generated` module
   (`name_golden_*`, ring per-target), and Rust/Swift/Zig each carry a unit test

@@ -145,16 +145,18 @@ cpp-ipc v1.4.1 and proven across four ports). This is the global contract versio
   their name-builders equal the goldens for the canonical binding (Rust also
   extracted the previously-inlined builders into shared functions used by both
   `open()` and `clear_storage()`). C++ is covered by the dumper gate above.
+- **POSIX name shortening is gated too.** `abi.json` carries `shm_name_max` per
+  target (macOS 31, else 0) and a `posix_golden` for the (35-char) ring name. The
+  checker reference-computes `make_shm_name` (`/<13 body>_<16-hex fnv1a>`) and
+  diffs it; each port's test runs its own `make_shm_name` against the golden — so
+  the shortening (`/__THOTH_SHM___7d090bf7fa85c547` on macOS) is verified per port,
+  not just by the matrix.
 
 **Remaining**, roughly in priority order:
 
-1. **shm-name shortening.** The goldens are all *logical* names; the POSIX
-   shortening (`/<truncated>_<hex>` FNV path for names over `SHM_NAME_MAX`) is
-   matrix-only. Add a long-name binding whose golden exercises it — the dumper can
-   emit the shortened form now that the builder is header-only.
-2. **`msg_t` field offsets.** Its size is gated, but the field offsets stay
+1. **`msg_t` field offsets.** Its size is gated, but the field offsets stay
    matrix-only: `msg_t` is non-standard-layout, so `offsetof` is ill-formed. Cover
    them with a small standard-layout mirror or an introspection shim.
-3. **Native x86_64 / Windows.** x86_64 is verified by Rosetta cross-compile today;
+2. **Native x86_64 / Windows.** x86_64 is verified by Rosetta cross-compile today;
    a native Linux run would drop the emulation, and a Windows target entry would
    pin its object-namespace prefix.

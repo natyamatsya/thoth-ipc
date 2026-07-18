@@ -143,4 +143,7 @@ test "shm-name goldens — byte-exact with abi/abi.json names[]" {
     try std.testing.expectEqualStrings(abi.name_golden_msg_id, acConnName(&buf, "", "xchan"));
     try std.testing.expectEqualStrings(abi.name_golden_chunk, chunkShmName(&buf, "", 1024));
     try std.testing.expectEqualStrings(abi.name_golden_liveness, liveness.livenessName(&buf, "", "xchan"));
+    // POSIX shortening: the 35-char ring name shortens on macOS (shm_name_max=31).
+    var buf2: [128]u8 = undefined;
+    try std.testing.expectEqualStrings(abi.name_golden_ring_posix, makeShmName(&buf2, abi.name_golden_ring));
 }

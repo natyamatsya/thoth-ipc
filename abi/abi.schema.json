@@ -23,6 +23,7 @@
         "additionalProperties": false,
         "properties": {
           "align_size": { "type": "integer", "description": "min(64, alignof(max_align_t))" },
+          "shm_name_max": { "type": "integer", "description": "POSIX shm-name length limit (macOS PSHMNAMLEN=31; 0 = no shortening off macOS). make_shm_name shortens /-names longer than this." },
           "description": { "type": "string" }
         }
       }
@@ -122,6 +123,13 @@
         "description": { "type": "string" },
         "golden": {
           "description": "expected resolved name for the canonical binding (prefix=\"\", name=\"xchan\", data_length=64, align_size per-target, chunk_size=1024). String, or a per-target map when the template embeds {align_size}. The naming gate resolves {template} against that binding and checks it equals this.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "object", "additionalProperties": { "type": "string" } }
+          ]
+        },
+        "posix_golden": {
+          "description": "expected make_shm_name(golden): the POSIX shm name (leading '/', shortened to /<13>_<16-hex fnv1a> when it exceeds the target's shm_name_max). Per-target. The naming gate reference-computes the shortening and checks it equals this.",
           "oneOf": [
             { "type": "string" },
             { "type": "object", "additionalProperties": { "type": "string" } }
