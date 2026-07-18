@@ -25,7 +25,11 @@ public:
     using elem_t   = typename policy_t::template elem_t<DataSize, AlignSize>;
 
     enum : std::size_t {
-        head_size  = sizeof(base_t) + sizeof(policy_t),
+        // Byte offset of block_[0] = the ring header size (abi.json `ring_header`).
+        // head_ (policy_t) is cache-line-aligned, so this is
+        // align_up(sizeof(base_t), alignof(policy_t)) + sizeof(policy_t) — NOT the
+        // naive sizeof sum, which ignores that alignment padding.
+        head_size  = thoth::make_align(alignof(policy_t), sizeof(base_t)) + sizeof(policy_t),
         data_size  = DataSize,
         elem_max   = (std::numeric_limits<uint_t<8>>::max)() + 1, // default is 255 + 1
         elem_size  = sizeof(elem_t),

@@ -69,10 +69,10 @@ static_assert(sizeof(AbiRouteP::elem_t<80, 8>) == thoth::abi::route_elem_size,  
 static_assert(sizeof(AbiChanP::elem_t<80, 8>)  == thoth::abi::channel_elem_size, "abi drift: channel_elem.size");
 static_assert(sizeof(AbiRouteArr) == thoth::abi::route_ring_size,   "abi drift: route_ring.size");
 static_assert(sizeof(AbiChanArr)  == thoth::abi::channel_ring_size, "abi drift: channel_ring.size");
-// (msg_t.size / chunk_* are asserted in msg_layout.h now, next to their
-// definitions, so dump_abi.cpp reaches them too. ring_header.size stays
-// matrix-verified: its 192-byte padded field layout — epoch @128 + a 64-byte
-// cache line — has no clean sizeof, as the header spans a base class + member.)
+// ring_header.size = elem_array::head_size = the aligned byte offset of block_[0]
+// (align_up(sizeof(base_t), alignof(policy_t)) + sizeof(policy_t)). msg_t.size /
+// chunk_* are asserted in msg_layout.h, next to their definitions.
+static_assert(AbiRouteArr::head_size == thoth::abi::ring_header_size, "abi drift: ring_header.size");
 
 static_assert(AbiRouteP::ep_mask == thoth::abi::route_ep_mask, "abi drift: route_ep_mask");
 static_assert(AbiRouteP::ep_incr == thoth::abi::route_ep_incr, "abi drift: route_ep_incr");

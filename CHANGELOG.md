@@ -12,13 +12,14 @@ Notable changes to thoth-ipc. The format follows
   `chunk_header_size`) out of `ipc.cpp`'s anonymous namespace into a private
   header `src/thoth-ipc/msg_layout.h`, so `abi/dump_abi.cpp` can measure them as
   ground truth instead of leaving them matrix-only. The dumper's semantic gate
-  now diffs **19** values against `abi.json` (was 15): added `msg_t.size`,
-  `chunk_header_size`, `chunk_info_size`, and `liveness_slot.size`. Also closed a
-  real coverage gap by `static_assert`ing `syncabi_backend_ulock` (2 = apple
-  ulock) against `thoth::abi`. Remaining not-dumper-reachable values are
-  compile-time `static_assert` checked-peers in their own TU, except
-  `ring_header.size` (a padded field layout with no clean `sizeof`), which stays
-  matrix-verified — the checker's coverage note is reworded to say so accurately.
+  now diffs **20** values against `abi.json` (was 15): added `msg_t.size`,
+  `chunk_header_size`, `chunk_info_size`, `liveness_slot.size`, and
+  `ring_header.size`. Closed real gaps by `static_assert`ing `syncabi_backend_ulock`
+  (2 = apple ulock) against `thoth::abi`, and by fixing `elem_array::head_size` —
+  it was the naïve `sizeof(base)+sizeof(policy)` (140, and unused) rather than the
+  true `block_[0]` offset (192, since `head_` is cache-line-aligned), which is the
+  ring-header size. The 5 remaining not-dumper-reachable values (types in heavier
+  headers) are each a compile-time `static_assert` checked-peer vs `thoth::abi`.
 - Renamed the internal `IPC_`-prefixed utility macros the earlier `LIBIPC_` →
   `THOTH_IPC_` pass didn't cover: `IPC_CONSTEXPR_`, `IPC_LOCK_PAUSE_`,
   `IPC_STBIND_`, `IPC_CONCEPT_` → `THOTH_IPC_*`. Also removed a stale dev artifact

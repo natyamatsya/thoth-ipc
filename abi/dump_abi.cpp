@@ -49,6 +49,7 @@ int main() {
     std::printf("  \"route_ring.size\": %zu,\n",   sizeof(RouteArr));
     std::printf("  \"channel_ring.size\": %zu,\n", sizeof(ChanArr));
 
+    std::printf("  \"ring_header.size\": %zu,\n",   static_cast<std::size_t>(RouteArr::head_size));
     std::printf("  \"msg_t.size\": %zu,\n",         sizeof(detail::msg_t<64, 8>));
     std::printf("  \"chunk_header_size\": %zu,\n",  detail::chunk_header_size);
     std::printf("  \"chunk_info_size\": %zu,\n",    sizeof(detail::chunk_info_t));

@@ -138,9 +138,9 @@ fn run_check(root: &Path) {
     println!("✓ semantic: {checked} value(s) match the deployed C++, {mismatches} mismatch(es)");
     if !uncovered.is_empty() {
         println!(
-            "  ({} not dumper-reachable — verified by the xlang matrix, and header-resident \
-             types additionally by a compile-time static_assert vs thoth::abi in their own TU \
-             (sync_abi.h / secure_codec.h): {})",
+            "  ({} not dumper-reachable (types in heavier headers) — each a compile-time \
+             static_assert checked-peer vs thoth::abi in its own TU (sync_abi.h / secure_codec.h), \
+             plus xlang-matrix verified: {})",
             uncovered.len(),
             uncovered.join(", ")
         );
