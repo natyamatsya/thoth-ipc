@@ -2,30 +2,30 @@ project(ipc)
 
 set (PACKAGE_VERSION 0.1.0)
 
-aux_source_directory(${LIBIPC_PROJECT_DIR}/src/thoth-ipc SRC_FILES)
-aux_source_directory(${LIBIPC_PROJECT_DIR}/src/thoth-ipc/sync SRC_FILES)
-aux_source_directory(${LIBIPC_PROJECT_DIR}/src/thoth-ipc/platform SRC_FILES)
-aux_source_directory(${LIBIPC_PROJECT_DIR}/src/thoth-ipc/imp SRC_FILES)
-aux_source_directory(${LIBIPC_PROJECT_DIR}/src/thoth-ipc/mem SRC_FILES)
-# execution/reactor.cpp compiles to an empty TU unless LIBIPC_STDEXEC is set.
-aux_source_directory(${LIBIPC_PROJECT_DIR}/src/thoth-ipc/execution SRC_FILES)
+aux_source_directory(${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc SRC_FILES)
+aux_source_directory(${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc/sync SRC_FILES)
+aux_source_directory(${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc/platform SRC_FILES)
+aux_source_directory(${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc/imp SRC_FILES)
+aux_source_directory(${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc/mem SRC_FILES)
+# execution/reactor.cpp compiles to an empty TU unless THOTH_IPC_STDEXEC is set.
+aux_source_directory(${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc/execution SRC_FILES)
 
 file(GLOB HEAD_FILES
-  ${LIBIPC_PROJECT_DIR}/include/thoth-ipc/*.h
-  ${LIBIPC_PROJECT_DIR}/src/thoth-ipc/*.h
-  ${LIBIPC_PROJECT_DIR}/src/thoth-ipc/*.inc
-  ${LIBIPC_PROJECT_DIR}/src/thoth-ipc/circ/*.h
-  ${LIBIPC_PROJECT_DIR}/src/thoth-ipc/memory/*.h
-  ${LIBIPC_PROJECT_DIR}/src/thoth-ipc/platform/*.h
-  ${LIBIPC_PROJECT_DIR}/src/thoth-ipc/utility/*.h)
+  ${THOTH_IPC_PROJECT_DIR}/include/thoth-ipc/*.h
+  ${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc/*.h
+  ${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc/*.inc
+  ${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc/circ/*.h
+  ${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc/memory/*.h
+  ${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc/platform/*.h
+  ${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc/utility/*.h)
 
-if (LIBIPC_BUILD_SHARED_LIBS)
+if (THOTH_IPC_BUILD_SHARED_LIBS)
   add_library(${PROJECT_NAME} SHARED ${SRC_FILES} ${HEAD_FILES})
   target_compile_definitions(${PROJECT_NAME}
     INTERFACE
-      LIBIPC_LIBRARY_SHARED_USING__
+      THOTH_IPC_LIBRARY_SHARED_USING__
     PRIVATE
-      LIBIPC_LIBRARY_SHARED_BUILDING__)
+      THOTH_IPC_LIBRARY_SHARED_BUILDING__)
 else()
   add_library(${PROJECT_NAME} STATIC ${SRC_FILES} ${HEAD_FILES})
 endif()
@@ -45,10 +45,10 @@ set_target_properties(${PROJECT_NAME}
 
 target_include_directories(${PROJECT_NAME}
   PUBLIC
-    "$<BUILD_INTERFACE:${LIBIPC_PROJECT_DIR}/include>"
+    "$<BUILD_INTERFACE:${THOTH_IPC_PROJECT_DIR}/include>"
     "$<INSTALL_INTERFACE:include>"
-  PRIVATE ${LIBIPC_PROJECT_DIR}/src
-          $<$<BOOL:UNIX>:${LIBIPC_PROJECT_DIR}/src/thoth-ipc/platform/linux>)
+  PRIVATE ${THOTH_IPC_PROJECT_DIR}/src
+          $<$<BOOL:UNIX>:${THOTH_IPC_PROJECT_DIR}/src/thoth-ipc/platform/linux>)
 
 # The Linux platform code uses clockid_t and CLOCK_BOOTTIME/MONOTONIC/REALTIME.
 # glibc only exposes clockid_t/CLOCK_* under the right feature-test macro when
@@ -58,48 +58,48 @@ if(UNIX AND NOT APPLE)
   target_compile_definitions(${PROJECT_NAME} PRIVATE _GNU_SOURCE)
 endif()
 
-if(LIBIPC_SHM_NAME_MAX GREATER 0)
-  target_compile_definitions(${PROJECT_NAME} PRIVATE LIBIPC_SHM_NAME_MAX=${LIBIPC_SHM_NAME_MAX})
+if(THOTH_IPC_SHM_NAME_MAX GREATER 0)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE THOTH_IPC_SHM_NAME_MAX=${THOTH_IPC_SHM_NAME_MAX})
 endif()
 
 if(WIN32)
-  # Windows named-object namespace prefix (see top-level LIBIPC_WIN_OBJ_NAMESPACE).
+  # Windows named-object namespace prefix (see top-level THOTH_IPC_WIN_OBJ_NAMESPACE).
   # PUBLIC so downstream TUs building notify/event names agree with the library.
-  target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_WIN_OBJ_NS="${LIBIPC_WIN_OBJ_NAMESPACE}")
+  target_compile_definitions(${PROJECT_NAME} PUBLIC THOTH_IPC_WIN_OBJ_NS="${THOTH_IPC_WIN_OBJ_NAMESPACE}")
 endif()
 
-if(LIBIPC_USE_FILE_SHM)
-  target_compile_definitions(${PROJECT_NAME} PRIVATE LIBIPC_USE_FILE_SHM)
+if(THOTH_IPC_USE_FILE_SHM)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE THOTH_IPC_USE_FILE_SHM)
 endif()
 
-if(APPLE AND LIBIPC_APPLE_APP_STORE_SAFE)
-  target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_APPLE_APP_STORE_SAFE)
+if(APPLE AND THOTH_IPC_APPLE_APP_STORE_SAFE)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC THOTH_IPC_APPLE_APP_STORE_SAFE)
 endif()
 
 # Opt-in Layer 1 readiness handle (see notify.h). The public ABI
 # (native_wait_handle) is stable regardless; the macro is PUBLIC so downstream
-# TUs can feature-test it (#if defined(LIBIPC_NOTIFY_FD)) before relying on a
+# TUs can feature-test it (#if defined(THOTH_IPC_NOTIFY_FD)) before relying on a
 # functional handle. When OFF, native_wait_handle returns ipc::invalid_wait_handle.
-if(LIBIPC_NOTIFY_FD)
-  # Windows uses the named-Event backend (notify.h LIBIPC_NOTIFY_BACKEND_WINEVENT);
+if(THOTH_IPC_NOTIFY_FD)
+  # Windows uses the named-Event backend (notify.h THOTH_IPC_NOTIFY_BACKEND_WINEVENT);
   # POSIX uses libnotify (Apple) or the FIFO backend. All are wired below.
-  target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_NOTIFY_FD)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC THOTH_IPC_NOTIFY_FD)
   # macOS default backend is libnotify (part of libSystem, no extra link).
-  # LIBIPC_NOTIFY_FIFO forces the portable FIFO backend instead.
-  if(LIBIPC_NOTIFY_FIFO)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_NOTIFY_FIFO)
+  # THOTH_IPC_NOTIFY_FIFO forces the portable FIFO backend instead.
+  if(THOTH_IPC_NOTIFY_FIFO)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC THOTH_IPC_NOTIFY_FIFO)
   endif()
 endif()
 
 # Opt-in Layer 2: ipc::async_recv() + reactor. PUBLIC (the templated sender API
 # lives in the public header async_recv.h, so consumers compile against stdexec
-# and the LIBIPC_STDEXEC switch).
-if(LIBIPC_STDEXEC)
+# and the THOTH_IPC_STDEXEC switch).
+if(THOTH_IPC_STDEXEC)
   target_link_libraries(${PROJECT_NAME} PUBLIC STDEXEC::stdexec)
-  target_compile_definitions(${PROJECT_NAME} PUBLIC LIBIPC_STDEXEC)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC THOTH_IPC_STDEXEC)
 endif()
 
-target_link_libraries(${PROJECT_NAME} PUBLIC libipc_secure_crypto_c)
+target_link_libraries(${PROJECT_NAME} PUBLIC thoth_ipc_secure_crypto_c)
 
 if(NOT MSVC)
   target_link_libraries(${PROJECT_NAME} PUBLIC
@@ -122,7 +122,7 @@ install(EXPORT thoth-ipc-targets
 
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/thoth-ipc-config.cmake.in"
 [[include(CMakeFindDependencyMacro)
-if("@LIBIPC_SECURE_OPENSSL@" STREQUAL "ON")
+if("@THOTH_IPC_SECURE_OPENSSL@" STREQUAL "ON")
   find_dependency(OpenSSL REQUIRED COMPONENTS Crypto)
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/thoth-ipc-targets.cmake")

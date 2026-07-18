@@ -18,11 +18,11 @@ over this draft:
   *remote* writer's signal to the reader, so the notify object is a **named,
   cross-process** primitive: **libnotify** (`notify_post` / `notify_register_file_descriptor`)
   on macOS by default — native and multicast, so one name per channel serves all readers —
-  with a **named-FIFO** fallback (Linux, or macOS via `LIBIPC_NOTIFY_FIFO`). The FIFO path
-  is per reader-connection-slot to honour broadcast. Gated by `LIBIPC_NOTIFY_FD`; exposed as
+  with a **named-FIFO** fallback (Linux, or macOS via `THOTH_IPC_NOTIFY_FIFO`). The FIFO path
+  is per reader-connection-slot to honour broadcast. Gated by `THOTH_IPC_NOTIFY_FD`; exposed as
   `native_wait_handle()`.
-- **Layer 2.** `ipc::async_recv(route&, Scheduler)` (gated `LIBIPC_STDEXEC`, implies
-  `LIBIPC_NOTIFY_FD`) + a process-global `kqueue`/`epoll` reactor thread. The reactor is
+- **Layer 2.** `ipc::async_recv(route&, Scheduler)` (gated `THOTH_IPC_STDEXEC`, implies
+  `THOTH_IPC_NOTIFY_FD`) + a process-global `kqueue`/`epoll` reactor thread. The reactor is
   injectable via a **C++23 concept** (`reactor_like`), not a vtable. `ipc::buffer`'s move
   ctor was made `noexcept` so `buff_t` can flow through P2300 completions. stdexec is a
   `find_package`-or-`FetchContent` dependency.
@@ -73,7 +73,7 @@ On enqueue, in addition to the existing ulock/futex wake, signal a waitable obje
 | macOS | `kqueue` `EVFILT_USER` (or a self-pipe) | `kqueue` |
 | Windows | auto-reset event / IOCP packet | `WaitForMultipleObjects` / IOCP |
 
-- Build-gated (e.g. `LIBIPC_NOTIFY_FD`); **zero cost when off** (no extra syscalls on the hot
+- Build-gated (e.g. `THOTH_IPC_NOTIFY_FD`); **zero cost when off** (no extra syscalls on the hot
   path; the notify object is not even created).
 - Exposed as `native_wait_handle()` (an `int` fd on POSIX, `HANDLE` on Windows) so consumers
   running their *own* reactor (including Qt `QSocketNotifier`) can use Layer 1 alone.
@@ -83,7 +83,7 @@ On enqueue, in addition to the existing ulock/futex wake, signal a waitable obje
 
 ### Layer 2 — stdexec async receive (opt-in, C++23)
 
-Build-gated (`LIBIPC_STDEXEC`). A **single process-global reactor** (one `epoll`/`kqueue`
+Build-gated (`THOTH_IPC_STDEXEC`). A **single process-global reactor** (one `epoll`/`kqueue`
 thread for *all* async channels — made possible by Layer 1's fd) drives sender completions:
 
 ```cpp

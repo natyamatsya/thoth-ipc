@@ -13,7 +13,7 @@
 //   + cvwait/cvnotify (sync primitives), caps, clear.
 //
 // Payload pattern: byte[i] = 'A' + (i % 26). Secure verbs are gated at runtime
-// on the crypto backend (build secure-crypto-c with LIBIPC_SECURE_OPENSSL=1),
+// on the crypto backend (build secure-crypto-c with THOTH_IPC_SECURE_OPENSSL=1),
 // which the `caps` verb reports so the matrix driver can plan around it.
 import Foundation
 import Dispatch
@@ -283,7 +283,7 @@ enum ChaCha20Poly1305Family: SecureCipherFamily {
 
 func runSecure(_ verb: String, _ name: String, _ count: Int, _ size: Int, _ alg: String) -> Int32 {
     guard SecureOpenSSLEVPBackend.isAvailable else {
-        FileHandle.standardError.write(Data("[swift-secure] crypto backend unavailable (build with LIBIPC_SECURE_OPENSSL=1)\n".utf8))
+        FileHandle.standardError.write(Data("[swift-secure] crypto backend unavailable (build with THOTH_IPC_SECURE_OPENSSL=1)\n".utf8))
         return 12
     }
     switch alg {

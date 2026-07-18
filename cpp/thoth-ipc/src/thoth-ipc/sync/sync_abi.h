@@ -13,9 +13,9 @@
 #include "thoth-ipc/shm.h"
 #include "thoth-ipc/abi_generated.hpp"    // generated ipc::abi (abi/abi.json)
 
-#if defined(LIBIPC_OS_LINUX)
+#if defined(THOTH_IPC_OS_LINUX)
 #include "a0/mtx.h"
-#elif defined(LIBIPC_OS_QNX) || defined(LIBIPC_OS_FREEBSD) || defined(LIBIPC_OS_APPLE)
+#elif defined(THOTH_IPC_OS_QNX) || defined(THOTH_IPC_OS_FREEBSD) || defined(THOTH_IPC_OS_APPLE)
 #include <pthread.h>
 #endif
 
@@ -95,7 +95,7 @@ inline char const *backend_hint(
     std::uint32_t const expected_backend,
     std::uint32_t const actual_backend
 ) noexcept {
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
     if ((expected_backend == 2u && actual_backend == 3u)
         || (expected_backend == 3u && actual_backend == 2u))
         return "; macOS profile mismatch: apple_ulock (2) cannot interop with apple_mach (3)";
@@ -121,15 +121,15 @@ inline std::string sidecar_name(char const *name, primitive_kind const kind) {
 }
 
 inline std::uint32_t backend_id() noexcept {
-#if defined(LIBIPC_OS_APPLE)
-# if defined(LIBIPC_APPLE_APP_STORE_SAFE)
+#if defined(THOTH_IPC_OS_APPLE)
+# if defined(THOTH_IPC_APPLE_APP_STORE_SAFE)
     return 3u; // apple_mach
 # else
     return 2u; // apple_ulock
 # endif
-#elif defined(LIBIPC_OS_WIN)
+#elif defined(THOTH_IPC_OS_WIN)
     return 4u; // win32
-#elif defined(LIBIPC_OS_LINUX)
+#elif defined(THOTH_IPC_OS_LINUX)
     return 5u; // linux_a0
 #else
     return 1u; // posix_pthread
@@ -137,20 +137,20 @@ inline std::uint32_t backend_id() noexcept {
 }
 
 inline std::uint32_t mutex_payload_size() noexcept {
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
     struct mutex_state_layout {
         std::atomic<std::uint32_t> state;
         std::atomic<std::int32_t> holder;
     };
-# if defined(LIBIPC_APPLE_APP_STORE_SAFE)
+# if defined(THOTH_IPC_APPLE_APP_STORE_SAFE)
     return static_cast<std::uint32_t>(
         sizeof(mutex_state_layout) + sizeof(std::atomic<std::int32_t>));
 # else
     return static_cast<std::uint32_t>(sizeof(mutex_state_layout));
 # endif
-#elif defined(LIBIPC_OS_WIN)
+#elif defined(THOTH_IPC_OS_WIN)
     return 0u;
-#elif defined(LIBIPC_OS_LINUX)
+#elif defined(THOTH_IPC_OS_LINUX)
     return static_cast<std::uint32_t>(sizeof(a0_mtx_t));
 #else
     return static_cast<std::uint32_t>(sizeof(pthread_mutex_t));
@@ -158,15 +158,15 @@ inline std::uint32_t mutex_payload_size() noexcept {
 }
 
 inline std::uint32_t condition_payload_size() noexcept {
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
     struct condition_state_layout {
         std::atomic<std::uint32_t> seq;
         std::atomic<std::int32_t> waiters;
     };
     return static_cast<std::uint32_t>(sizeof(condition_state_layout));
-#elif defined(LIBIPC_OS_WIN)
+#elif defined(THOTH_IPC_OS_WIN)
     return 0u;
-#elif defined(LIBIPC_OS_LINUX)
+#elif defined(THOTH_IPC_OS_LINUX)
     return static_cast<std::uint32_t>(sizeof(a0_cnd_t));
 #else
     return static_cast<std::uint32_t>(sizeof(pthread_cond_t));
@@ -184,7 +184,7 @@ inline expected_t expected_of(primitive_kind const kind) noexcept {
 }
 
 inline bool validate(stamp_t const *stamp, expected_t const &expected, primitive_kind const kind) noexcept {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     auto const actual_major = stamp->abi_version_major.load(std::memory_order_acquire);
     auto const actual_minor = stamp->abi_version_minor.load(std::memory_order_acquire);
     auto const actual_backend = stamp->backend_id.load(std::memory_order_acquire);
@@ -212,7 +212,7 @@ inline bool validate(stamp_t const *stamp, expected_t const &expected, primitive
 }
 
 inline bool init_or_validate(stamp_t *stamp, expected_t const &expected, primitive_kind const kind) noexcept {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     auto init_wait_spins = std::uint32_t{0};
     for (;;) {
         auto const magic = stamp->magic.load(std::memory_order_acquire);
@@ -259,7 +259,7 @@ class guard {
     ipc::shm::handle shm_;
 
     bool ensure(char const *name, primitive_kind const kind) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         close();
         if (!is_valid_string(name)) {
             log.error("fail sync ABI open: name is empty");

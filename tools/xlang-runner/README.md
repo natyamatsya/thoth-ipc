@@ -80,11 +80,11 @@ gaps this matrix discovered:
 
 ```sh
 # Build the harnesses with the secure backend:
-(cd cpp/thoth-ipc && cmake -B build -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON \
-    -DLIBIPC_SECURE_OPENSSL=ON -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" . \
+(cd cpp/thoth-ipc && cmake -B build -DCMAKE_BUILD_TYPE=Release -DTHOTH_IPC_BUILD_TESTS=ON \
+    -DTHOTH_IPC_SECURE_OPENSSL=ON -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" . \
     && cmake --build build --target xlang_ipc -j)
 (cd rust/thoth-ipc && cargo build --release --bin xlang --features secure-crypto-openssl,async-tokio)
-(cd swift/thoth-ipc && LIBIPC_SECURE_OPENSSL=1 swift build -c release --product xlang-harness)
+(cd swift/thoth-ipc && THOTH_IPC_SECURE_OPENSSL=1 swift build -c release --product xlang-harness)
 
 # Point the config's env vars at them and run (from the repo root):
 export XLANG_CPP_BIN=cpp/thoth-ipc/build/bin/xlang_ipc

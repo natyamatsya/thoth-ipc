@@ -86,7 +86,7 @@ the tree. Confirm:
    `QU_CONN__<name>__64__16`.
 3. **Shm/object names.** Confirm C++ (`shm_win.cpp`) and the Rust Windows shm
    produce identical file-mapping names for the same channel, including the
-   namespace (`Local\` vs `Global\`) and any `LIBIPC_SHM_NAME_MAX` FNV-shortening.
+   namespace (`Local\` vs `Global\`) and any `THOTH_IPC_SHM_NAME_MAX` FNV-shortening.
    Mismatch here means the peers never meet.
 
 **Deliverable:** the sync xlang matrix (`--lang cpp/rust`) green on Windows.
@@ -112,7 +112,7 @@ multicast:
   `slot = ctz(connected_id)`, `slot ∈ 0..31`. Same hash as the POSIX backends
   (`fnv1a_64`); C++ and Rust on Windows must agree byte-for-byte.
 - **C++ (`notify.h`):** replace the `#error` with a
-  `LIBIPC_NOTIFY_BACKEND_WINEVENT` block. `notify_source::signal(prefix, name,
+  `THOTH_IPC_NOTIFY_BACKEND_WINEVENT` block. `notify_source::signal(prefix, name,
   conns, self)` opens (`OpenEventW`/`CreateEventW`) and `SetEvent`s each connected
   slot (skip `self`), caching handles like the FIFO source caches fds.
   `notify_sink::open(prefix, name, slot_bit)` `CreateEventW`s its slot's event
@@ -145,7 +145,7 @@ Windows can't epoll/kqueue a `HANDLE`. Two options:
   with grouping for >64. More code, no thread-pool dependency.
 
 **Recommend (A):** the Windows reactor becomes a thin registry over the OS thread
-pool. Add a `#elif defined(LIBIPC_OS_WIN)` arm to `reactor.cpp` (today `#else`
+pool. Add a `#elif defined(THOTH_IPC_OS_WIN)` arm to `reactor.cpp` (today `#else`
 means epoll). The `reactor.h` interface and `reactor_waiter` contract are already
 `wait_handle_t`-typed and unchanged.
 
@@ -199,7 +199,7 @@ Only three functions are platform-specific; the owner table (`LV_CONN__`, 16-byt
   `async-tokio`) must pass — this alone proves the byte-exact layout on Windows.
 - A **Windows xlang job** in `.github/workflows/xlang.yml`. Because push triggers
   are disabled for budget, run it via `workflow_dispatch` / PR. It builds the C++
-  harnesses (`LIBIPC_STDEXEC=ON` ⇒ `xlang_ipc`, `xasync`, `xcoro`) and the Rust
+  harnesses (`THOTH_IPC_STDEXEC=ON` ⇒ `xlang_ipc`, `xasync`, `xcoro`) and the Rust
   harness (`--features async-tokio`) on `windows-latest`, then runs
   `xlang_matrix.py` with `--lang`, `--async-lang`, and `--reap-lang` for
   `cpp`/`rust`/`coro`.
@@ -231,7 +231,7 @@ larger notify/reactor/async work in 3–5.
   (services / multi-session). Default `Local\`; make it configurable if a
   Windows-service peer ever needs `Global\` (also affects shm/mutex names).
 - Whether `shm_win.cpp` already FNV-shortens names like the POSIX path
-  (`LIBIPC_SHM_NAME_MAX`) — align the notify event names with whatever it does.
+  (`THOTH_IPC_SHM_NAME_MAX`) — align the notify event names with whatever it does.
 - `UnregisterWaitEx(…, INVALID_HANDLE_VALUE)` must satisfy the synchronous
   `remove()` contract without deadlocking — confirm it is never reached from
   inside a wait callback (same discipline as POSIX `remove()`).

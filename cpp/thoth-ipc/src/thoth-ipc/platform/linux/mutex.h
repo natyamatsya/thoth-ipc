@@ -24,7 +24,7 @@ namespace sync {
 class robust_mutex : public sync::obj_impl<a0_mtx_t> {
 public:
     bool lock(std::uint64_t tm) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         for (;;) {
             auto ts = linux_::detail::make_timespec(tm);
@@ -57,7 +57,7 @@ public:
     }
 
     bool try_lock() noexcept(false) {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         int eno = A0_SYSERR(a0_mtx_timedlock(native(), {linux_::detail::make_timespec(0)}));
         switch (eno) {
@@ -86,7 +86,7 @@ public:
     }
 
     bool unlock() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         int eno = A0_SYSERR(a0_mtx_unlock(native()));
         if (eno != 0) {
@@ -149,7 +149,7 @@ class mutex {
             return;
         }
         auto &info = curr_prog::get();
-        LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+        THOTH_IPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
         auto it = info.mutex_handles.find(name);
         curr_prog::shm_data *node = nullptr;
         if (it == info.mutex_handles.end()) {
@@ -218,7 +218,7 @@ public:
         if ((mutex_ != nullptr) && (ref_ != nullptr) && (node_ != nullptr)) {
             if (mutex_->name() != nullptr) {
                 auto &info = curr_prog::get();
-                LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+                THOTH_IPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
                 if (ref_->fetch_sub(1, std::memory_order_relaxed) <= 1) {
                     // Last local user: free the node (works whether it lives in
                     // the by-name map or the orphan list).
@@ -235,7 +235,7 @@ public:
         if ((mutex_ != nullptr) && (node_ != nullptr)) {
             if (mutex_->name() != nullptr) {
                 auto &info = curr_prog::get();
-                LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+                THOTH_IPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
                 mutex_->clear();
                 destroy_node(info, node_);
             } else mutex_->clear();
@@ -251,11 +251,11 @@ public:
     // fresh node, exactly as a new opener in another process would. The global
     // name is always unlinked. See context/refcount-aware-clear-storage-rfc.md.
     static void clear_storage(char const *name) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (name == nullptr) return;
         {
             auto &info = curr_prog::get();
-            LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+            THOTH_IPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
             auto it = info.mutex_handles.find(name);
             if (it != info.mutex_handles.end()) {
                 auto *node = it->second;

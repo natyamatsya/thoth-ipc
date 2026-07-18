@@ -6,8 +6,8 @@
 use std::marker::PhantomData;
 
 use super::super::secure_crypto_c::{
-    libipc_secure_aead_decrypt, libipc_secure_aead_encrypt, libipc_secure_blob_free,
-    libipc_secure_crypto_available, SecureAlgorithmId, SecureBlob, SecureStatus,
+    thoth_ipc_secure_aead_decrypt, thoth_ipc_secure_aead_encrypt, thoth_ipc_secure_blob_free,
+    thoth_ipc_secure_crypto_available, SecureAlgorithmId, SecureBlob, SecureStatus,
 };
 use super::secure_codec::SecureCipher;
 
@@ -21,7 +21,7 @@ pub struct SecureOpenSslEvpBackend;
 impl SecureOpenSslEvpBackend {
     pub fn is_available() -> bool {
         // SAFETY: The function has no arguments, no side effects, and returns a POD value.
-        unsafe { libipc_secure_crypto_available() != 0 }
+        unsafe { thoth_ipc_secure_crypto_available() != 0 }
     }
 }
 
@@ -95,7 +95,7 @@ fn ptr_or_null(bytes: &[u8]) -> *const u8 {
 fn free_blob(blob: &mut SecureBlob) {
     // SAFETY: `blob` points to a valid `SecureBlob` and the ABI contract allows
     // freeing null/empty blobs.
-    unsafe { libipc_secure_blob_free(blob as *mut SecureBlob) };
+    unsafe { thoth_ipc_secure_blob_free(blob as *mut SecureBlob) };
 }
 
 fn copy_and_free_blob(blob: &mut SecureBlob) -> Vec<u8> {
@@ -129,7 +129,7 @@ where
     // SAFETY: All pointers are either null with size 0 or valid for the passed
     // length. Output blob pointers reference valid mutable stack values.
     let status = unsafe {
-        libipc_secure_aead_encrypt(
+        thoth_ipc_secure_aead_encrypt(
             Algorithm::ABI_ID,
             ptr_or_null(key),
             key.len(),
@@ -175,7 +175,7 @@ where
     // SAFETY: All pointers are either null with size 0 or valid for the passed
     // length. Output blob pointer references a valid mutable stack value.
     let status = unsafe {
-        libipc_secure_aead_decrypt(
+        thoth_ipc_secure_aead_decrypt(
             Algorithm::ABI_ID,
             ptr_or_null(key),
             key.len(),

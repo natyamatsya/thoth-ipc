@@ -5,7 +5,7 @@
 // readiness fd (Layer 1 native_wait_handle) on the shared process-global reactor
 // (reactor.h — no stdexec), and resumes with an ipc::recv_result. Mirrors the
 // stdexec recv_op, but resumes a coroutine handle instead of completing a P2300
-// receiver. Needs only LIBIPC_NOTIFY_FD (+ C++20 coroutines, C++23 std::expected).
+// receiver. Needs only THOTH_IPC_NOTIFY_FD (+ C++20 coroutines, C++23 std::expected).
 //
 // For consumers who already use stdexec, prefer path (a): stdexec senders are
 // awaitable, so `co_await ipc::async_recv(route, sched)` works in an exec::task<>
@@ -19,7 +19,7 @@
 
 #include "thoth-ipc/imp/detect_plat.h"
 
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
 
 #include <atomic>
 #include <coroutine>
@@ -220,4 +220,4 @@ private:
 } // namespace coro
 } // namespace ipc
 
-#endif // LIBIPC_NOTIFY_FD
+#endif // THOTH_IPC_NOTIFY_FD

@@ -4,7 +4,7 @@
 project(bench_ipc)
 
 include_directories(
-    ${LIBIPC_PROJECT_DIR}/3rdparty)
+    ${THOTH_IPC_PROJECT_DIR}/3rdparty)
 
 file(GLOB SRC_FILES ./*.cpp)
 file(GLOB HEAD_FILES ./*.h)

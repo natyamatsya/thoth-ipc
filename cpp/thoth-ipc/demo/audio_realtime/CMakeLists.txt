@@ -5,7 +5,7 @@ project(audio_realtime_demo)
 
 add_executable(rt_audio_host host.cpp)
 target_include_directories(rt_audio_host PRIVATE
-    ${LIBIPC_PROJECT_DIR}/include
+    ${THOTH_IPC_PROJECT_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(rt_audio_host PRIVATE ipc)
 
@@ -14,10 +14,10 @@ target_link_libraries(rt_audio_host PRIVATE ipc)
 # The host remains at the project default (C++17). The service needs a
 # standard library with <print> (probed by the parent CMakeLists), so
 # skip just this demo binary on older toolchains.
-if(LIBIPC_HAS_STD_PRINT)
+if(THOTH_IPC_HAS_STD_PRINT)
     add_executable(rt_audio_service service.cpp)
     target_include_directories(rt_audio_service PRIVATE
-        ${LIBIPC_PROJECT_DIR}/include
+        ${THOTH_IPC_PROJECT_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(rt_audio_service PRIVATE ipc)
     set_target_properties(rt_audio_service PROPERTIES
@@ -35,7 +35,7 @@ set_target_properties(rt_audio_host PROPERTIES
 
 add_library(rt_audio_ffi STATIC rt_audio_ffi.cpp)
 target_include_directories(rt_audio_ffi PRIVATE
-    ${LIBIPC_PROJECT_DIR}/include
+    ${THOTH_IPC_PROJECT_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(rt_audio_ffi PRIVATE ipc)
 set_target_properties(rt_audio_ffi PROPERTIES

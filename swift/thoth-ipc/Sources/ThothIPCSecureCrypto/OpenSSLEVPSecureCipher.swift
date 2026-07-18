@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 
-import LibIPCSecureCryptoC
+import ThothIPCSecureCryptoC
 
 public enum SecureOpenSSLEVPBackend {
     public static var isAvailable: Bool {
-        libipc_secure_crypto_available() != 0
+        thoth_ipc_secure_crypto_available() != 0
     }
 }
 
@@ -21,35 +21,35 @@ private func withOptionalUnsafeBytes<R>(_ bytes: [UInt8],
     }
 }
 
-private func toBytes(_ blob: libipc_secure_blob) -> [UInt8] {
+private func toBytes(_ blob: thoth_ipc_secure_blob) -> [UInt8] {
     if blob.size == 0 { return [] }
     guard let base = blob.data else { return [] }
     return Array(UnsafeBufferPointer(start: base, count: Int(blob.size)))
 }
 
-private func statusIsOK(_ status: libipc_secure_status) -> Bool {
-    status == LIBIPC_SECURE_STATUS_OK
+private func statusIsOK(_ status: thoth_ipc_secure_status) -> Bool {
+    status == THOTH_IPC_SECURE_STATUS_OK
 }
 
-private func sealOpenSSL(algorithm: libipc_secure_algorithm_id,
+private func sealOpenSSL(algorithm: thoth_ipc_secure_algorithm_id,
                          keyBytes: [UInt8],
                          plain: [UInt8],
                          nonce: inout [UInt8],
                          ciphertext: inout [UInt8],
                          tag: inout [UInt8]) -> Bool {
-    var nonceBlob = libipc_secure_blob(data: nil, size: 0)
-    var ciphertextBlob = libipc_secure_blob(data: nil, size: 0)
-    var tagBlob = libipc_secure_blob(data: nil, size: 0)
+    var nonceBlob = thoth_ipc_secure_blob(data: nil, size: 0)
+    var ciphertextBlob = thoth_ipc_secure_blob(data: nil, size: 0)
+    var tagBlob = thoth_ipc_secure_blob(data: nil, size: 0)
 
     defer {
-        libipc_secure_blob_free(&tagBlob)
-        libipc_secure_blob_free(&ciphertextBlob)
-        libipc_secure_blob_free(&nonceBlob)
+        thoth_ipc_secure_blob_free(&tagBlob)
+        thoth_ipc_secure_blob_free(&ciphertextBlob)
+        thoth_ipc_secure_blob_free(&nonceBlob)
     }
 
     let status = withOptionalUnsafeBytes(keyBytes) { keyPtr, keyCount in
         withOptionalUnsafeBytes(plain) { plainPtr, plainCount in
-            libipc_secure_aead_encrypt(
+            thoth_ipc_secure_aead_encrypt(
                 algorithm,
                 keyPtr,
                 keyCount,
@@ -76,20 +76,20 @@ private func sealOpenSSL(algorithm: libipc_secure_algorithm_id,
     return true
 }
 
-private func openOpenSSL(algorithm: libipc_secure_algorithm_id,
+private func openOpenSSL(algorithm: thoth_ipc_secure_algorithm_id,
                          keyBytes: [UInt8],
                          nonce: [UInt8],
                          ciphertext: [UInt8],
                          tag: [UInt8],
                          plain: inout [UInt8]) -> Bool {
-    var plainBlob = libipc_secure_blob(data: nil, size: 0)
-    defer { libipc_secure_blob_free(&plainBlob) }
+    var plainBlob = thoth_ipc_secure_blob(data: nil, size: 0)
+    defer { thoth_ipc_secure_blob_free(&plainBlob) }
 
     let status = withOptionalUnsafeBytes(keyBytes) { keyPtr, keyCount in
         withOptionalUnsafeBytes(nonce) { noncePtr, nonceCount in
             withOptionalUnsafeBytes(ciphertext) { ciphertextPtr, ciphertextCount in
                 withOptionalUnsafeBytes(tag) { tagPtr, tagCount in
-                    libipc_secure_aead_decrypt(
+                    thoth_ipc_secure_aead_decrypt(
                         algorithm,
                         keyPtr,
                         keyCount,
@@ -118,7 +118,7 @@ private func openOpenSSL(algorithm: libipc_secure_algorithm_id,
 
 public struct SecureOpenSSLEVPCipherAES256GCM<KeyProvider: OpenSSLEVPKeyProvider>: SecureCipher {
     public static var algorithmId: UInt16 {
-        UInt16(LIBIPC_SECURE_ALG_AES_256_GCM.rawValue)
+        UInt16(THOTH_IPC_SECURE_ALG_AES_256_GCM.rawValue)
     }
 
     public static var keyId: UInt32 {
@@ -129,7 +129,7 @@ public struct SecureOpenSSLEVPCipherAES256GCM<KeyProvider: OpenSSLEVPKeyProvider
                             nonce: inout [UInt8],
                             ciphertext: inout [UInt8],
                             tag: inout [UInt8]) -> Bool {
-        sealOpenSSL(algorithm: LIBIPC_SECURE_ALG_AES_256_GCM,
+        sealOpenSSL(algorithm: THOTH_IPC_SECURE_ALG_AES_256_GCM,
                     keyBytes: KeyProvider.keyBytes,
                     plain: plain,
                     nonce: &nonce,
@@ -141,7 +141,7 @@ public struct SecureOpenSSLEVPCipherAES256GCM<KeyProvider: OpenSSLEVPKeyProvider
                             ciphertext: [UInt8],
                             tag: [UInt8],
                             plain: inout [UInt8]) -> Bool {
-        openOpenSSL(algorithm: LIBIPC_SECURE_ALG_AES_256_GCM,
+        openOpenSSL(algorithm: THOTH_IPC_SECURE_ALG_AES_256_GCM,
                     keyBytes: KeyProvider.keyBytes,
                     nonce: nonce,
                     ciphertext: ciphertext,
@@ -152,7 +152,7 @@ public struct SecureOpenSSLEVPCipherAES256GCM<KeyProvider: OpenSSLEVPKeyProvider
 
 public struct SecureOpenSSLEVPCipherChaCha20Poly1305<KeyProvider: OpenSSLEVPKeyProvider>: SecureCipher {
     public static var algorithmId: UInt16 {
-        UInt16(LIBIPC_SECURE_ALG_CHACHA20_POLY1305.rawValue)
+        UInt16(THOTH_IPC_SECURE_ALG_CHACHA20_POLY1305.rawValue)
     }
 
     public static var keyId: UInt32 {
@@ -163,7 +163,7 @@ public struct SecureOpenSSLEVPCipherChaCha20Poly1305<KeyProvider: OpenSSLEVPKeyP
                             nonce: inout [UInt8],
                             ciphertext: inout [UInt8],
                             tag: inout [UInt8]) -> Bool {
-        sealOpenSSL(algorithm: LIBIPC_SECURE_ALG_CHACHA20_POLY1305,
+        sealOpenSSL(algorithm: THOTH_IPC_SECURE_ALG_CHACHA20_POLY1305,
                     keyBytes: KeyProvider.keyBytes,
                     plain: plain,
                     nonce: &nonce,
@@ -175,7 +175,7 @@ public struct SecureOpenSSLEVPCipherChaCha20Poly1305<KeyProvider: OpenSSLEVPKeyP
                             ciphertext: [UInt8],
                             tag: [UInt8],
                             plain: inout [UInt8]) -> Bool {
-        openOpenSSL(algorithm: LIBIPC_SECURE_ALG_CHACHA20_POLY1305,
+        openOpenSSL(algorithm: THOTH_IPC_SECURE_ALG_CHACHA20_POLY1305,
                     keyBytes: KeyProvider.keyBytes,
                     nonce: nonce,
                     ciphertext: ciphertext,

@@ -68,7 +68,7 @@ public:
         // if notify() fires after this check but before __ulock_wait, the kernel
         // sees seq != expected and returns immediately without sleeping.
         if (quit_.load(std::memory_order_relaxed) || !pred()) return true;
-        LIBIPC_UNUSED std::lock_guard<ipc::sync::mutex> guard {lock_};
+        THOTH_IPC_UNUSED std::lock_guard<ipc::sync::mutex> guard {lock_};
         while ([this, &pred] {
                     return !quit_.load(std::memory_order_relaxed)
                         && std::forward<F>(pred)();

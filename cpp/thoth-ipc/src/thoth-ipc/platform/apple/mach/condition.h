@@ -102,7 +102,7 @@ public:
     }
 
     bool open(char const *name) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         close();
         name_ = name ? name : "";
         if (!shm_.acquire(name, sizeof(mach_cond_t))) {
@@ -155,7 +155,7 @@ public:
     }
 
     bool wait(ipc::sync::mutex &mtx, std::uint64_t tm) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
 
         // Snapshot the sequence counter while holding the mutex.
@@ -201,7 +201,7 @@ public:
     }
 
     bool notify(ipc::sync::mutex &) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         cond_->seq.fetch_add(1, std::memory_order_acq_rel);
         if (cond_->waiters.load(std::memory_order_acquire) > 0)
@@ -210,7 +210,7 @@ public:
     }
 
     bool broadcast(ipc::sync::mutex &) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         cond_->seq.fetch_add(1, std::memory_order_acq_rel);
         if (cond_->waiters.load(std::memory_order_acquire) > 0)

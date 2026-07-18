@@ -81,7 +81,7 @@ public:
         if (!valid()) return false;
         auto &cnt = counter();
         {
-            LIBIPC_UNUSED std::lock_guard<ipc::sync::mutex> guard {lock_};
+            THOTH_IPC_UNUSED std::lock_guard<ipc::sync::mutex> guard {lock_};
             cnt = (cnt < 0) ? 1 : cnt + 1;
         }
         DWORD ms = (tm == invalid_value) ? INFINITE : static_cast<DWORD>(tm);
@@ -93,7 +93,7 @@ public:
         bool rs = ::SignalObjectAndWait(mtx.native(), sem_.native(), ms, FALSE) == WAIT_OBJECT_0;
         bool rl = mtx.lock(); // INFINITE
         if (!rs) {
-            LIBIPC_UNUSED std::lock_guard<ipc::sync::mutex> guard {lock_};
+            THOTH_IPC_UNUSED std::lock_guard<ipc::sync::mutex> guard {lock_};
             cnt -= 1;
         }
         return rs && rl;

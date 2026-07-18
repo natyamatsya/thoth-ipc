@@ -14,9 +14,9 @@ namespace {
 
 template <typename Node>
 Node *make_node(bytes_allocator const &upstream, std::size_t initial_size, std::size_t alignment) noexcept {
-  LIBIPC_LOG();
+  THOTH_IPC_LOG();
   auto sz = ipc::round_up(sizeof(Node), alignment) + initial_size;
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     auto *node = static_cast<Node *>(upstream.allocate(sz));
     if (node == nullptr) {
       log.error("failed: allocate memory for `monotonic_buffer_resource`'s node.", 
@@ -26,7 +26,7 @@ Node *make_node(bytes_allocator const &upstream, std::size_t initial_size, std::
     node->next = nullptr;
     node->size = sz;
     return node;
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     log.error("failed: allocate memory for `monotonic_buffer_resource`'s node.", 
               " bytes = ", initial_size, ", alignment = ", alignment,
               "\n\texception: ", ipc::log::exception_string(std::current_exception()));
@@ -79,14 +79,14 @@ bytes_allocator monotonic_buffer_resource::upstream_resource() const noexcept {
 }
 
 void monotonic_buffer_resource::release() noexcept {
-  LIBIPC_LOG();
-  LIBIPC_TRY {
+  THOTH_IPC_LOG();
+  THOTH_IPC_TRY {
     while (free_list_ != nullptr) {
       auto *next = free_list_->next;
       upstream_.deallocate(free_list_, free_list_->size);
       free_list_ = next;
     }
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     log.error("failed: deallocate memory for `monotonic_buffer_resource`.",
               "\n\texception: ", ipc::log::exception_string(std::current_exception()));
   }
@@ -101,7 +101,7 @@ void monotonic_buffer_resource::release() noexcept {
 }
 
 void *monotonic_buffer_resource::allocate(std::size_t bytes, std::size_t alignment) noexcept {
-  LIBIPC_LOG();
+  THOTH_IPC_LOG();
   if (bytes == 0) {
     log.error("failed: allocate bytes = 0.");
     return nullptr;

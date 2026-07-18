@@ -28,7 +28,7 @@ struct sa_initiator {
 };
 
 inline LPSECURITY_ATTRIBUTES get_sa() {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     static sa_initiator handle(log);
     return handle.succ_ ? &handle.sa_ : nullptr;
 }

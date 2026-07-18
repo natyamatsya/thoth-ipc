@@ -36,7 +36,7 @@ protocol layer and the secure codec stacked the way a real application would.
 C++ (needs the OpenSSL backend):
 
 ```sh
-cmake -B build -DLIBIPC_BUILD_DEMOS=ON -DLIBIPC_SECURE_OPENSSL=ON \
+cmake -B build -DTHOTH_IPC_BUILD_DEMOS=ON -DTHOTH_IPC_SECURE_OPENSSL=ON \
       -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"   # macOS
 cmake --build build --target secure_pos
 ```

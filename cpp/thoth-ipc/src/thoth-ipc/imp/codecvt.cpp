@@ -7,7 +7,7 @@
 #include "thoth-ipc/imp/codecvt.h"
 #include "thoth-ipc/imp/detect_plat.h"
 
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
 # include "thoth-ipc/platform/win/codecvt.h"
 #endif
 
@@ -320,46 +320,46 @@ auto cvt_cstr_utf(T const *src, std::size_t slen, U *des, std::size_t dlen) noex
 
 } // namespace
 
-#define LIBIPC_DEF_CVT_CSTR_($CHAR_T, $CHAR_U) \
+#define THOTH_IPC_DEF_CVT_CSTR_($CHAR_T, $CHAR_U) \
   template <> \
   std::size_t cvt_cstr($CHAR_T const *src, std::size_t slen, $CHAR_U *des, std::size_t dlen) noexcept { \
     return cvt_cstr_utf(src, slen, des, dlen); \
   }
-// #define LIBIPC_DEF_CVT_CSTR_($CHAR_T, $CHAR_U)
+// #define THOTH_IPC_DEF_CVT_CSTR_($CHAR_T, $CHAR_U)
 
-LIBIPC_DEF_CVT_CSTR_(char    , char)
-LIBIPC_DEF_CVT_CSTR_(char    , char16_t)
-LIBIPC_DEF_CVT_CSTR_(char    , char32_t)
-LIBIPC_DEF_CVT_CSTR_(wchar_t , wchar_t)
-LIBIPC_DEF_CVT_CSTR_(char16_t, char16_t)
-LIBIPC_DEF_CVT_CSTR_(char16_t, char)
-LIBIPC_DEF_CVT_CSTR_(char16_t, char32_t)
-LIBIPC_DEF_CVT_CSTR_(char32_t, char32_t)
-LIBIPC_DEF_CVT_CSTR_(char32_t, char)
-LIBIPC_DEF_CVT_CSTR_(char32_t, char16_t)
-#if !defined(LIBIPC_OS_WIN)
-LIBIPC_DEF_CVT_CSTR_(char    , wchar_t)
-LIBIPC_DEF_CVT_CSTR_(wchar_t , char)
-LIBIPC_DEF_CVT_CSTR_(wchar_t , char16_t)
-LIBIPC_DEF_CVT_CSTR_(wchar_t , char32_t)
-LIBIPC_DEF_CVT_CSTR_(char16_t, wchar_t)
-LIBIPC_DEF_CVT_CSTR_(char32_t, wchar_t)
-#endif // !defined(LIBIPC_OS_WIN)
+THOTH_IPC_DEF_CVT_CSTR_(char    , char)
+THOTH_IPC_DEF_CVT_CSTR_(char    , char16_t)
+THOTH_IPC_DEF_CVT_CSTR_(char    , char32_t)
+THOTH_IPC_DEF_CVT_CSTR_(wchar_t , wchar_t)
+THOTH_IPC_DEF_CVT_CSTR_(char16_t, char16_t)
+THOTH_IPC_DEF_CVT_CSTR_(char16_t, char)
+THOTH_IPC_DEF_CVT_CSTR_(char16_t, char32_t)
+THOTH_IPC_DEF_CVT_CSTR_(char32_t, char32_t)
+THOTH_IPC_DEF_CVT_CSTR_(char32_t, char)
+THOTH_IPC_DEF_CVT_CSTR_(char32_t, char16_t)
+#if !defined(THOTH_IPC_OS_WIN)
+THOTH_IPC_DEF_CVT_CSTR_(char    , wchar_t)
+THOTH_IPC_DEF_CVT_CSTR_(wchar_t , char)
+THOTH_IPC_DEF_CVT_CSTR_(wchar_t , char16_t)
+THOTH_IPC_DEF_CVT_CSTR_(wchar_t , char32_t)
+THOTH_IPC_DEF_CVT_CSTR_(char16_t, wchar_t)
+THOTH_IPC_DEF_CVT_CSTR_(char32_t, wchar_t)
+#endif // !defined(THOTH_IPC_OS_WIN)
 
-#if defined(LIBIPC_CPP_20)
-LIBIPC_DEF_CVT_CSTR_(char8_t , char8_t)
-LIBIPC_DEF_CVT_CSTR_(char8_t , char)
-LIBIPC_DEF_CVT_CSTR_(char8_t , char16_t)
-LIBIPC_DEF_CVT_CSTR_(char8_t , char32_t)
-LIBIPC_DEF_CVT_CSTR_(char    , char8_t)
-LIBIPC_DEF_CVT_CSTR_(char16_t, char8_t)
-LIBIPC_DEF_CVT_CSTR_(char32_t, char8_t)
-#if !defined(LIBIPC_OS_WIN)
-LIBIPC_DEF_CVT_CSTR_(char8_t , wchar_t)
-LIBIPC_DEF_CVT_CSTR_(wchar_t , char8_t)
-#endif // !defined(LIBIPC_OS_WIN)
-#endif // defined(LIBIPC_CPP_20)
+#if defined(THOTH_IPC_CPP_20)
+THOTH_IPC_DEF_CVT_CSTR_(char8_t , char8_t)
+THOTH_IPC_DEF_CVT_CSTR_(char8_t , char)
+THOTH_IPC_DEF_CVT_CSTR_(char8_t , char16_t)
+THOTH_IPC_DEF_CVT_CSTR_(char8_t , char32_t)
+THOTH_IPC_DEF_CVT_CSTR_(char    , char8_t)
+THOTH_IPC_DEF_CVT_CSTR_(char16_t, char8_t)
+THOTH_IPC_DEF_CVT_CSTR_(char32_t, char8_t)
+#if !defined(THOTH_IPC_OS_WIN)
+THOTH_IPC_DEF_CVT_CSTR_(char8_t , wchar_t)
+THOTH_IPC_DEF_CVT_CSTR_(wchar_t , char8_t)
+#endif // !defined(THOTH_IPC_OS_WIN)
+#endif // defined(THOTH_IPC_CPP_20)
 
-#undef LIBIPC_DEF_CVT_CSTR_
+#undef THOTH_IPC_DEF_CVT_CSTR_
 
 } // namespace ipc

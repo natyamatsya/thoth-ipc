@@ -10,7 +10,7 @@
 
 namespace ipc {
 
-class LIBIPC_EXPORT buffer {
+class THOTH_IPC_EXPORT buffer {
 public:
     using destructor_t = void (*)(void*, std::size_t);
 
@@ -59,8 +59,8 @@ public:
         };
     }
 
-    friend LIBIPC_EXPORT bool operator==(buffer const & b1, buffer const & b2);
-    friend LIBIPC_EXPORT bool operator!=(buffer const & b1, buffer const & b2);
+    friend THOTH_IPC_EXPORT bool operator==(buffer const & b1, buffer const & b2);
+    friend THOTH_IPC_EXPORT bool operator!=(buffer const & b1, buffer const & b2);
 
 private:
     class buffer_;

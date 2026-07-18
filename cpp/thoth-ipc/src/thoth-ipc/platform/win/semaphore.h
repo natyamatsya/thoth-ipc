@@ -29,7 +29,7 @@ public:
     }
 
     bool open(char const *name, std::uint32_t count) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         close();
         h_ = ::CreateSemaphore(detail::get_sa(),
                                static_cast<LONG>(count), LONG_MAX,
@@ -55,7 +55,7 @@ public:
     }
 
     bool wait(std::uint64_t tm) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         DWORD ret, ms = (tm == invalid_value) ? INFINITE : static_cast<DWORD>(tm);
         switch ((ret = ::WaitForSingleObject(h_, ms))) {
         case WAIT_OBJECT_0:
@@ -70,7 +70,7 @@ public:
     }
 
     bool post(std::uint32_t count) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!::ReleaseSemaphore(h_, static_cast<LONG>(count), NULL)) {
             log.error("fail ReleaseSemaphore[", ::GetLastError(), "]");
             return false;

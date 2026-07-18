@@ -47,7 +47,7 @@ TEST(generic, horrible_cast) {
 
   EXPECT_EQ(b.a_[1], 0);
   EXPECT_EQ(b.a_[2], 0);
-#if LIBIPC_ENDIAN_LIT
+#if THOTH_IPC_ENDIAN_LIT
   EXPECT_EQ(b.a_[0], 123);
   EXPECT_EQ(b.a_[3], 0);
 #else
@@ -55,20 +55,20 @@ TEST(generic, horrible_cast) {
   EXPECT_EQ(b.a_[0], 0);
 #endif
 
-#if LIBIPC_ENDIAN_LIT
+#if THOTH_IPC_ENDIAN_LIT
   EXPECT_EQ(ipc::horrible_cast<std::uint32_t>(0xff00'0000'0001ll), 1);
 #else
   EXPECT_EQ(ipc::horrible_cast<std::uint32_t>(0xff00'0000'0001ll), 0xff00);
 #endif
 }
 
-#if defined(LIBIPC_CPP_17)
+#if defined(THOTH_IPC_CPP_17)
 TEST(generic, in_place) {
   EXPECT_TRUE((std::is_same<std::in_place_t, ipc::in_place_t>::value));
   [](ipc::in_place_t) {}(std::in_place);
   [](std::in_place_t) {}(ipc::in_place);
 }
-#endif/*LIBIPC_CPP_17*/
+#endif/*THOTH_IPC_CPP_17*/
 
 TEST(generic, copy_cvref) {
   EXPECT_TRUE((std::is_same<ipc::copy_cvref_t<int   , long>, long   >()));

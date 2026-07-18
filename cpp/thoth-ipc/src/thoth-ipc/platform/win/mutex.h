@@ -32,7 +32,7 @@ public:
     }
 
     bool open(char const *name) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         close();
         h_ = ::CreateMutex(detail::get_sa(), FALSE, detail::to_tchar(detail::win_object_name(name)).c_str());
         if (h_ == NULL) {
@@ -56,7 +56,7 @@ public:
     }
 
     bool lock(std::uint64_t tm) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         DWORD ret, ms = (tm == invalid_value) ? INFINITE : static_cast<DWORD>(tm);
         for(;;) {
             switch ((ret = ::WaitForSingleObject(h_, ms))) {
@@ -78,7 +78,7 @@ public:
     }
 
     bool try_lock() noexcept(false) {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         DWORD ret = ::WaitForSingleObject(h_, 0);
         switch (ret) {
         case WAIT_OBJECT_0:
@@ -87,7 +87,7 @@ public:
             return false;
         case WAIT_ABANDONED:
             unlock();
-            LIBIPC_FALLTHROUGH;
+            THOTH_IPC_FALLTHROUGH;
         default:
             log.error("fail WaitForSingleObject[", ::GetLastError(), "]: ", ipc::spec("#x")(ret));
             throw std::system_error{static_cast<int>(ret), std::system_category()};
@@ -95,7 +95,7 @@ public:
     }
 
     bool unlock() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!::ReleaseMutex(h_)) {
             log.error("fail ReleaseMutex[", ::GetLastError(), "]");
             return false;

@@ -12,7 +12,7 @@ path = "src/lib.rs"
 
 [features]
 # Layer 1: expose a per-receiver readiness handle signalled on enqueue (byte-exact
-# with C++ LIBIPC_NOTIFY_FD) so a Rust send() wakes a C++ async_recv reactor.
+# with C++ THOTH_IPC_NOTIFY_FD) so a Rust send() wakes a C++ async_recv reactor.
 # Zero cost when off. macOS uses libnotify; other POSIX uses named FIFOs.
 notify = []
 # Force the portable POSIX FIFO notify backend even on macOS (default is libnotify).
@@ -23,7 +23,7 @@ notify_fifo = ["notify"]
 async-tokio = ["notify", "dep:tokio"]
 # Windows only: name shared kernel objects in the `Global\` namespace (session 0 —
 # services / cross-session) instead of the default session-local `Local\`. Must
-# match the C++ `LIBIPC_WIN_OBJ_NAMESPACE` at build time. No effect on non-Windows.
+# match the C++ `THOTH_IPC_WIN_OBJ_NAMESPACE` at build time. No effect on non-Windows.
 win-global = []
 bump_alloc = ["dep:bumpalo"]
 slab_pool = ["dep:slab"]

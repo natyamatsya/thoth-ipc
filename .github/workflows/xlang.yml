@@ -35,7 +35,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y g++-14 libssl-dev
     - name: Build C++ harness (secure codec enabled)
       run: |
-        cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_SECURE_OPENSSL=ON .
+        cmake -DCMAKE_BUILD_TYPE=Release -DTHOTH_IPC_BUILD_TESTS=ON -DTHOTH_IPC_SECURE_OPENSSL=ON .
         make xlang_ipc -j
       working-directory: cpp/thoth-ipc
       env:
@@ -45,7 +45,7 @@ jobs:
       run: cargo build --release --bin xlang --features secure-crypto-openssl,codec-protobuf
       working-directory: rust/thoth-ipc
       env:
-        LIBIPC_OPENSSL_PREFIX: /usr
+        THOTH_IPC_OPENSSL_PREFIX: /usr
     - name: Build matrix runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
     # No --scenario filter: every scenario with participants runs (async has
@@ -77,8 +77,8 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
     - name: Build C++ harness (secure codec enabled)
       run: |
-        cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON \
-              -DLIBIPC_SECURE_OPENSSL=ON \
+        cmake -DCMAKE_BUILD_TYPE=Release -DTHOTH_IPC_BUILD_TESTS=ON \
+              -DTHOTH_IPC_SECURE_OPENSSL=ON \
               -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" .
         make xlang_ipc -j
       working-directory: cpp/thoth-ipc
@@ -86,13 +86,13 @@ jobs:
       run: cargo build --release --bin xlang --features secure-crypto-openssl,codec-protobuf
       working-directory: rust/thoth-ipc
       env:
-        LIBIPC_OPENSSL_PREFIX: /opt/homebrew/opt/openssl@3
+        THOTH_IPC_OPENSSL_PREFIX: /opt/homebrew/opt/openssl@3
     - name: Build Swift harness (secure codec enabled)
       run: swift build -c release --product xlang-harness
       working-directory: swift/thoth-ipc
       env:
-        LIBIPC_SECURE_OPENSSL: "1"
-        LIBIPC_OPENSSL_PREFIX: /opt/homebrew/opt/openssl@3
+        THOTH_IPC_SECURE_OPENSSL: "1"
+        THOTH_IPC_OPENSSL_PREFIX: /opt/homebrew/opt/openssl@3
     # Zig is a fourth, independent native port. v1 covers the core transport
     # (sync + fanout); it advertises no caps, so the runner plans it around the
     # scenarios it does not yet join (primitives/typed/secure/async/channel).
@@ -139,7 +139,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y g++-14
     - name: Build C++ async harness (FIFO notify backend)
       run: |
-        cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_STDEXEC=ON .
+        cmake -DCMAKE_BUILD_TYPE=Release -DTHOTH_IPC_BUILD_TESTS=ON -DTHOTH_IPC_STDEXEC=ON .
         make xasync xcoro -j
       working-directory: cpp/thoth-ipc
       env:
@@ -177,7 +177,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
     - name: Build C++ async harness (libnotify backend)
       run: |
-        cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_STDEXEC=ON .
+        cmake -DCMAKE_BUILD_TYPE=Release -DTHOTH_IPC_BUILD_TESTS=ON -DTHOTH_IPC_STDEXEC=ON .
         make xasync xcoro -j
       working-directory: cpp/thoth-ipc
     - name: Build Rust async harness
@@ -234,7 +234,7 @@ jobs:
       run: choco install openssl --no-progress -y
     - name: Build C++ harness (MSVC, secure codec enabled)
       run: |
-        cmake -B build -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_SECURE_OPENSSL=ON \
+        cmake -B build -DTHOTH_IPC_BUILD_TESTS=ON -DTHOTH_IPC_SECURE_OPENSSL=ON \
               -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL-Win64"
         cmake --build build --config Release --target xlang_ipc
       working-directory: cpp/thoth-ipc
@@ -242,7 +242,7 @@ jobs:
       run: cargo build --release --bin xlang --features secure-crypto-openssl,codec-protobuf
       working-directory: rust/thoth-ipc
       env:
-        LIBIPC_OPENSSL_PREFIX: C:/Program Files/OpenSSL-Win64
+        THOTH_IPC_OPENSSL_PREFIX: C:/Program Files/OpenSSL-Win64
     - name: Build matrix runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
     # No --scenario filter: every scenario with participants runs.
@@ -280,7 +280,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
     - name: Build C++ async harness (named-Event backend)
       run: |
-        cmake -B build -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_STDEXEC=ON
+        cmake -B build -DTHOTH_IPC_BUILD_TESTS=ON -DTHOTH_IPC_STDEXEC=ON
         cmake --build build --config Release --target xasync xcoro
       working-directory: cpp/thoth-ipc
     - name: Build Rust async harness

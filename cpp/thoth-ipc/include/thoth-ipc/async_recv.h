@@ -17,12 +17,12 @@
 //
 // A single process-global reactor thread (ipc::detail::reactor) multiplexes
 // every async channel's Layer-1 fd, so N channels cost one thread instead of N.
-// Only available when libipc is built with LIBIPC_STDEXEC (which also enables
-// LIBIPC_NOTIFY_FD).
+// Only available when libipc is built with THOTH_IPC_STDEXEC (which also enables
+// THOTH_IPC_NOTIFY_FD).
 
 #include "thoth-ipc/imp/detect_plat.h"
 
-#if defined(LIBIPC_STDEXEC)
+#if defined(THOTH_IPC_STDEXEC)
 
 #include <atomic>
 #include <expected>
@@ -149,7 +149,7 @@ struct read_sender {
  *        blocking thread.
  *
  * \param channel  A receiver-mode ipc::route/ipc::channel exposing a readiness
- *                 handle (libipc built with LIBIPC_NOTIFY_FD).
+ *                 handle (libipc built with THOTH_IPC_NOTIFY_FD).
  * \param on       Scheduler the completion is delivered on.
  * \returns A sender completing set_value(ipc::recv_result) / set_stopped(). The
  *          error channel is pruned; failures arrive as recv_errc in the value.
@@ -179,4 +179,4 @@ stdexec::sender auto async_recv(ipc::route &channel, Scheduler on, R &reactor) {
 
 } // namespace ipc
 
-#endif // LIBIPC_STDEXEC
+#endif // THOTH_IPC_STDEXEC

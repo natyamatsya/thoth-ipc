@@ -20,12 +20,12 @@ namespace ipc {
 namespace mem {
 
 /**
- * \class LIBIPC_EXPORT new_delete_resource
+ * \class THOTH_IPC_EXPORT new_delete_resource
  * \brief A memory resource that uses the 
  *        standard memory allocation and deallocation interface to allocate memory.
  * \see https://en.cppreference.com/w/cpp/memory/new_delete_resource
  */
-class LIBIPC_EXPORT new_delete_resource {
+class THOTH_IPC_EXPORT new_delete_resource {
 public:
   /// \brief Returns a pointer to a `new_delete_resource`.
   static new_delete_resource *get() noexcept;
@@ -41,12 +41,12 @@ public:
 };
 
 /**
- * \class LIBIPC_EXPORT monotonic_buffer_resource
+ * \class THOTH_IPC_EXPORT monotonic_buffer_resource
  * \brief A special-purpose memory resource class 
  *        that releases the allocated memory only when the resource is destroyed.
  * \see https://en.cppreference.com/w/cpp/memory/monotonic_buffer_resource
  */
-class LIBIPC_EXPORT monotonic_buffer_resource {
+class THOTH_IPC_EXPORT monotonic_buffer_resource {
 
   bytes_allocator upstream_;
 

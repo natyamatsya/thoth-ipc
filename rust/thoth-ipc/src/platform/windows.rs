@@ -33,7 +33,7 @@ fn to_wide(s: &str) -> Vec<u16> {
 /// Compile-time Windows object namespace (default `Local`, the session-local
 /// `BaseNamedObjects`). Enable the `win-global` feature to target `Global\`
 /// (session 0 — services / cross-session). Must match the C++ side's
-/// `LIBIPC_WIN_OBJ_NS` at build time so C++ and Rust name the same kernel
+/// `THOTH_IPC_WIN_OBJ_NS` at build time so C++ and Rust name the same kernel
 /// objects.
 #[cfg(feature = "win-global")]
 pub(crate) const WIN_OBJ_NS: &str = "Global";

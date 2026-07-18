@@ -4,7 +4,7 @@
 // Cross-language ASYNC round-trip harness (C++ endpoint, Layer 2). Same uniform
 // CLI as xlang_ipc, but the reader uses ipc::async_recv() — the stdexec sender +
 // process-global reactor woken by the Layer-1 notify fd — instead of a blocking
-// recv(). Built only when LIBIPC_STDEXEC (which implies LIBIPC_NOTIFY_FD) is on.
+// recv(). Built only when THOTH_IPC_STDEXEC (which implies THOTH_IPC_NOTIFY_FD) is on.
 //
 //   xasync write <name> <count> <size>   send <count> pattern messages (posts notify)
 //   xasync aread <name> <count> <size>   async_recv+verify; exit 0 iff all match
@@ -49,7 +49,7 @@ int do_recv(const char* name, int count, std::size_t size) {
     ipc::route r{name, ipc::receiver};
     if (!r.valid()) { std::fprintf(stderr, "[cpp-async] connect(receiver) failed\n"); return 3; }
     if (r.native_wait_handle() == ipc::invalid_wait_handle) {
-        std::fprintf(stderr, "[cpp-async] no readiness handle (build without LIBIPC_NOTIFY_FD?)\n");
+        std::fprintf(stderr, "[cpp-async] no readiness handle (build without THOTH_IPC_NOTIFY_FD?)\n");
         return 8;
     }
     exec::static_thread_pool pool{1};
@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
     std::string verb = argv[1];
     const char* name = argv[2];
     if (verb == "clear") { ipc::route::clear_storage(name); return 0; }
-    // Built with LIBIPC_STDEXEC (⇒ LIBIPC_NOTIFY_FD): posts notify + async_recv.
+    // Built with THOTH_IPC_STDEXEC (⇒ THOTH_IPC_NOTIFY_FD): posts notify + async_recv.
     if (verb == "caps") { std::printf("notify async\n"); return 0; }
     if (argc < 5) { std::fprintf(stderr, "write/aread need <count> <size>\n"); return 1; }
     int count = std::atoi(argv[3]);

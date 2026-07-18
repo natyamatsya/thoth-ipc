@@ -28,8 +28,8 @@ namespace sys {
  * \see https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-formatmessage
  */
 std::string error_string(DWORD code) noexcept {
-  LIBIPC_LOG();
-  LIBIPC_TRY {
+  THOTH_IPC_LOG();
+  THOTH_IPC_TRY {
     LPTSTR lpErrText = NULL;
     if (::FormatMessage(
           FORMAT_MESSAGE_ALLOCATE_BUFFER | 
@@ -43,7 +43,7 @@ std::string error_string(DWORD code) noexcept {
       log.error("failed: FormatMessage(dwMessageId = ", code, "). error = ", ::GetLastError());
       return {};
     }
-    LIBIPC_SCOPE_EXIT(finally) = [lpErrText] { ::LocalFree(lpErrText); };
+    THOTH_IPC_SCOPE_EXIT(finally) = [lpErrText] { ::LocalFree(lpErrText); };
     std::size_t msg_len = ::_tcslen(lpErrText);
     std::size_t len = cvt_cstr(lpErrText, msg_len, (char *)nullptr, 0);
     if (len == 0) {
@@ -52,7 +52,7 @@ std::string error_string(DWORD code) noexcept {
     std::string ret(len, '\0');
     cvt_cstr(lpErrText, msg_len, &ret[0], ret.size());
     return ret;
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     log.error("failed: FormatMessage(dwMessageId = ", code, ").",
               "\n\texception: ", log::exception_string(std::current_exception()));
   }
@@ -74,7 +74,7 @@ std::error_code error() noexcept {
  *      https://docs.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getnativesysteminfo
  */
 result<std::int64_t> conf(info r) noexcept {
-  LIBIPC_LOG();
+  THOTH_IPC_LOG();
   switch (r) {
   case info::page_size: {
     ::SYSTEM_INFO info{};

@@ -241,7 +241,7 @@ using secure_capnp_route =
 using secure_capnp_builder = ipc::proto::secure_builder<ipc::proto::capnp_codec, aead_xor_cipher>;
 using secure_fail_open_codec = ipc::proto::secure_codec<fake_inner_codec, aead_xor_cipher_open_failure>;
 
-#ifdef LIBIPC_SECURE_OPENSSL
+#ifdef THOTH_IPC_SECURE_OPENSSL
 struct openssl_test_key_provider {
     static constexpr std::uint32_t key_id() {
         return 0x0A0B0C0Du;
@@ -297,14 +297,14 @@ struct openssl_mismatched_key_id_provider {
 };
 
 using secure_openssl_cipher =
-    ipc::proto::secure_openssl_evp_cipher<LIBIPC_SECURE_ALG_AES_256_GCM, openssl_test_key_provider>;
+    ipc::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, openssl_test_key_provider>;
 using secure_openssl_codec = ipc::proto::secure_codec<ipc::proto::protobuf_codec, secure_openssl_cipher>;
 using secure_openssl_wrong_key_cipher =
-    ipc::proto::secure_openssl_evp_cipher<LIBIPC_SECURE_ALG_AES_256_GCM, openssl_wrong_key_provider>;
+    ipc::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, openssl_wrong_key_provider>;
 using secure_openssl_wrong_key_codec =
     ipc::proto::secure_codec<ipc::proto::protobuf_codec, secure_openssl_wrong_key_cipher>;
 using secure_openssl_mismatched_key_id_cipher =
-    ipc::proto::secure_openssl_evp_cipher<LIBIPC_SECURE_ALG_AES_256_GCM, openssl_mismatched_key_id_provider>;
+    ipc::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, openssl_mismatched_key_id_provider>;
 using secure_openssl_mismatched_key_id_codec =
     ipc::proto::secure_codec<ipc::proto::protobuf_codec, secure_openssl_mismatched_key_id_cipher>;
 #endif
@@ -330,7 +330,7 @@ static_assert(std::is_default_constructible_v<secure_protobuf_channel>);
 static_assert(std::is_default_constructible_v<secure_protobuf_route>);
 static_assert(std::is_default_constructible_v<secure_capnp_channel>);
 static_assert(std::is_default_constructible_v<secure_capnp_route>);
-#ifdef LIBIPC_SECURE_OPENSSL
+#ifdef THOTH_IPC_SECURE_OPENSSL
 static_assert(ipc::proto::secure_cipher_aead<secure_openssl_cipher>);
 #endif
 
@@ -476,7 +476,7 @@ TEST(SecureCodec, ComposesWithProtobufCodec) {
     EXPECT_EQ(decoded->value(), plain_message.value());
 }
 
-#ifdef LIBIPC_SECURE_OPENSSL
+#ifdef THOTH_IPC_SECURE_OPENSSL
 TEST(SecureCodec, OpenSslEvpAes256GcmRoundTrip) {
     fake_proto_message plain_message;
     plain_message.value_ = 0x10203040u;

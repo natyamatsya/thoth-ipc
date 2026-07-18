@@ -27,7 +27,7 @@ namespace ipc {
 // Overload for zero arguments - use value initialization
 template <typename T>
 T* construct(void *p) {
-#if defined(LIBIPC_CPP_20)
+#if defined(THOTH_IPC_CPP_20)
   return std::construct_at(static_cast<T *>(p));
 #else
   return ::new (p) T();
@@ -38,7 +38,7 @@ T* construct(void *p) {
 template <typename T, typename A1, typename... A>
 auto construct(void *p, A1 &&arg1, A &&...args)
   -> std::enable_if_t<::std::is_constructible<T, A1, A...>::value, T *> {
-#if defined(LIBIPC_CPP_20)
+#if defined(THOTH_IPC_CPP_20)
   return std::construct_at(static_cast<T *>(p), std::forward<A1>(arg1), std::forward<A>(args)...);
 #else
   return ::new (p) T(std::forward<A1>(arg1), std::forward<A>(args)...);
@@ -60,7 +60,7 @@ auto construct(void *p, A1 &&arg1, A &&...args)
 template <typename T>
 void *destroy(T *p) noexcept {
   if (p == nullptr) return nullptr;
-#if defined(LIBIPC_CPP_17)
+#if defined(THOTH_IPC_CPP_17)
   std::destroy_at(p);
 #else
   p->~T();
@@ -76,9 +76,9 @@ inline void *destroy<void>(void *p) noexcept {
 template <typename T, std::size_t N>
 void *destroy(T (*p)[N]) noexcept {
   if (p == nullptr) return nullptr;
-#if defined(LIBIPC_CPP_20)
+#if defined(THOTH_IPC_CPP_20)
   std::destroy_at(p);
-#elif defined(LIBIPC_CPP_17)
+#elif defined(THOTH_IPC_CPP_17)
   std::destroy(std::begin(*p), std::end(*p));
 #else
   for (auto &elem : *p) destroy(std::addressof(elem));
@@ -92,7 +92,7 @@ void *destroy(T (*p)[N]) noexcept {
 */
 template <typename ForwardIt>
 void destroy(ForwardIt first, ForwardIt last) noexcept {
-#if defined(LIBIPC_CPP_17)
+#if defined(THOTH_IPC_CPP_17)
   std::destroy(first, last);
 #else
   for (; first != last; ++first) {
@@ -107,7 +107,7 @@ void destroy(ForwardIt first, ForwardIt last) noexcept {
 */
 template <typename ForwardIt, typename Size>
 ForwardIt destroy_n(ForwardIt first, Size n) noexcept {
-#if defined(LIBIPC_CPP_17)
+#if defined(THOTH_IPC_CPP_17)
   return std::destroy_n(first, n);
 #else
   for (; n > 0; (void) ++first, --n)
@@ -123,18 +123,18 @@ ForwardIt destroy_n(ForwardIt first, Size n) noexcept {
 */
 template <typename ForwardIt, typename Size>
 ForwardIt uninitialized_default_construct_n(ForwardIt first, Size n) {
-#if defined(LIBIPC_CPP_17)
+#if defined(THOTH_IPC_CPP_17)
   return std::uninitialized_default_construct_n(first, n);
 #else
   using T = typename std::iterator_traits<ForwardIt>::value_type;
   ForwardIt current = first;
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     for (; n > 0; (void) ++current, --n)
       ::new (horrible_cast<void *>(std::addressof(*current))) T;
     return current;
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     destroy(first, current);
-    LIBIPC_THROW(, first);
+    THOTH_IPC_THROW(, first);
   }
 #endif
 }
@@ -146,18 +146,18 @@ ForwardIt uninitialized_default_construct_n(ForwardIt first, Size n) {
 template <typename InputIt, typename Size, typename NoThrowForwardIt>
 auto uninitialized_move_n(InputIt first, Size count, NoThrowForwardIt d_first)
   -> std::pair<InputIt, NoThrowForwardIt> {
-#if defined(LIBIPC_CPP_17)
+#if defined(THOTH_IPC_CPP_17)
   return std::uninitialized_move_n(first, count, d_first);
 #else
   using Value = typename std::iterator_traits<NoThrowForwardIt>::value_type;
   NoThrowForwardIt current = d_first;
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     for (; count > 0; ++first, (void) ++current, --count) {
       ::new (static_cast<void *>(std::addressof(*current))) Value(std::move(*first));
     }
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     destroy(d_first, current);
-    LIBIPC_THROW(, {first, d_first});
+    THOTH_IPC_THROW(, {first, d_first});
   }
   return {first, current};
 #endif

@@ -87,7 +87,7 @@ public:
     : ret_(base_t::init_code(std::forward<A>(args)...)) {}
 
   std::string format_string() const {
-    if LIBIPC_LIKELY(ret_) {
+    if THOTH_IPC_LIKELY(ret_) {
       return fmt("value = ", ret_.value());
     } else {
       return fmt("error = ", ret_.error());

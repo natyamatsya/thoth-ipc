@@ -76,7 +76,7 @@ class mutex {
             return nullptr;
         }
         auto &info = curr_prog::get();
-        LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+        THOTH_IPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
         auto it = info.mutex_handles.find(name);
         curr_prog::shm_data *node = nullptr;
         if (it == info.mutex_handles.end()) {
@@ -141,7 +141,7 @@ public:
     }
 
     bool open(char const *name) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         close();
         if ((mutex_ = acquire_mutex(name)) == nullptr) {
             return false;
@@ -159,7 +159,7 @@ public:
             log.error("fail pthread_mutexattr_init[", eno, "]");
             return false;
         }
-        LIBIPC_UNUSED auto guard_mutex_attr = guard([&mutex_attr] { ::pthread_mutexattr_destroy(&mutex_attr); });
+        THOTH_IPC_UNUSED auto guard_mutex_attr = guard([&mutex_attr] { ::pthread_mutexattr_destroy(&mutex_attr); });
         if ((eno = ::pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED)) != 0) {
             log.error("fail pthread_mutexattr_setpshared[", eno, "]");
             return false;
@@ -178,11 +178,11 @@ public:
     }
 
     void close() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if ((ref_ != nullptr) && (shm_ != nullptr) && (mutex_ != nullptr) && (node_ != nullptr)) {
             if (shm_->name() != nullptr) {
                 auto &info = curr_prog::get();
-                LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+                THOTH_IPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
                 auto self_ref = ref_->fetch_sub(1, std::memory_order_relaxed);
                 if ((shm_->ref() <= 1) && (self_ref <= 1)) {
                     // Before destroying the mutex, try to unlock it.
@@ -211,11 +211,11 @@ public:
     }
 
     void clear() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if ((shm_ != nullptr) && (mutex_ != nullptr) && (node_ != nullptr)) {
             if (shm_->name() != nullptr) {
                 auto &info = curr_prog::get();
-                LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+                THOTH_IPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
                 // Unlock before destroying, same reasoning as in close()
                 ::pthread_mutex_unlock(mutex_);
 
@@ -239,11 +239,11 @@ public:
     // fresh node, exactly as a new opener in another process would. The global
     // name is always unlinked. See context/refcount-aware-clear-storage-rfc.md.
     static void clear_storage(char const *name) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (name == nullptr) return;
         {
             auto &info = curr_prog::get();
-            LIBIPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+            THOTH_IPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
             auto it = info.mutex_handles.find(name);
             if (it != info.mutex_handles.end()) {
                 auto *node = it->second;
@@ -264,7 +264,7 @@ public:
     }
 
     bool lock(std::uint64_t tm) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         for (;;) {
             auto ts = posix_::detail::make_timespec(tm);
@@ -296,7 +296,7 @@ public:
     }
 
     bool try_lock() noexcept(false) {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         auto ts = posix_::detail::make_timespec(0);
         int eno = ::pthread_mutex_timedlock(mutex_, &ts);
@@ -325,7 +325,7 @@ public:
     }
 
     bool unlock() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         int eno;
         if ((eno = ::pthread_mutex_unlock(mutex_)) != 0) {

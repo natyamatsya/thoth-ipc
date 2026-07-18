@@ -38,17 +38,17 @@ Because macOS restricts certain high-performance APIs (like `ulock`) from the Ma
 * [x] Rewrote `ipc::detail::sync::mutex` (`platform/apple/mutex.h`) — 32-bit word-lock (0=unlocked, 1=locked, 2=locked+waiters), eliminates `pthread_mutex_t` and all `sleep_for` polling. Dead-holder recovery preserved via PID liveness check.
 * [x] Created `src/libipc/platform/apple/condition.h` — sequence-counter condvar using `__ulock_wait/wake`, eliminates `pthread_cond_t`.
 * [x] Rewrote `src/libipc/platform/apple/semaphore_impl.h` — atomic count + `__ulock_wait/wake`, eliminates `sem_t` and 100µs polling loop.
-* [x] Updated `sync/condition.cpp` to select `apple/condition.h` on `LIBIPC_OS_APPLE`.
+* [x] Updated `sync/condition.cpp` to select `apple/condition.h` on `THOTH_IPC_OS_APPLE`.
 * [x] All 254 C++ unit tests pass.
 * [ ] Run `bench_ipc` and record latency improvement vs. baseline.
-* [ ] Update CMake to enable/disable the `ulock` backend via a flag (e.g., `LIBIPC_APPLE_APP_STORE_SAFE=OFF`).
+* [ ] Update CMake to enable/disable the `ulock` backend via a flag (e.g., `THOTH_IPC_APPLE_APP_STORE_SAFE=OFF`).
 
 ### Phase 3: Implement Mach Semaphore Backend ✅
 
 * [x] Created `platform/apple/mach/mutex.h` — word-lock + `semaphore_t` (SYNC_POLICY_FIFO) for blocking. Process-local semaphore table keyed by shm name.
 * [x] Created `platform/apple/mach/condition.h` — sequence counter in shm + `semaphore_t` per process. `broadcast` uses `semaphore_signal_all`.
 * [x] Created `platform/apple/mach/semaphore_impl.h` — atomic count in shm + `semaphore_t` for blocking. Eliminates all polling.
-* [x] Added `LIBIPC_APPLE_APP_STORE_SAFE` CMake option (default OFF) that switches all three sync primitives to the Mach backend.
+* [x] Added `THOTH_IPC_APPLE_APP_STORE_SAFE` CMake option (default OFF) that switches all three sync primitives to the Mach backend.
 * [x] Both backends build and pass all 254 tests.
 
 ### Phase 4: Spinlock Tuning ✅

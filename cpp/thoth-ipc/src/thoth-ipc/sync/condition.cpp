@@ -6,17 +6,17 @@
 #include "thoth-ipc/mem/resource.h"
 #include "thoth-ipc/platform/detail.h"
 #include "thoth-ipc/sync/sync_abi.h"
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
 #include "thoth-ipc/platform/win/condition.h"
-#elif defined(LIBIPC_OS_LINUX)
+#elif defined(THOTH_IPC_OS_LINUX)
 #include "thoth-ipc/platform/linux/condition.h"
-#elif defined(LIBIPC_OS_APPLE)
-#  if defined(LIBIPC_APPLE_APP_STORE_SAFE)
+#elif defined(THOTH_IPC_OS_APPLE)
+#  if defined(THOTH_IPC_APPLE_APP_STORE_SAFE)
 #    include "thoth-ipc/platform/apple/mach/condition.h"
 #  else
 #    include "thoth-ipc/platform/apple/condition.h"
 #  endif
-#elif defined(LIBIPC_OS_QNX) || defined(LIBIPC_OS_FREEBSD)
+#elif defined(THOTH_IPC_OS_QNX) || defined(THOTH_IPC_OS_FREEBSD)
 #include "thoth-ipc/platform/posix/condition.h"
 #else/*IPC_OS*/
 #   error "Unsupported platform."
@@ -58,7 +58,7 @@ bool condition::valid() const noexcept {
 }
 
 bool condition::open(char const *name) noexcept {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (!is_valid_string(name)) {
         log.error("fail condition open: name is empty");
         return false;

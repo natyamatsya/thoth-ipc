@@ -33,15 +33,15 @@ struct types {};
  * \brief To indicate that the contained object should be constructed in-place.
  * \see https://en.cppreference.com/w/cpp/utility/in_place
  */
-#if defined(LIBIPC_CPP_17)
+#if defined(THOTH_IPC_CPP_17)
 using std::in_place_t;
 using std::in_place;
-#else /*!LIBIPC_CPP_17*/
+#else /*!THOTH_IPC_CPP_17*/
 struct in_place_t {
   explicit in_place_t() = default;
 };
 constexpr in_place_t in_place{};
-#endif/*!LIBIPC_CPP_17*/
+#endif/*!THOTH_IPC_CPP_17*/
 
 /**
  * \brief A general pattern for supporting customisable functions

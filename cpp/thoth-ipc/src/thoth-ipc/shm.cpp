@@ -69,7 +69,7 @@ void handle::sub_ref() noexcept {
 }
 
 bool handle::acquire(char const * name, std::size_t size, unsigned mode) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (!is_valid_string(name)) {
         log.error("fail acquire: name is empty");
         return false;
@@ -107,7 +107,7 @@ bool handle::can_grow() noexcept {
 }
 
 bool handle::grow(std::size_t size) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (size == 0) {
         log.error("fail grow: size is 0");
         return false;

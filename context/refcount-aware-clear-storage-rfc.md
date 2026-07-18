@@ -76,7 +76,7 @@ than destroy) cache entries that still have live users:
 
 1. If the cache entry for `name` has `ref == 0` (or does not exist):
    behavior unchanged — erase and unlink.
-2. If `ref > 0`: log a warning (`LIBIPC_LOG`), **move the node out of the
+2. If `ref > 0`: log a warning (`THOTH_IPC_LOG`), **move the node out of the
    by-name map into an orphan list**, and still unlink the global backing.
    The live handles keep their intact mapping and ref counter; a subsequent
    `open(name)` in the same process misses the by-name map and creates a

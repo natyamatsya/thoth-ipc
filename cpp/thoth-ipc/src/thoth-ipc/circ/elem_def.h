@@ -33,7 +33,7 @@ public:
     void init() {
         /* DCLP */
         if (!constructed_.load(std::memory_order_acquire)) {
-            LIBIPC_UNUSED auto guard = ipc::detail::unique_lock(lc_);
+            THOTH_IPC_UNUSED auto guard = ipc::detail::unique_lock(lc_);
             if (!constructed_.load(std::memory_order_relaxed)) {
                 ::new (this) conn_head_base;
                 constructed_.store(true, std::memory_order_release);

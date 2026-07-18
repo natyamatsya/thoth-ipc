@@ -8,15 +8,15 @@
 
 TEST(log, logger) {
   {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     log.info("hello");
   }
   {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     log.info("hello 2");
   }
   {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     log.info("hello ", 3);
   }
   SUCCEED();
@@ -34,7 +34,7 @@ TEST(log, custom) {
     if (ctx.level == ipc::log::level::info ) ll_data.i += s + " ";
   };
 
-  LIBIPC_LOG(ll);
+  THOTH_IPC_LOG(ll);
 
   log.info ("hello", " world");
   log.error("failed", ":");

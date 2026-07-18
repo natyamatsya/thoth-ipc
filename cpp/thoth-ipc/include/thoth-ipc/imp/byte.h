@@ -16,8 +16,8 @@
 #include "thoth-ipc/imp/span.h"
 #include "thoth-ipc/imp/fmt.h"
 
-#if defined(LIBIPC_CPP_17) && defined(__cpp_lib_byte)
-#define LIBIPC_CPP_LIB_BYTE_
+#if defined(THOTH_IPC_CPP_17) && defined(__cpp_lib_byte)
+#define THOTH_IPC_CPP_LIB_BYTE_
 #endif // __cpp_lib_byte
 
 namespace ipc {
@@ -51,23 +51,23 @@ public:
   constexpr byte(T v) noexcept
     : bits_(static_cast<std::uint8_t>(v)) {}
 
-#ifdef LIBIPC_CPP_LIB_BYTE_
+#ifdef THOTH_IPC_CPP_LIB_BYTE_
   constexpr byte(std::byte b) noexcept
     : byte(std::to_integer<std::uint8_t>(b)) {}
-#endif // LIBIPC_CPP_LIB_BYTE_
+#endif // THOTH_IPC_CPP_LIB_BYTE_
 
   template <typename T, typename = detail_byte::is_integral<T>>
   constexpr operator T() const noexcept {
     return static_cast<T>(bits_);
   }
 
-#ifdef LIBIPC_CPP_LIB_BYTE_
+#ifdef THOTH_IPC_CPP_LIB_BYTE_
   constexpr operator std::byte() const noexcept {
     /// \brief C++17 relaxed enum class initialization rules.
     /// \see https://en.cppreference.com/w/cpp/language/enum#enum_relaxed_init_cpp17
     return std::byte{bits_};
   }
-#endif // LIBIPC_CPP_LIB_BYTE_
+#endif // THOTH_IPC_CPP_LIB_BYTE_
 
   friend bool operator==(byte const &lhs, byte const &rhs) noexcept {
     return lhs.bits_ == rhs.bits_;

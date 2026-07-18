@@ -29,7 +29,7 @@ pub struct SecureBlob {
 }
 
 unsafe extern "C" {
-    pub fn libipc_secure_aead_encrypt(
+    pub fn thoth_ipc_secure_aead_encrypt(
         algorithm: SecureAlgorithmId,
         key_data: *const u8,
         key_size: usize,
@@ -42,7 +42,7 @@ unsafe extern "C" {
         tag_out: *mut SecureBlob,
     ) -> SecureStatus;
 
-    pub fn libipc_secure_aead_decrypt(
+    pub fn thoth_ipc_secure_aead_decrypt(
         algorithm: SecureAlgorithmId,
         key_data: *const u8,
         key_size: usize,
@@ -57,7 +57,7 @@ unsafe extern "C" {
         plain_out: *mut SecureBlob,
     ) -> SecureStatus;
 
-    pub fn libipc_secure_blob_free(blob: *mut SecureBlob);
+    pub fn thoth_ipc_secure_blob_free(blob: *mut SecureBlob);
 
-    pub fn libipc_secure_crypto_available() -> u32;
+    pub fn thoth_ipc_secure_crypto_available() -> u32;
 }

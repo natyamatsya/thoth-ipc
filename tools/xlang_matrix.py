@@ -120,8 +120,8 @@ def check_async_caps(langs):
             have = " ".join(sorted(caps)) or "(none)"
             print(f"error: async matrix needs caps [notify, async] but harness "
                   f"'{name}' reports [{have}] — rebuild it with the notify/async "
-                  f"feature (Rust: `--features async-tokio`; C++: LIBIPC_STDEXEC or "
-                  f"LIBIPC_NOTIFY_FD).\n         {langs[name]}", file=sys.stderr)
+                  f"feature (Rust: `--features async-tokio`; C++: THOTH_IPC_STDEXEC or "
+                  f"THOTH_IPC_NOTIFY_FD).\n         {langs[name]}", file=sys.stderr)
     return ok
 
 

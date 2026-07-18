@@ -13,7 +13,7 @@
 | Label | Description |
 | --- | --- |
 | **C++ ulock** | New `__ulock_wait`/`__ulock_wake` backend (default, private Darwin API) |
-| **C++ Mach** | New `semaphore_t` backend (`-DLIBIPC_APPLE_APP_STORE_SAFE=ON`, public API) |
+| **C++ Mach** | New `semaphore_t` backend (`-DTHOTH_IPC_APPLE_APP_STORE_SAFE=ON`, public API) |
 | **Rust** | Pure Rust port (`rust/thoth-ipc`) using `parking_lot`-style ulock internally |
 
 ---
@@ -214,7 +214,7 @@ the **irreducible ulock condvar round-trip** when a receiver is genuinely sleepi
 | Scenario | Recommended backend |
 | --- | --- |
 | Default / highest throughput | **C++ ulock** (already default) |
-| Mac App Store distribution | **C++ Mach** (`LIBIPC_APPLE_APP_STORE_SAFE=ON`) |
+| Mac App Store distribution | **C++ Mach** (`THOTH_IPC_APPLE_APP_STORE_SAFE=ON`) |
 | Lowest possible latency | **Rust port** (non-blocking send, no kernel sleep) |
 
 ### Remaining optimisation opportunities

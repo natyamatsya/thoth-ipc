@@ -33,12 +33,12 @@ std::string demangle(std::string name) noexcept {
     std::free(buffer);
     return {};
   }
-  LIBIPC_SCOPE_EXIT(guard) = [realname] {
+  THOTH_IPC_SCOPE_EXIT(guard) = [realname] {
     std::free(realname);
   };
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     return std::move(name.assign(realname, sz));
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     return {};
   }
 }

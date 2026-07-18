@@ -67,15 +67,15 @@ Based on the original [cpp-ipc](https://github.com/mutouyun/cpp-ipc) library. Se
 
 **macOS support** (not present in upstream cpp-ipc, added in this fork):
 
-- `LIBIPC_OS_APPLE` platform branch added throughout sync, shm, and platform layers
+- `THOTH_IPC_OS_APPLE` platform branch added throughout sync, shm, and platform layers
 - `shm_open` name hashing: macOS enforces `PSHMNAMLEN=31`; names are FNV-1a hashed when they exceed the limit (auto-enabled on Apple, zero-cost elsewhere)
 - `ftruncate`/`fstat` quirks on already-sized shm objects handled correctly
 - `pthread_mutex_timedlock` emulated (not available on macOS) with adaptive spin + sleep back-off
 - `pthread_mutexattr_setrobust` emulated via PID-based dead-holder detection (`kill(pid, 0)`)
 - `-lrt` excluded on Darwin (not present on macOS)
 - `__ulock_wait`/`__ulock_wake` backend (default): word-lock mutex, seq-counter condvar, counting semaphore — equivalent to Linux futex, lowest latency
-- Mach semaphore backend (`-DLIBIPC_APPLE_APP_STORE_SAFE=ON`): public-API-only alternative, App Store safe
-- File-backed mmap fallback (`-DLIBIPC_USE_FILE_SHM=ON`): avoids `shm_open` entirely, sidesteps all `PSHMNAMLEN`/`ftruncate` quirks
+- Mach semaphore backend (`-DTHOTH_IPC_APPLE_APP_STORE_SAFE=ON`): public-API-only alternative, App Store safe
+- File-backed mmap fallback (`-DTHOTH_IPC_USE_FILE_SHM=ON`): avoids `shm_open` entirely, sidesteps all `PSHMNAMLEN`/`ftruncate` quirks
 - Universal binary CI: `arm64;x86_64` fat binary verified with `lipo`
 
 ### Rust — [`rust/thoth-ipc/`](rust/thoth-ipc/)
@@ -88,7 +88,7 @@ Pure Rust crate, binary-compatible with the C++ and Swift libraries.
 - Apple ulock sync ABI alignment with C++ and Swift
 - Service registry, process manager, real-time audio demos
 - **Async receive** (opt-in): a Layer-1 notify readiness fd (byte-exact with C++
-  `LIBIPC_NOTIFY_FD`) + `AsyncRoute::recv().await` on tokio — a Rust `send()`
+  `THOTH_IPC_NOTIFY_FD`) + `AsyncRoute::recv().await` on tokio — a Rust `send()`
   wakes a C++ `async_recv` and vice versa
 
 ```sh
@@ -351,7 +351,7 @@ All values in **µs/datum** (lower is better).
  4 | 2.12 | 0.84 | 2.63
  8 | 4.80 | 1.02 | 5.62
 
-> 💡 Reproduce with: `cmake -B build -DLIBIPC_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release && cmake --build build --target bench_ipc && ./build/bin/bench_ipc`
+> 💡 Reproduce with: `cmake -B build -DTHOTH_IPC_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release && cmake --build build --target bench_ipc && ./build/bin/bench_ipc`
 
 Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [bench/](bench/)
 

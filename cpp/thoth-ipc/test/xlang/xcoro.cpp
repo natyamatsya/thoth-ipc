@@ -3,7 +3,7 @@
 //
 // Cross-language async harness, C++ COROUTINE endpoint (path b): async receive
 // via `co_await ipc::coro::async_recv_co(route)` — the stdexec-FREE coroutine
-// front end, built with only LIBIPC_NOTIFY_FD (+ C++20/23). Same uniform CLI as
+// front end, built with only THOTH_IPC_NOTIFY_FD (+ C++20/23). Same uniform CLI as
 // the other harnesses so tools/xlang_matrix.py can pair it as an async receiver.
 //
 //   xcoro write <name> <count> <size>   send <count> pattern messages (posts notify)
@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
     std::string verb = argv[1];
     const char *name = argv[2];
     if (verb == "clear") { ipc::route::clear_storage(name); return 0; }
-    // Built with LIBIPC_NOTIFY_FD: posts notify + coroutine async_recv (no stdexec).
+    // Built with THOTH_IPC_NOTIFY_FD: posts notify + coroutine async_recv (no stdexec).
     if (verb == "caps") { std::printf("notify async\n"); return 0; }
     if (argc < 5) { std::fprintf(stderr, "write/aread need <count> <size>\n"); return 1; }
     int count = std::atoi(argv[3]);

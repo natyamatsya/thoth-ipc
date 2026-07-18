@@ -26,7 +26,7 @@ for b in "$CPP" "$RUST" "$SWIFT" "$ZIG"; do
 missing binary: $b
 
 Build the four bounded-buffer demos first:
-  (cd cpp/thoth-ipc  && cmake -B build -DLIBIPC_BUILD_DEMOS=ON . && cmake --build build --target bounded_buffer -j)
+  (cd cpp/thoth-ipc  && cmake -B build -DTHOTH_IPC_BUILD_DEMOS=ON . && cmake --build build --target bounded_buffer -j)
   (cd rust/thoth-ipc && cargo build --release --bin demo_bounded_buffer)
   (cd swift/thoth-ipc && swift build -c release --product demo-bounded-buffer)
   (cd zig/thoth-ipc  && zig build -Doptimize=ReleaseSafe)

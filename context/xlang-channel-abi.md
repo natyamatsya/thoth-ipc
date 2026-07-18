@@ -24,7 +24,7 @@ header (below).
 ## 1. Object names (per channel)
 
 C++ `make_prefix(prefix, TAG, name, …) = prefix + "__IPC_SHM__" + TAG + name + …`;
-POSIX names then get `/` prefixed and, when > `LIBIPC_SHM_NAME_MAX` (31 on macOS),
+POSIX names then get `/` prefixed and, when > `THOTH_IPC_SHM_NAME_MAX` (31 on macOS),
 FNV-1a-shortened to `/<first-13-chars>_<16-hex>`.
 
 | object | logical name | notes |
@@ -207,7 +207,7 @@ uniform CLI (`<bin> write|read|clear <name> <count> <size>`):
 
 | language | harness | built by |
 |---|---|---|
-| C++ | `xlang_ipc` | `cpp/thoth-ipc/test/xlang/xlang.cpp` (CMake, `LIBIPC_BUILD_TESTS`) |
+| C++ | `xlang_ipc` | `cpp/thoth-ipc/test/xlang/xlang.cpp` (CMake, `THOTH_IPC_BUILD_TESTS`) |
 | Rust | `xlang` | `rust/thoth-ipc/src/bin/xlang.rs` (`cargo build --bin xlang`) |
 | Swift | `xlang-harness` | `swift/thoth-ipc/Sources/XlangHarness` (SwiftPM) |
 
@@ -227,14 +227,14 @@ other under the shared xlang test key, with the plaintext byte-exact; and a
 reader keyed differently must reject **every** message (`sread-badkey`,
 fail-closed). Harnesses advertise crypto support via their `caps` verb
 (`secure secure:aes256gcm secure:chacha20poly1305`), gated at runtime on
-`libipc_secure_crypto_available()`.
+`thoth_ipc_secure_crypto_available()`.
 
 ## 8. Layer 1 — notify readiness (optional async receive)
 
 An **opt-in** notify layer turns channel readiness into a waitable fd so an async
 receiver (C++ stdexec `async_recv`, Rust `AsyncRoute`) can be woken by any
 language's sender instead of blocking a thread. It sits *on top of* the wire ABI
-(the shm ring is unchanged); it is off unless enabled: C++ `LIBIPC_NOTIFY_FD`,
+(the shm ring is unchanged); it is off unless enabled: C++ `THOTH_IPC_NOTIFY_FD`,
 Rust `notify`/`async-tokio` features. **A sender posts on enqueue; a receiver
 registers a readiness fd** — so for a port send to wake a C++ `async_recv`, the
 notify identity must be byte-exact.
@@ -248,9 +248,9 @@ notify identity must be byte-exact.
   wakes every registered reader, honouring 1→N/N→N broadcast). Reader
   `notify_register_file_descriptor(key, &fd, 0, &tok)` → an fd that receives a
   token int per post; drain by reading ints until `EAGAIN`.
-- **POSIX backend — named FIFO** (Linux; Apple with `LIBIPC_NOTIFY_FIFO` /
+- **POSIX backend — named FIFO** (Linux; Apple with `THOTH_IPC_NOTIFY_FIFO` /
   Rust `notify_fifo`): per reader **slot** `s ∈ 0..31`, path
-  `<dir>/ipcntf_<notify_hash>.<s>` (`dir` = `$LIBIPC_NOTIFY_DIR` or `/tmp`).
+  `<dir>/ipcntf_<notify_hash>.<s>` (`dir` = `$THOTH_IPC_NOTIFY_DIR` or `/tmp`).
   FIFO is point-to-point, so a sender pokes every connected slot except its own;
   a receiver owns the FIFO for its connection slot (`s = ctz(connected_id)`).
 - **native_wait_handle()** returns the reader's fd (or the invalid handle if the
@@ -266,7 +266,7 @@ a `send()` in any language wakes an async receiver in any other.
 **Verification.** the runner's `async` scenario (formerly `xlang_matrix.py --async-lang`) runs the async matrix: a
 writer's notify must wake an async receiver (verb `aread`) on its readiness fd —
 so divergent notify keys fail a pairing. Harnesses: C++ `xasync`
-(`LIBIPC_STDEXEC`), Rust `xlang aread` (`async-tokio`), Swift `xlang-harness
+(`THOTH_IPC_STDEXEC`), Rust `xlang aread` (`async-tokio`), Swift `xlang-harness
 aread`. CI runs the C++↔Rust async matrix on Linux (FIFO) and the full
 C++/Rust/Swift 3×3 on macOS (libnotify). A Rust unit test also pins `notify_hash`
 to the golden values above.

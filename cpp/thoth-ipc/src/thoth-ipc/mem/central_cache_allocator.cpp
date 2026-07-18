@@ -18,17 +18,17 @@ public:
       : monotonic_buffer_resource(buffer) {}
 
   ~thread_safe_resource() noexcept {
-    LIBIPC_UNUSED std::lock_guard<std::mutex> lock(mutex_);
+    THOTH_IPC_UNUSED std::lock_guard<std::mutex> lock(mutex_);
     monotonic_buffer_resource::release();
   }
 
   void *allocate(std::size_t bytes, std::size_t alignment) noexcept {
-    LIBIPC_UNUSED std::lock_guard<std::mutex> lock(mutex_);
+    THOTH_IPC_UNUSED std::lock_guard<std::mutex> lock(mutex_);
     return monotonic_buffer_resource::allocate(bytes, alignment);
   }
 
   void deallocate(void *p, std::size_t bytes, std::size_t alignment) noexcept {
-    LIBIPC_UNUSED std::lock_guard<std::mutex> lock(mutex_);
+    THOTH_IPC_UNUSED std::lock_guard<std::mutex> lock(mutex_);
     monotonic_buffer_resource::deallocate(p, bytes, alignment);
   }
 

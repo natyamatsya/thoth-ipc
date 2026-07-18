@@ -133,9 +133,9 @@ int sprintf(fmt_context &ctx, span<char const> const &sfmt, A a) {
 template <typename F /*a function pointer*/, 
           typename A /*a fundamental or pointer type*/>
 bool sprintf(fmt_context &ctx, F fop, span<char const> const &fstr, span<char const> const &s, A a) noexcept {
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     return ipc::sprintf(ctx, fop(fstr, s), a) >= 0;
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     return false;
   }
 }
@@ -157,14 +157,14 @@ void fmt_context::reset() noexcept {
 }
 
 bool fmt_context::finish() noexcept {
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     if (offset_ < sbuf_.size()) {
       joined_.assign(sbuf_.data(), offset_);
     } else {
       joined_.resize(offset_);
     }
     return true;
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     return false;
   }
 }
@@ -175,7 +175,7 @@ span<char> fmt_context::buffer(std::size_t sz) noexcept {
     return (sz & ~(fmt_context_aligned_size - 1)) + fmt_context_aligned_size;
   };
   auto sbuf = make_span(sbuf_);
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     if (offset_ < sbuf.size()) {
       if ((offset_ + sz) < sbuf.size()) {
         return sbuf.subspan(offset_);
@@ -188,7 +188,7 @@ span<char> fmt_context::buffer(std::size_t sz) noexcept {
       joined_.resize(roundup(offset_ + sz));
     }
     return {&joined_[offset_], joined_.size() - offset_};
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     return {};
   }
 }
@@ -233,31 +233,31 @@ bool to_string(fmt_context &ctx, char a) noexcept {
 }
 
 bool to_string(fmt_context &ctx, wchar_t a) noexcept {
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     std::string des;
     cvt_sstr(std::wstring{a}, des);
     return ctx.append(des);
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     return false;
   }
 }
 
 bool to_string(fmt_context &ctx, char16_t a) noexcept {
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     std::string des;
     cvt_sstr(std::u16string{a}, des);
     return ctx.append(des);
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     return false;
   }
 }
 
 bool to_string(fmt_context &ctx, char32_t a) noexcept {
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     std::string des;
     cvt_sstr(std::u32string{a}, des);
     return ctx.append(des);
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     return false;
   }
 }
@@ -317,11 +317,11 @@ bool to_string(fmt_context &ctx, std::tm const &a, span<char const> fstr) noexce
   if (fstr.empty()) {
     fstr = "%Y-%m-%d %H:%M:%S";
   }
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     std::ostringstream ss;
     ss << std::put_time(&a, as_cstr(fstr));
     return ctx.append(ss.str());
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     return {};
   }
 }

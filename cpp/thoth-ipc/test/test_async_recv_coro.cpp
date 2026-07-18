@@ -1,11 +1,11 @@
 // Path (a): prove the stdexec `ipc::async_recv` sender is directly awaitable in a
 // C++20 coroutine — `co_await ipc::async_recv(route, sched)` inside an exec::task
 // — so consumers already using stdexec get `.await`-style ergonomics for free,
-// over the same Layer-1 fd + reactor. Compiles to nothing without LIBIPC_STDEXEC.
+// over the same Layer-1 fd + reactor. Compiles to nothing without THOTH_IPC_STDEXEC.
 
 #include <gtest/gtest.h>
 
-#if defined(LIBIPC_STDEXEC)
+#if defined(THOTH_IPC_STDEXEC)
 
 #include <string>
 
@@ -45,4 +45,4 @@ TEST(AsyncRecvCoro, CoAwaitAsyncRecvDelivers) {
     ipc::route::clear_storage(name);
 }
 
-#endif // LIBIPC_STDEXEC
+#endif // THOTH_IPC_STDEXEC

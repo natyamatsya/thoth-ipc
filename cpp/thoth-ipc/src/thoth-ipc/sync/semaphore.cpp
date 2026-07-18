@@ -5,12 +5,12 @@
 #include "thoth-ipc/imp/log.h"
 #include "thoth-ipc/mem/resource.h"
 #include "thoth-ipc/platform/detail.h"
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
 #include "thoth-ipc/platform/win/semaphore.h"
-#elif defined(LIBIPC_OS_LINUX) || defined(LIBIPC_OS_QNX) || defined(LIBIPC_OS_FREEBSD)
+#elif defined(THOTH_IPC_OS_LINUX) || defined(THOTH_IPC_OS_QNX) || defined(THOTH_IPC_OS_FREEBSD)
 #include "thoth-ipc/platform/posix/semaphore_impl.h"
-#elif defined(LIBIPC_OS_APPLE)
-#  if defined(LIBIPC_APPLE_APP_STORE_SAFE)
+#elif defined(THOTH_IPC_OS_APPLE)
+#  if defined(THOTH_IPC_APPLE_APP_STORE_SAFE)
 #    include "thoth-ipc/platform/apple/mach/semaphore_impl.h"
 #  else
 #    include "thoth-ipc/platform/apple/semaphore_impl.h"
@@ -54,7 +54,7 @@ bool semaphore::valid() const noexcept {
 }
 
 bool semaphore::open(char const *name, std::uint32_t count) noexcept {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (!is_valid_string(name)) {
         log.error("fail semaphore open: name is empty");
         return false;

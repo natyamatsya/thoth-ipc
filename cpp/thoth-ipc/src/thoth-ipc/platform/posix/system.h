@@ -32,7 +32,7 @@ std::error_code error() noexcept {
  * https://man7.org/linux/man-pages/man3/sysconf.3.html
  */
 result<std::int64_t> conf(info r) noexcept {
-  LIBIPC_LOG();
+  THOTH_IPC_LOG();
   switch (r) {
   case info::page_size: {
     auto val = ::sysconf(_SC_PAGESIZE);

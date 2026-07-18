@@ -31,9 +31,9 @@ fn compile_secure_crypto_c() {
     let secure_crypto_root = manifest.join("../../secure-crypto-c");
     let source = secure_crypto_root.join("src/secure_crypto_c.c");
     let include_root = secure_crypto_root.join("include");
-    let abi_header = include_root.join("thoth_ipc/proto/codecs/secure_crypto_c.h");
+    let abi_header = include_root.join("thoth-ipc/proto/codecs/secure_crypto_c.h");
     let object = out_dir.join("secure_crypto_c.o");
-    let static_lib = out_dir.join("libipc_secure_crypto_c.a");
+    let static_lib = out_dir.join("libthoth_ipc_secure_crypto_c.a");
 
     let compiler = cc::Build::new().get_compiler();
     let mut compile_cmd = compiler.to_command();
@@ -50,15 +50,15 @@ fn compile_secure_crypto_c() {
 
     println!("cargo:rerun-if-changed={}", source.display());
     println!("cargo:rerun-if-changed={}", abi_header.display());
-    println!("cargo:rerun-if-env-changed=LIBIPC_OPENSSL_PREFIX");
+    println!("cargo:rerun-if-env-changed=THOTH_IPC_OPENSSL_PREFIX");
 
     if secure_crypto_openssl_enabled() {
         if compiler.is_like_msvc() {
-            compile_cmd.arg("/DLIBIPC_SECURE_OPENSSL");
+            compile_cmd.arg("/DTHOTH_IPC_SECURE_OPENSSL");
         } else {
-            compile_cmd.arg("-DLIBIPC_SECURE_OPENSSL");
+            compile_cmd.arg("-DTHOTH_IPC_SECURE_OPENSSL");
         }
-        let prefix = std::env::var("LIBIPC_OPENSSL_PREFIX")
+        let prefix = std::env::var("THOTH_IPC_OPENSSL_PREFIX")
             .unwrap_or_else(|_| "/opt/homebrew/opt/openssl@3".to_string());
         if compiler.is_like_msvc() {
             compile_cmd.arg(format!("/I{prefix}/include"));
@@ -101,7 +101,7 @@ fn compile_secure_crypto_c() {
     assert!(archive_status.success(), "secure crypto C archive failed");
 
     println!("cargo:rustc-link-search=native={}", out_dir.display());
-    println!("cargo:rustc-link-lib=static=ipc_secure_crypto_c");
+    println!("cargo:rustc-link-lib=static=thoth_ipc_secure_crypto_c");
 }
 
 fn find_flatc() -> Option<PathBuf> {

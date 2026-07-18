@@ -1,13 +1,13 @@
-// Layer 2 (LIBIPC_STDEXEC) tests for ipc::async_recv(): prove the senders/
+// Layer 2 (THOTH_IPC_STDEXEC) tests for ipc::async_recv(): prove the senders/
 // receivers receive API delivers a message on the caller's scheduler without a
 // dedicated blocking thread, honours structured cancellation (set_stopped), and
 // multiplexes multiple channels on the one process-global reactor.
 //
-// Compiles to nothing unless libipc was built with LIBIPC_STDEXEC.
+// Compiles to nothing unless libipc was built with THOTH_IPC_STDEXEC.
 
 #include <gtest/gtest.h>
 
-#if defined(LIBIPC_STDEXEC)
+#if defined(THOTH_IPC_STDEXEC)
 
 #include <atomic>
 #include <chrono>
@@ -219,4 +219,4 @@ TEST(AsyncRecv, NoReadinessHandleYieldsErrc) {
     EXPECT_EQ(r.error(), ipc::recv_errc::no_readiness_handle);
 }
 
-#endif // LIBIPC_STDEXEC
+#endif // THOTH_IPC_STDEXEC

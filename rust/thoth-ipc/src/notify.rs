@@ -229,10 +229,10 @@ mod backend {
     }
 
     /// Deterministic FIFO path shared by both processes: `<dir>/ipcntf_<hash>.<slot>`.
-    /// Directory is `/tmp` by default, overridable via `LIBIPC_NOTIFY_DIR`. Byte-exact
+    /// Directory is `/tmp` by default, overridable via `THOTH_IPC_NOTIFY_DIR`. Byte-exact
     /// with C++ `notify_fifo_path`.
     fn fifo_path(prefix: &str, name: &str, slot: usize) -> String {
-        let dir = std::env::var("LIBIPC_NOTIFY_DIR")
+        let dir = std::env::var("THOTH_IPC_NOTIFY_DIR")
             .ok()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "/tmp".to_string());

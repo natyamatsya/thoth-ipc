@@ -4,7 +4,7 @@
 
 #include "../archive/test.h"
 
-#if defined(LIBIPC_CPP_17) && defined(__cpp_lib_memory_resource)
+#if defined(THOTH_IPC_CPP_17) && defined(__cpp_lib_memory_resource)
 # include <memory_resource>
 #endif
 

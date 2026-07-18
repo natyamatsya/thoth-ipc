@@ -139,7 +139,7 @@ public:
     }
 
     bool open(char const *name) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         close();
         name_ = name ? name : "";
         if (!shm_.acquire(name, sizeof(mach_mutex_state_t) + sizeof(std::atomic<int>))) {
@@ -199,7 +199,7 @@ public:
     }
 
     bool lock(std::uint64_t tm) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
 
         using clock = std::chrono::steady_clock;

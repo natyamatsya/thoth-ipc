@@ -125,7 +125,7 @@ ipc::buff_t make_cache(T &data, std::size_t size) {
 }
 
 acc_t *cc_acc(std::string const &pref) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     static auto *phs = new ipc::unordered_map<std::string, ipc::shm::handle>; // no delete
     static std::mutex lock;
     std::lock_guard<std::mutex> guard {lock};
@@ -181,14 +181,14 @@ struct conn_info_head {
     }
     // Reclaim a reaped slot's readiness FIFO (no-op unless the FIFO notify backend is on).
     void notify_clear_slot(ipc::circ::cc_t bit) noexcept {
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
         ipc::detail::notify_clear_slot(prefix_, name_, bit);
 #else
         (void)bit;
 #endif
     }
 
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
     // Opt-in Layer 1 (RFC context/stdexec-async-recv-rfc.md). notify_sink_ owns
     // this receiver's per-slot FIFO; notify_source_ pokes connected readers on
     // enqueue. Both are inert (no fds, no syscalls) until actually opened.
@@ -260,7 +260,7 @@ struct conn_info_head {
         ipc::detail::waiter::clear_storage(ipc::make_prefix(p, "RD_CONN__", n).c_str());
         ipc::shm::handle::clear_storage(ipc::make_prefix(p, "AC_CONN__", n).c_str());
         ipc::shm::handle::clear_storage(ipc::make_prefix(p, "LV_CONN__", n).c_str());
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
         ipc::detail::notify_clear_storage(p, n);
 #endif
     }
@@ -346,7 +346,7 @@ auto& chunk_storages() {
         std::mutex lock_;
 
         static bool make_handle(ipc::shm::handle &h, std::string const &shm_name, std::size_t chunk_size) {
-            LIBIPC_LOG();
+            THOTH_IPC_LOG();
             if (!h.valid() &&
                 !h.acquire( shm_name.c_str(), 
                             sizeof(chunk_info_t) + chunk_info_t::chunks_mem_size(chunk_size) )) {
@@ -358,7 +358,7 @@ auto& chunk_storages() {
 
     public:
         chunk_info_t *get_info(conn_info_head *inf, std::size_t chunk_size) {
-            LIBIPC_LOG();
+            THOTH_IPC_LOG();
             std::string pref {(inf == nullptr) ? std::string{} : inf->prefix_};
             std::string shm_name {ipc::make_prefix(pref, "CHUNK_INFO__", chunk_size)};
             ipc::shm::handle *h;
@@ -388,12 +388,12 @@ chunk_info_t *chunk_storage_info(conn_info_head *inf, std::size_t chunk_size) {
     std::decay_t<decltype(storages)>::iterator it;
     {
         static ipc::rw_lock lock;
-        LIBIPC_UNUSED std::shared_lock<ipc::rw_lock> guard {lock};
+        THOTH_IPC_UNUSED std::shared_lock<ipc::rw_lock> guard {lock};
         if ((it = storages.find(chunk_size)) == storages.end()) {
             using chunk_handle_ptr_t = std::decay_t<decltype(storages)>::value_type::second_type;
             using chunk_handle_t     = chunk_handle_ptr_t::element_type;
             guard.unlock();
-            LIBIPC_UNUSED std::lock_guard<ipc::rw_lock> guard {lock};
+            THOTH_IPC_UNUSED std::lock_guard<ipc::rw_lock> guard {lock};
             it = storages.emplace(chunk_size, chunk_handle_ptr_t{
                 ipc::mem::$new<chunk_handle_t>(), [](chunk_handle_t *p) {
                     ipc::mem::$delete(p);
@@ -421,7 +421,7 @@ std::pair<ipc::storage_id_t, void*> acquire_storage(conn_info_head *inf, std::si
 }
 
 void *find_storage(ipc::storage_id_t id, conn_info_head *inf, std::size_t size) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (id < 0) {
         log.error("[find_storage] id is invalid: id = ", (long)id, ", size = ", size);
         return nullptr;
@@ -433,7 +433,7 @@ void *find_storage(ipc::storage_id_t id, conn_info_head *inf, std::size_t size) 
 }
 
 void release_storage(ipc::storage_id_t id, conn_info_head *inf, std::size_t size) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (id < 0) {
         log.error("[release_storage] id is invalid: id = ", (long)id, ", size = ", size);
         return;
@@ -467,7 +467,7 @@ bool sub_rc(ipc::wr<Rp, Rc, ipc::trans::broadcast>,
 
 template <typename Flag>
 void recycle_storage(ipc::storage_id_t id, conn_info_head *inf, std::size_t size, ipc::circ::cc_t curr_conns, ipc::circ::cc_t conn_id) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (id < 0) {
         log.error("[recycle_storage] id is invalid: id = ", (long)id, ", size = ", size);
         return;
@@ -489,7 +489,7 @@ void recycle_storage(ipc::storage_id_t id, conn_info_head *inf, std::size_t size
 
 template <typename MsgT>
 bool clear_message(conn_info_head *inf, void* p) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     auto msg = static_cast<MsgT*>(p);
     if (msg->storage_) {
         std::int32_t r_size = static_cast<std::int32_t>(ipc::data_length) + msg->remain_;
@@ -570,7 +570,7 @@ struct queue_generator {
                     this->liveness_clear_owner(self);
                 }
                 this->recv_cache().clear();
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
                 this->notify_close_sink();
 #endif
             }
@@ -650,7 +650,7 @@ static bool reconnect(ipc::handle_t * ph, bool start_to_recv) {
                 info_of(*ph)->liveness_set_owner(que->connected_id());
             }
             info_of(*ph)->cc_waiter_.broadcast();
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
             // Now that we own a reader slot, create its readiness FIFO.
             info_of(*ph)->notify_open_sink(que->connected_id());
 #endif
@@ -689,7 +689,7 @@ static bool wait_for_recv(ipc::handle_t h, std::size_t r_count, std::uint64_t tm
 
 template <typename F>
 static bool send(F&& gen_push, ipc::handle_t h, void const * data, std::size_t size) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (data == nullptr || size == 0) {
         log.error("fail: send(", data, ", ", size, ")");
         return false;
@@ -753,7 +753,7 @@ static bool send(F&& gen_push, ipc::handle_t h, void const * data, std::size_t s
 }
 
 static bool send(ipc::handle_t h, void const * data, std::size_t size, std::uint64_t tm) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     return send([tm, &log](auto *info, auto *que, auto msg_id) {
         return [tm, &log, info, que, msg_id](std::int32_t remain, void const * data, std::size_t size) {
             if (!wait_for(info->wt_waiter_, [&] {
@@ -769,7 +769,7 @@ static bool send(ipc::handle_t h, void const * data, std::size_t size, std::uint
                 }
             }
             info->rd_waiter_.broadcast();
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
             info->notify_signal(que);
 #endif
             return true;
@@ -788,7 +788,7 @@ static bool try_send(ipc::handle_t h, void const * data, std::size_t size, std::
                 return false;
             }
             info->rd_waiter_.broadcast();
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
             info->notify_signal(que);
 #endif
             return true;
@@ -797,7 +797,7 @@ static bool try_send(ipc::handle_t h, void const * data, std::size_t size, std::
 }
 
 static ipc::buff_t recv(ipc::handle_t h, std::uint64_t tm) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     auto que = queue_of(h);
     if (que == nullptr) {
         log.error("fail: recv, queue_of(h) == nullptr");
@@ -854,7 +854,7 @@ static ipc::buff_t recv(ipc::handle_t h, std::uint64_t tm) {
                 } else {
                     return ipc::buff_t{buf, msg_size, [](void* p_info, std::size_t size) {
                         auto r_info = static_cast<recycle_t *>(p_info);
-                        LIBIPC_UNUSED auto finally = ipc::guard([r_info] {
+                        THOTH_IPC_UNUSED auto finally = ipc::guard([r_info] {
                             ipc::mem::$delete(r_info);
                         });
                         recycle_storage<flag_t>(r_info->storage_id, 
@@ -912,7 +912,7 @@ static ipc::buff_t try_recv(ipc::handle_t h) {
 
 static ipc::wait_handle_t native_wait_handle(ipc::handle_t h) noexcept {
     auto *inf = info_of(h);
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
     if (inf != nullptr) return inf->notify_wait_handle();
 #endif
     (void)inf;

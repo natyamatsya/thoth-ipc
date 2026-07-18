@@ -14,7 +14,7 @@
 //
 // Payload pattern: byte[i] = 'A' + (i % 26). The reader checks length + bytes.
 // Secure verbs are compiled unconditionally (the crypto C ABI is always
-// linked) and gated at runtime on libipc_secure_crypto_available(), which the
+// linked) and gated at runtime on thoth_ipc_secure_crypto_available(), which the
 // `caps` verb reports so the matrix driver can plan around it.
 
 #include <chrono>
@@ -188,10 +188,10 @@ struct xlang_wrongid_key {
 
 template <typename Key>
 using aes256gcm_cipher =
-    ipc::proto::secure_openssl_evp_cipher<LIBIPC_SECURE_ALG_AES_256_GCM, Key>;
+    ipc::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, Key>;
 template <typename Key>
 using chacha20poly1305_cipher =
-    ipc::proto::secure_openssl_evp_cipher<LIBIPC_SECURE_ALG_CHACHA20_POLY1305, Key>;
+    ipc::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_CHACHA20_POLY1305, Key>;
 
 template <typename Cipher>
 int do_swrite(const char* name, int count, std::size_t size, bool tamper) {
@@ -358,8 +358,8 @@ int do_tread(const char* name, int count, std::size_t size) {
 }
 
 bool secure_backend_ready() {
-    if (libipc_secure_crypto_available() != 0) return true;
-    std::fprintf(stderr, "[cpp-secure] crypto backend unavailable (build with -DLIBIPC_SECURE_OPENSSL=ON)\n");
+    if (thoth_ipc_secure_crypto_available() != 0) return true;
+    std::fprintf(stderr, "[cpp-secure] crypto backend unavailable (build with -DTHOTH_IPC_SECURE_OPENSSL=ON)\n");
     return false;
 }
 
@@ -491,7 +491,7 @@ int main(int argc, char** argv) {
         // "prim" = the sync-primitive verbs (mhold/mtry/mlock/spost/swait/
         // cvwait/cvnotify) are available.
         std::printf("prim typed:protobuf");
-        if (libipc_secure_crypto_available() != 0)
+        if (thoth_ipc_secure_crypto_available() != 0)
             std::printf(" secure secure:aes256gcm secure:chacha20poly1305");
         std::printf("\n");
         return 0;

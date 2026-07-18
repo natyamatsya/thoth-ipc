@@ -9,11 +9,11 @@ on one event loop. Blocking `recv()` / `try_recv()` are unchanged; when the
 layers are disabled there is **zero cost** — no extra members, no extra syscalls
 on the send hot path, and the notify objects are never created.
 
-- **Layer 1 — readiness handle** (`LIBIPC_NOTIFY_FD`): a per-receiver waitable
+- **Layer 1 — readiness handle** (`THOTH_IPC_NOTIFY_FD`): a per-receiver waitable
   kernel object, signalled on enqueue, exposed as `native_wait_handle()`.
   Usable directly from any reactor (`epoll` / `kqueue` / `poll` / Qt
   `QSocketNotifier` / `WaitForMultipleObjects`).
-- **Layer 2 — stdexec sender** (`LIBIPC_STDEXEC`, C++23): `ipc::async_recv()`,
+- **Layer 2 — stdexec sender** (`THOTH_IPC_STDEXEC`, C++23): `ipc::async_recv()`,
   a P2300 senders/receivers receive API driven by one process-global reactor
   thread. Built on Layer 1.
 
@@ -33,23 +33,23 @@ receives into a senders/receivers pipeline with structured cancellation.
 
 | Option | Default | Effect |
 |---|---|---|
-| `LIBIPC_NOTIFY_FD` | `OFF` | Layer 1: enable `native_wait_handle()`. POSIX only for now. |
-| `LIBIPC_NOTIFY_FIFO` | `OFF` | Force the portable FIFO backend even on macOS (default there is libnotify). No effect off Apple. |
-| `LIBIPC_STDEXEC` | `OFF` | Layer 2: `ipc::async_recv()` + reactor. Requires C++23; **implies `LIBIPC_NOTIFY_FD`**. |
+| `THOTH_IPC_NOTIFY_FD` | `OFF` | Layer 1: enable `native_wait_handle()`. POSIX only for now. |
+| `THOTH_IPC_NOTIFY_FIFO` | `OFF` | Force the portable FIFO backend even on macOS (default there is libnotify). No effect off Apple. |
+| `THOTH_IPC_STDEXEC` | `OFF` | Layer 2: `ipc::async_recv()` + reactor. Requires C++23; **implies `THOTH_IPC_NOTIFY_FD`**. |
 
-When `LIBIPC_STDEXEC` is on, the stdexec dependency is **injectable**:
+When `THOTH_IPC_STDEXEC` is on, the stdexec dependency is **injectable**:
 `find_package(stdexec CONFIG)` is used if it resolves (e.g. from vcpkg/Conan or a
 parent build); otherwise it is fetched via `FetchContent` at the pinned
-NVIDIA/stdexec ref. `LIBIPC_NOTIFY_FD` and `LIBIPC_STDEXEC` are compiled as
+NVIDIA/stdexec ref. `THOTH_IPC_NOTIFY_FD` and `THOTH_IPC_STDEXEC` are compiled as
 `PUBLIC` definitions, so downstream code can feature-test them
-(`#if defined(LIBIPC_STDEXEC)`).
+(`#if defined(THOTH_IPC_STDEXEC)`).
 
 ## Layer 1 — the readiness handle
 
 `native_wait_handle()` returns a native handle (an `int` fd on POSIX, a `HANDLE`
 on Windows) that becomes readable/signalled whenever a message is enqueued for
 that receiver, or `ipc::invalid_wait_handle` if the library was built without
-`LIBIPC_NOTIFY_FD` or the channel is not connected as a receiver.
+`THOTH_IPC_NOTIFY_FD` or the channel is not connected as a receiver.
 
 ```cpp
 ipc::route ch{"my.channel", ipc::receiver};
@@ -77,15 +77,15 @@ self-pipe/eventfd is process-local and cannot carry a remote writer's signal).
 | Platform | Backend | Primitive | Notes |
 |---|---|---|---|
 | macOS | libnotify (default) | `notify_register_file_descriptor` / `notify_post` | Native Darwin service; **multicast**, so one name per channel serves all readers. No filesystem node. |
-| macOS | FIFO (`LIBIPC_NOTIFY_FIFO`) | `mkfifo` | Portable fallback. |
+| macOS | FIFO (`THOTH_IPC_NOTIFY_FIFO`) | `mkfifo` | Portable fallback. |
 | Linux / other POSIX | FIFO | `mkfifo` | Default. |
-| Windows | *not yet implemented* | named event (planned) | Building `LIBIPC_NOTIFY_FD` on Windows is a hard error for now. |
+| Windows | *not yet implemented* | named event (planned) | Building `THOTH_IPC_NOTIFY_FD` on Windows is a hard error for now. |
 
 Because a FIFO is point-to-point, the FIFO backend honours broadcast (`route`
 1→N, `channel` N→N) by giving **each reader connection slot its own FIFO** and
 poking every connected slot on enqueue. libnotify is natively multicast, so it
 needs only one name per channel. FIFO paths default to `/tmp`, overridable with
-the `LIBIPC_NOTIFY_DIR` environment variable.
+the `THOTH_IPC_NOTIFY_DIR` environment variable.
 
 ## Layer 2 — `ipc::async_recv()`
 
@@ -107,7 +107,7 @@ pipeline stays exception-free. It completes:
 - `set_stopped()` when the receiver's `stop_token` is triggered.
 
 `ipc::recv_errc` is a small enum: `no_readiness_handle` (channel lacks a
-readiness fd — built without `LIBIPC_NOTIFY_FD`, or not a receiver),
+readiness fd — built without `THOTH_IPC_NOTIFY_FD`, or not a receiver),
 `out_of_memory`, and `unknown`. Exceptions from the receive (e.g. `bad_alloc`)
 are caught and mapped to a `recv_errc`, so nothing escapes as an exception.
 
@@ -178,7 +178,7 @@ No extra library code — structured cancellation (stop-tokens) and composition 
 still apply. This is the recommended path if you already use stdexec.
 
 **(b) Without stdexec — `thoth-ipc/execution/coro_recv.h`.** A standalone C++20
-awaiter that needs only `LIBIPC_NOTIFY_FD` (the reactor is compiled with Layer 1,
+awaiter that needs only `THOTH_IPC_NOTIFY_FD` (the reactor is compiled with Layer 1,
 independent of stdexec) — no P2300 dependency:
 
 ```cpp

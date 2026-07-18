@@ -1,14 +1,14 @@
-// Layer 1 (LIBIPC_NOTIFY_FD) readiness-handle tests: prove that a channel's
+// Layer 1 (THOTH_IPC_NOTIFY_FD) readiness-handle tests: prove that a channel's
 // native_wait_handle() is a real waitable fd — pollable, cross-connection,
 // and multiplexable — so a consumer can react to messages without a dedicated
 // blocking recv thread. See context/stdexec-async-recv-rfc.md.
 //
 // The whole file compiles to nothing unless the library was built with
-// LIBIPC_NOTIFY_FD (a PUBLIC compile definition, so this TU sees it).
+// THOTH_IPC_NOTIFY_FD (a PUBLIC compile definition, so this TU sees it).
 
 #include <gtest/gtest.h>
 
-#if defined(LIBIPC_NOTIFY_FD) && !defined(_WIN32)
+#if defined(THOTH_IPC_NOTIFY_FD) && !defined(_WIN32)
 
 #include <poll.h>
 #include <unistd.h>
@@ -125,4 +125,4 @@ TEST(NotifyFd, TwoChannelsMultiplexOnOnePoll) {
     reader_b.clear();
 }
 
-#endif // LIBIPC_NOTIFY_FD && !_WIN32
+#endif // THOTH_IPC_NOTIFY_FD && !_WIN32

@@ -100,7 +100,7 @@ class mutex {
     ulock_mutex_t *acquire_mutex(char const *name) {
         if (name == nullptr) return nullptr;
         auto &info = curr_prog::get();
-        LIBIPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
+        THOTH_IPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
         auto it = info.mutex_handles.find(name);
         curr_prog::shm_data *node = nullptr;
         if (it == info.mutex_handles.end()) {
@@ -145,7 +145,7 @@ class mutex {
     // Attempt to recover a mutex whose holder has died.
     // Returns true if recovery succeeded (state was reset to UNLOCKED).
     bool try_recover_dead_holder() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (data_ == nullptr) return false;
         pid_t holder = data_->holder.load(std::memory_order_acquire);
         if (holder == 0) return false; // not held
@@ -224,7 +224,7 @@ public:
     }
 
     bool open(char const *name) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         close();
         if ((data_ = acquire_mutex(name)) == nullptr) return false;
         auto self_ref = ref_->fetch_add(1, std::memory_order_relaxed);
@@ -236,11 +236,11 @@ public:
     }
 
     void close() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if ((ref_ != nullptr) && (shm_ != nullptr) && (data_ != nullptr) && (node_ != nullptr)) {
             if (shm_->name() != nullptr) {
                 auto &info = curr_prog::get();
-                LIBIPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
+                THOTH_IPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
                 auto self_ref = ref_->fetch_sub(1, std::memory_order_relaxed);
                 if ((shm_->ref() <= 1) && (self_ref <= 1)) {
                     // Last user: reset state and wake any stuck waiters, then
@@ -261,11 +261,11 @@ public:
     }
 
     void clear() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if ((shm_ != nullptr) && (data_ != nullptr) && (node_ != nullptr)) {
             if (shm_->name() != nullptr) {
                 auto &info = curr_prog::get();
-                LIBIPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
+                THOTH_IPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
                 data_->state.store(0, std::memory_order_release);
                 data_->holder.store(0, std::memory_order_release);
                 ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL,
@@ -286,11 +286,11 @@ public:
     // fresh node, exactly as a new opener in another process would. The global
     // name is always unlinked. See RFC: refcount-aware-clear-storage.
     static void clear_storage(char const *name) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (name == nullptr) return;
         {
             auto &info = curr_prog::get();
-            LIBIPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
+            THOTH_IPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
             auto it = info.mutex_handles.find(name);
             if (it != info.mutex_handles.end()) {
                 auto *node = it->second;
@@ -318,7 +318,7 @@ public:
     //      call __ulock_wait. The kernel wakes us when state != 2.
     //   3. On wakeup, retry from step 1.
     bool lock(std::uint64_t tm) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
 
         // Compute deadline for timed waits.
@@ -402,7 +402,7 @@ public:
     }
 
     bool try_lock() noexcept(false) {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         if (try_lock_once()) {
             data_->holder.store(::getpid(), std::memory_order_release);
@@ -419,7 +419,7 @@ public:
     }
 
     bool unlock() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         data_->holder.store(0, std::memory_order_release);
         // Atomically set state to 0. If it was 2 (waiters present), wake one.

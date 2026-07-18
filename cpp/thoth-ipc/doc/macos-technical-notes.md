@@ -30,12 +30,12 @@ These routinely reach 40–60 characters.
 **Fix:**
 A compile-time opt-in hashing layer (`src/thoth-ipc/platform/posix/shm_name.h`):
 
-- **`LIBIPC_SHM_NAME_MAX`** CMake option (default 31 on Apple, 0 elsewhere).
+- **`THOTH_IPC_SHM_NAME_MAX`** CMake option (default 31 on Apple, 0 elsewhere).
 - When a name exceeds the limit, it is shortened to
   `/<prefix>_<16-hex-FNV-1a-hash>` (exactly 31 chars).
 - The prefix preserves a debuggable fragment of the original name
   (e.g. `__IPC_SHM__QU_CO`).
-- When `LIBIPC_SHM_NAME_MAX=0`, the function reduces to a simple `/` prefixer
+- When `THOTH_IPC_SHM_NAME_MAX=0`, the function reduces to a simple `/` prefixer
   that the compiler inlines away — **zero cost on Linux/FreeBSD/QNX**.
 
 **Key detail:**
@@ -66,7 +66,7 @@ When `ftruncate` fails with `EINVAL`:
    Close the fd, `shm_unlink`, `shm_open` a fresh object, and retry
    `ftruncate`.
 
-The `#if defined(LIBIPC_OS_APPLE)` guard ensures this logic is compiled out on
+The `#if defined(THOTH_IPC_OS_APPLE)` guard ensures this logic is compiled out on
 other platforms where `ftruncate` behaves normally.
 
 ---
@@ -122,7 +122,7 @@ Two changes in `shm_posix.cpp`:
 
    ```cpp
    case open:
-   #if defined(LIBIPC_OS_APPLE)
+   #if defined(THOTH_IPC_OS_APPLE)
        break;          // keep caller's size
    #else
        size = 0;       // Linux: read from fstat (returns exact value)

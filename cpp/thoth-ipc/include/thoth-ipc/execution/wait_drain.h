@@ -8,11 +8,11 @@
 
 #include "thoth-ipc/imp/detect_plat.h"
 
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
 
 #include "thoth-ipc/ipc.h" // ipc::wait_handle_t
 
-#if !defined(LIBIPC_OS_WIN)
+#if !defined(THOTH_IPC_OS_WIN)
 #  include <unistd.h>
 #endif
 
@@ -20,7 +20,7 @@ namespace ipc {
 namespace detail {
 
 inline void drain_wait_handle(wait_handle_t h) noexcept {
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
     (void)h; // auto-reset event self-resets on wake — nothing to drain
 #else
     char buf[256];
@@ -32,4 +32,4 @@ inline void drain_wait_handle(wait_handle_t h) noexcept {
 } // namespace detail
 } // namespace ipc
 
-#endif // LIBIPC_NOTIFY_FD
+#endif // THOTH_IPC_NOTIFY_FD

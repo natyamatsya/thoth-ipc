@@ -348,7 +348,7 @@ All shared kernel objects (shm, mutex, semaphore, notify events) are qualified
 with a namespace prefix, default **`Local\`** (session-local `BaseNamedObjects`),
 switchable to `Global\` (services / cross-session) at build time:
 
-- C++: CMake `LIBIPC_WIN_OBJ_NAMESPACE` → `LIBIPC_WIN_OBJ_NS` macro →
+- C++: CMake `THOTH_IPC_WIN_OBJ_NAMESPACE` → `THOTH_IPC_WIN_OBJ_NS` macro →
   `ipc::detail::win_object_name()` in `win/to_tchar.h`, applied at the three Win32
   name sites (`shm_win.cpp`, `win/mutex.h`, `win/semaphore.h`).
 - Rust: the `win-global` feature → `platform::windows::win_object_name()`.
@@ -385,7 +385,7 @@ FIFO-per-slot design, which is already broadcast-correct):
   `drain()` is a no-op.
 - Event name (a cross-process **and** cross-language ABI): `<ns>ipcntf_<16-hex
   FNV-1a of "{prefix}__IPC_SHM__NOTIFY__{name}">_<slot>`. Byte-exact between C++
-  (`notify.h` `LIBIPC_NOTIFY_BACKEND_WINEVENT`) and Rust (`notify.rs`
+  (`notify.h` `THOTH_IPC_NOTIFY_BACKEND_WINEVENT`) and Rust (`notify.rs`
   `#[cfg(windows)]`). C++ uses TCHAR-generic `::CreateEvent` + `get_sa()`.
 
 ### 8.6 Layer-2 reactor + async — thread-pool wait

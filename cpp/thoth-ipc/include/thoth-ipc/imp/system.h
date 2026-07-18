@@ -20,7 +20,7 @@ namespace ipc {
 namespace sys {
 
 /// \brief A platform-dependent error code.
-LIBIPC_EXPORT std::error_code error() noexcept;
+THOTH_IPC_EXPORT std::error_code error() noexcept;
 
 /// \enum The name of the `conf()` argument used to inquire about its value.
 /// \brief Certain options are supported, 
@@ -30,7 +30,7 @@ enum class info : std::int32_t {
 };
 
 /// \brief Get system configuration information at run time.
-LIBIPC_EXPORT result<std::int64_t> conf(info) noexcept;
+THOTH_IPC_EXPORT result<std::int64_t> conf(info) noexcept;
 
 } // namespace sys
 } // namespace ipc

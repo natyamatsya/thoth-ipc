@@ -26,7 +26,7 @@ namespace ipc {
 namespace mem {
 
 /// \brief Defines the memory block collector interface.
-class LIBIPC_EXPORT block_collector {
+class THOTH_IPC_EXPORT block_collector {
 public:
   virtual ~block_collector() noexcept = default;
   virtual void *allocate(std::size_t /*bytes*/) noexcept = 0;
@@ -34,15 +34,15 @@ public:
 };
 
 /// \brief Matches the appropriate memory block resource based on a specified size.
-LIBIPC_EXPORT block_collector &get_regular_resource(std::size_t s) noexcept;
+THOTH_IPC_EXPORT block_collector &get_regular_resource(std::size_t s) noexcept;
 
 /// \brief Allocates storage with a size of at least bytes bytes.
-LIBIPC_EXPORT void *alloc(std::size_t bytes) noexcept;
-LIBIPC_EXPORT void  free (void *p, std::size_t bytes) noexcept;
+THOTH_IPC_EXPORT void *alloc(std::size_t bytes) noexcept;
+THOTH_IPC_EXPORT void  free (void *p, std::size_t bytes) noexcept;
 
 namespace detail_new {
 
-#if defined(LIBIPC_CPP_17)
+#if defined(THOTH_IPC_CPP_17)
 using recycle_t = void (*)(void *p) noexcept;
 #else
 using recycle_t = void (*)(void *p);
@@ -58,7 +58,7 @@ struct do_allocate {
   static T *apply(A &&... args) noexcept {
     void *b = mem::alloc(regular_head_size + sizeof(T));
     auto *p = static_cast<byte *>(b) + regular_head_size;
-    LIBIPC_TRY {
+    THOTH_IPC_TRY {
       T *t = construct<T>(p, std::forward<A>(args)...);
       *reinterpret_cast<recycle_t *>(b)
         = [](void *p) noexcept {
@@ -66,7 +66,7 @@ struct do_allocate {
                     , regular_head_size + sizeof(T));
           };
       return t;
-    } LIBIPC_CATCH(...) {
+    } THOTH_IPC_CATCH(...) {
       return nullptr;
     }
   }

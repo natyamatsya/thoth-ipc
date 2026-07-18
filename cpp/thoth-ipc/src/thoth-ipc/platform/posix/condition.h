@@ -21,7 +21,7 @@ class condition {
     pthread_cond_t *cond_ = nullptr;
 
     pthread_cond_t *acquire_cond(char const *name) {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!shm_.acquire(name, sizeof(pthread_cond_t))) {
             log.error("[acquire_cond] fail shm.acquire: ", name);
             return nullptr;
@@ -48,7 +48,7 @@ public:
     }
 
     bool open(char const *name) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         close();
         if ((cond_ = acquire_cond(name)) == nullptr) {
             return false;
@@ -65,7 +65,7 @@ public:
             log.error("fail pthread_condattr_init[", eno, "]");
             return false;
         }
-        LIBIPC_UNUSED auto guard_cond_attr = guard([&cond_attr] { ::pthread_condattr_destroy(&cond_attr); });
+        THOTH_IPC_UNUSED auto guard_cond_attr = guard([&cond_attr] { ::pthread_condattr_destroy(&cond_attr); });
         if ((eno = ::pthread_condattr_setpshared(&cond_attr, PTHREAD_PROCESS_SHARED)) != 0) {
             log.error("fail pthread_condattr_setpshared[", eno, "]");
             return false;
@@ -80,7 +80,7 @@ public:
     }
 
     void close() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if ((shm_.ref() <= 1) && cond_ != nullptr) {
             int eno;
             if ((eno = ::pthread_cond_destroy(cond_)) != 0) {
@@ -92,7 +92,7 @@ public:
     }
 
     void clear() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if ((shm_.ref() <= 1) && cond_ != nullptr) {
             int eno;
             if ((eno = ::pthread_cond_destroy(cond_)) != 0) {
@@ -108,7 +108,7 @@ public:
     }
 
     bool wait(ipc::sync::mutex &mtx, std::uint64_t tm) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         switch (tm) {
         case invalid_value: {
@@ -135,7 +135,7 @@ public:
     }
 
     bool notify(ipc::sync::mutex &) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         int eno;
         if ((eno = ::pthread_cond_signal(cond_)) != 0) {
@@ -146,7 +146,7 @@ public:
     }
 
     bool broadcast(ipc::sync::mutex &) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         int eno;
         if ((eno = ::pthread_cond_broadcast(cond_)) != 0) {

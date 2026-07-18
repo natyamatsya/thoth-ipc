@@ -56,7 +56,7 @@ class condition {
     ulock_cond_t *cond_ = nullptr;
 
     ulock_cond_t *acquire_cond(char const *name) {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!shm_.acquire(name, sizeof(ulock_cond_t))) {
             log.error("[acquire_cond] fail shm.acquire: ", name);
             return nullptr;
@@ -81,7 +81,7 @@ public:
     }
 
     bool open(char const *name) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         close();
         cond_ = acquire_cond(name);
         if (cond_ == nullptr) return false;
@@ -94,13 +94,13 @@ public:
     }
 
     void close() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         shm_.release();
         cond_ = nullptr;
     }
 
     void clear() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (cond_ != nullptr) {
             // Wake all waiters so they don't sleep forever.
             cond_->seq.fetch_add(1, std::memory_order_acq_rel);
@@ -119,7 +119,7 @@ public:
     // The caller must hold mtx. mtx is released for the duration of the wait
     // and reacquired before returning.
     bool wait(ipc::sync::mutex &mtx, std::uint64_t tm) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
 
         // Snapshot the sequence counter while holding the mutex.
@@ -183,7 +183,7 @@ public:
     }
 
     bool notify(ipc::sync::mutex &) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         cond_->seq.fetch_add(1, std::memory_order_acq_rel);
         if (cond_->waiters.load(std::memory_order_acquire) > 0)
@@ -192,7 +192,7 @@ public:
     }
 
     bool broadcast(ipc::sync::mutex &) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         cond_->seq.fetch_add(1, std::memory_order_acq_rel);
         if (cond_->waiters.load(std::memory_order_acquire) > 0)

@@ -19,20 +19,20 @@ add_custom_target(audio_protocol_gen DEPENDS ${FBS_GEN})
 add_executable(audio_host host.cpp)
 add_dependencies(audio_host audio_protocol_gen)
 target_include_directories(audio_host PRIVATE
-    ${LIBIPC_PROJECT_DIR}/include
-    ${LIBIPC_PROJECT_DIR}/3rdparty
+    ${THOTH_IPC_PROJECT_DIR}/include
+    ${THOTH_IPC_PROJECT_DIR}/3rdparty
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 target_link_libraries(audio_host ipc flatbuffers)
 
 # Service executable. Uses std::print, so it needs the C++23 <print>
-# support probed by the parent CMakeLists (LIBIPC_HAS_STD_PRINT).
-if(LIBIPC_HAS_STD_PRINT)
+# support probed by the parent CMakeLists (THOTH_IPC_HAS_STD_PRINT).
+if(THOTH_IPC_HAS_STD_PRINT)
     add_executable(audio_service service.cpp)
     add_dependencies(audio_service audio_protocol_gen)
     target_include_directories(audio_service PRIVATE
-        ${LIBIPC_PROJECT_DIR}/include
-        ${LIBIPC_PROJECT_DIR}/3rdparty
+        ${THOTH_IPC_PROJECT_DIR}/include
+        ${THOTH_IPC_PROJECT_DIR}/3rdparty
         ${CMAKE_CURRENT_BINARY_DIR}
     )
     target_link_libraries(audio_service ipc flatbuffers)

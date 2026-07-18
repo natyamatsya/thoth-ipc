@@ -29,12 +29,12 @@ inline void to_hex(std::uint64_t val, char *buf) noexcept {
 
 /// \brief Produce a POSIX shm-safe name (with leading '/').
 ///
-/// When LIBIPC_SHM_NAME_MAX is defined and > 0, names whose POSIX form
+/// When THOTH_IPC_SHM_NAME_MAX is defined and > 0, names whose POSIX form
 /// (including the leading '/') would exceed that limit are shortened to:
 ///     /<prefix>_<16-hex-FNV-1a-hash>
 /// where <prefix> is a truncated portion of the original name for debuggability.
 ///
-/// When LIBIPC_SHM_NAME_MAX is 0 or not defined, this is a simple '/' prefixer
+/// When THOTH_IPC_SHM_NAME_MAX is 0 or not defined, this is a simple '/' prefixer
 /// that the compiler will inline and optimise away — zero cost.
 inline std::string make_shm_name(const char *name) {
     std::string result;
@@ -43,8 +43,8 @@ inline std::string make_shm_name(const char *name) {
     else
         result = std::string{"/"} + name;
 
-#if defined(LIBIPC_SHM_NAME_MAX) && (LIBIPC_SHM_NAME_MAX > 0)
-    constexpr std::size_t max_len = LIBIPC_SHM_NAME_MAX;
+#if defined(THOTH_IPC_SHM_NAME_MAX) && (THOTH_IPC_SHM_NAME_MAX > 0)
+    constexpr std::size_t max_len = THOTH_IPC_SHM_NAME_MAX;
     // 1 (slash) + prefix + 1 (underscore) + 16 (hex hash) = 18 + prefix
     constexpr std::size_t hash_suffix_len = 1 + 16; // '_' + 16 hex chars
     constexpr std::size_t prefix_len = (max_len > hash_suffix_len + 1)

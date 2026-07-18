@@ -1,5 +1,5 @@
-#ifndef LIBIPC_SRC_PLATFORM_DETAIL_H_
-#define LIBIPC_SRC_PLATFORM_DETAIL_H_
+#ifndef THOTH_IPC_SRC_PLATFORM_DETAIL_H_
+#define THOTH_IPC_SRC_PLATFORM_DETAIL_H_
 
 #include "thoth-ipc/imp/detect_plat.h"
 
@@ -97,6 +97,6 @@ constexpr const T& (min)(const T& a, const T& b) {
 } // namespace ipc
 
 #endif // defined(__cplusplus)
-#endif // LIBIPC_SRC_PLATFORM_DETAIL_H_
+#endif // THOTH_IPC_SRC_PLATFORM_DETAIL_H_
 
 

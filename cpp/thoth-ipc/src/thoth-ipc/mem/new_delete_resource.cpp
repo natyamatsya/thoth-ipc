@@ -34,12 +34,12 @@ new_delete_resource *new_delete_resource::get() noexcept {
  * \return void * - nullptr if storage of the requested size and alignment cannot be obtained.
  */
 void *new_delete_resource::allocate(std::size_t bytes, std::size_t alignment) noexcept {
-  LIBIPC_LOG();
+  THOTH_IPC_LOG();
   if (!verify_args(bytes, alignment)) {
     log.error("invalid bytes = ", bytes, ", alignment = ", alignment);
     return nullptr;
   }
-#if defined(LIBIPC_CPP_17) && !defined(LIBIPC_CC_MSVC) && !defined(__MINGW32__) && !defined(__WEBOS__)
+#if defined(THOTH_IPC_CPP_17) && !defined(THOTH_IPC_CC_MSVC) && !defined(__MINGW32__) && !defined(__WEBOS__)
   /// \see https://en.cppreference.com/w/cpp/memory/c/aligned_alloc
   /// \remark The size parameter must be an integral multiple of alignment.
   /// macOS requires alignment >= sizeof(void*).
@@ -50,7 +50,7 @@ void *new_delete_resource::allocate(std::size_t bytes, std::size_t alignment) no
     /// \see https://en.cppreference.com/w/cpp/memory/c/malloc
     return std::malloc(bytes);
   }
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
   /// \see https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/aligned-malloc
   return ::_aligned_malloc(bytes, alignment);
 #else // try posix
@@ -65,7 +65,7 @@ void *new_delete_resource::allocate(std::size_t bytes, std::size_t alignment) no
   }
   return p;
 #endif
-#endif // defined(LIBIPC_CPP_17)
+#endif // defined(THOTH_IPC_CPP_17)
 }
 
 /**
@@ -77,7 +77,7 @@ void *new_delete_resource::allocate(std::size_t bytes, std::size_t alignment) no
  * \param p must have been returned by a prior call to new_delete_resource::do_allocate(bytes, alignment).
  */
 void new_delete_resource::deallocate(void *p, std::size_t bytes, std::size_t alignment) noexcept {
-  LIBIPC_LOG();
+  THOTH_IPC_LOG();
   if (p == nullptr) {
     return;
   }
@@ -85,7 +85,7 @@ void new_delete_resource::deallocate(void *p, std::size_t bytes, std::size_t ali
     log.error("invalid bytes = ", bytes, ", alignment = ", alignment);
     return;
   }
-#if defined(LIBIPC_CPP_17)
+#if defined(THOTH_IPC_CPP_17)
   /// \see https://en.cppreference.com/w/cpp/memory/c/free
   std::free(p);
 #else
@@ -93,13 +93,13 @@ void new_delete_resource::deallocate(void *p, std::size_t bytes, std::size_t ali
     std::free(p);
     return;
   }
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
   /// \see https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/aligned-free
   ::_aligned_free(p);
 #else // try posix
   ::free(p);
 #endif
-#endif // defined(LIBIPC_CPP_17)
+#endif // defined(THOTH_IPC_CPP_17)
 }
 
 } // namespace mem

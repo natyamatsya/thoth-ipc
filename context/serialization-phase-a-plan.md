@@ -61,10 +61,10 @@ This plan introduces a codec abstraction while keeping FlatBuffers behavior and 
 ### C++ CMake changes
 
 1. `cpp/thoth-ipc/CMakeLists.txt`
-   - Keep `LIBIPC_BUILD_PROTO` behavior unchanged for Phase A.
+   - Keep `THOTH_IPC_BUILD_PROTO` behavior unchanged for Phase A.
    - Add placeholder options (default OFF, no functional impact yet):
-     - `LIBIPC_CODEC_PROTOBUF`
-     - `LIBIPC_CODEC_CAPNP`
+     - `THOTH_IPC_CODEC_PROTOBUF`
+     - `THOTH_IPC_CODEC_CAPNP`
    - Do not fetch/link extra dependencies in Phase A.
 
 ---

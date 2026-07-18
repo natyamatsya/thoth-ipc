@@ -25,7 +25,7 @@ namespace ipc {
  * \param name the mangled name
  * \return std::string a human-readable demangled type name
  */
-LIBIPC_EXPORT std::string demangle(std::string name) noexcept;
+THOTH_IPC_EXPORT std::string demangle(std::string name) noexcept;
 
 /**
  * \brief Returns an implementation defined string containing the name of the type.
@@ -36,9 +36,9 @@ LIBIPC_EXPORT std::string demangle(std::string name) noexcept;
  */
 template <typename T>
 std::string nameof() noexcept {
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     return demangle(typeid(T).name());
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     return {};
   }
 }

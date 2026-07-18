@@ -14,7 +14,7 @@ namespace linux_ {
 namespace detail {
 
 inline bool calc_wait_time(timespec &ts, std::uint64_t tm /*ms*/) noexcept {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     std::int64_t add_ns = static_cast<std::int64_t>(tm * 1000000ull);
     if (add_ns < 0) {
         log.error("invalid time = ", tm);
@@ -35,7 +35,7 @@ inline bool calc_wait_time(timespec &ts, std::uint64_t tm /*ms*/) noexcept {
 }
 
 inline timespec make_timespec(std::uint64_t tm /*ms*/) noexcept(false) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     timespec ts {};
     if (!calc_wait_time(ts, tm)) {
         log.error("fail calc_wait_time: tm = ", tm, ", tv_sec = ", ts.tv_sec, ", tv_nsec = ", ts.tv_nsec);

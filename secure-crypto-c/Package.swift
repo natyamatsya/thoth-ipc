@@ -6,12 +6,12 @@ import PackageDescription
 import Foundation
 
 let packageEnv = ProcessInfo.processInfo.environment
-let secureOpenSSL = packageEnv["LIBIPC_SECURE_OPENSSL"] == "1"
-let openSSLPrefix = packageEnv["LIBIPC_OPENSSL_PREFIX"] ?? "/opt/homebrew/opt/openssl@3"
+let secureOpenSSL = packageEnv["THOTH_IPC_SECURE_OPENSSL"] == "1"
+let openSSLPrefix = packageEnv["THOTH_IPC_OPENSSL_PREFIX"] ?? "/opt/homebrew/opt/openssl@3"
 
 let secureCryptoCSettings: [CSetting] = secureOpenSSL
     ? [
-        .define("LIBIPC_SECURE_OPENSSL"),
+        .define("THOTH_IPC_SECURE_OPENSSL"),
         .unsafeFlags(["-I\(openSSLPrefix)/include"]),
     ]
     : []
@@ -28,11 +28,11 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
-        .library(name: "LibIPCSecureCryptoC", targets: ["LibIPCSecureCryptoC"]),
+        .library(name: "ThothIPCSecureCryptoC", targets: ["ThothIPCSecureCryptoC"]),
     ],
     targets: [
         .target(
-            name: "LibIPCSecureCryptoC",
+            name: "ThothIPCSecureCryptoC",
             path: ".",
             exclude: [
                 "CMakeLists.txt",

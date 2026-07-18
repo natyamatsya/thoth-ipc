@@ -21,7 +21,7 @@ jobs:
     - name: Install GCC 14 (std::print support)
       run: sudo apt-get update && sudo apt-get install -y g++-14
     - name: cmake
-      run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_BUILD_PROTO=ON .
+      run: cmake -DCMAKE_BUILD_TYPE=Release -DTHOTH_IPC_BUILD_TESTS=ON -DTHOTH_IPC_BUILD_PROTO=ON .
       working-directory: cpp/thoth-ipc
       env:
         CC: gcc-14
@@ -48,7 +48,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
     - name: cmake
-      run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_BUILD_BENCHMARKS=ON -DLIBIPC_BUILD_PROTO=ON .
+      run: cmake -DCMAKE_BUILD_TYPE=Release -DTHOTH_IPC_BUILD_TESTS=ON -DTHOTH_IPC_BUILD_BENCHMARKS=ON -DTHOTH_IPC_BUILD_PROTO=ON .
       working-directory: cpp/thoth-ipc
     - name: make
       run: make -j
@@ -72,7 +72,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
     - name: cmake
-      run: cmake -B build -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_BUILD_PROTO=ON
+      run: cmake -B build -DTHOTH_IPC_BUILD_TESTS=ON -DTHOTH_IPC_BUILD_PROTO=ON
       working-directory: cpp/thoth-ipc
     - name: build
       run: cmake --build build --config Release
@@ -91,7 +91,7 @@ jobs:
       with:
         submodules: recursive
     - name: cmake
-      run: cmake -DCMAKE_BUILD_TYPE=Release -DLIBIPC_BUILD_TESTS=ON -DLIBIPC_USE_FILE_SHM=ON .
+      run: cmake -DCMAKE_BUILD_TYPE=Release -DTHOTH_IPC_BUILD_TESTS=ON -DTHOTH_IPC_USE_FILE_SHM=ON .
       working-directory: cpp/thoth-ipc
     - name: make
       run: make -j

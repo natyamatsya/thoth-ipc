@@ -9,7 +9,7 @@
 namespace ipc {
 namespace sync {
 
-class LIBIPC_EXPORT mutex {
+class THOTH_IPC_EXPORT mutex {
     mutex(mutex const &) = delete;
     mutex &operator=(mutex const &) = delete;
 

@@ -41,12 +41,12 @@ using IsSameChar = ipc::require<is_same_char<T, S>::value, R>;
 // `Local\<n>` and a bare `<n>` resolve to the same per-session object, so the
 // default is wire-compatible with unprefixed peers. Must match the Rust
 // `win-global` feature at build time.
-#ifndef LIBIPC_WIN_OBJ_NS
-#define LIBIPC_WIN_OBJ_NS "Local"
+#ifndef THOTH_IPC_WIN_OBJ_NS
+#define THOTH_IPC_WIN_OBJ_NS "Local"
 #endif
 
 inline std::string win_object_name(std::string const &name) {
-    std::string ns = LIBIPC_WIN_OBJ_NS;
+    std::string ns = THOTH_IPC_WIN_OBJ_NS;
     if (ns.empty()) return name;
     return ns + "\\" + name;
 }

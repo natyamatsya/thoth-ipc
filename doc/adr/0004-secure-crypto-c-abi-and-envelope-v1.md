@@ -44,9 +44,9 @@ Decode fails closed on:
 
 A C API (`secure_crypto_c.h`) is the cross-language contract:
 
-- `libipc_secure_aead_encrypt(...)`
-- `libipc_secure_aead_decrypt(...)`
-- `libipc_secure_blob_free(...)`
+- `thoth_ipc_secure_aead_encrypt(...)`
+- `thoth_ipc_secure_aead_decrypt(...)`
+- `thoth_ipc_secure_blob_free(...)`
 
 Status/error codes and algorithm ids are represented as C enums for stable FFI
 across C++, Rust, and Swift.
@@ -82,7 +82,7 @@ Default builds stay dependency-free and preserve non-secure path performance.
 
 ### C++ (CMake)
 
-- `LIBIPC_SECURE_OPENSSL` option (default OFF)
+- `THOTH_IPC_SECURE_OPENSSL` option (default OFF)
 - `find_package(OpenSSL REQUIRED COMPONENTS Crypto)` only when ON
 - `target_link_libraries(ipc PUBLIC OpenSSL::Crypto)` only when ON
 

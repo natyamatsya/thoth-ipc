@@ -22,9 +22,9 @@
 #include "thoth-ipc/imp/detect_plat.h"
 #include "thoth-ipc/imp/generic.h"
 
-#if defined(LIBIPC_CPP_20) && defined(__cpp_lib_span)
+#if defined(THOTH_IPC_CPP_20) && defined(__cpp_lib_span)
 #include <span>
-#define LIBIPC_CPP_LIB_SPAN_
+#define THOTH_IPC_CPP_LIB_SPAN_
 #endif // __cpp_lib_span
 
 namespace ipc {
@@ -106,7 +106,7 @@ private:
 public:
   constexpr span() noexcept = default;
   constexpr span(span const &) noexcept = default;
-#if (LIBIPC_CC_MSVC > LIBIPC_CC_MSVC_2015)
+#if (THOTH_IPC_CC_MSVC > THOTH_IPC_CC_MSVC_2015)
   constexpr
 #endif
   span & operator=(span const &) noexcept = default;
@@ -155,13 +155,13 @@ public:
     : ptr_   (s.data())
     , extent_(s.size()) {}
 
-#ifdef LIBIPC_CPP_LIB_SPAN_
+#ifdef THOTH_IPC_CPP_LIB_SPAN_
   template <typename U, std::size_t E,
             typename = detail_span::is_array_convertible<U, T>>
   constexpr span(std::span<U, E> const &s) noexcept
     : ptr_   (s.data())
     , extent_(s.size()) {}
-#endif // LIBIPC_CPP_LIB_SPAN_
+#endif // THOTH_IPC_CPP_LIB_SPAN_
 
   constexpr size_type size() const noexcept {
     return extent_;

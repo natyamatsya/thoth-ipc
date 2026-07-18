@@ -6,7 +6,7 @@
 // descriptor, so a consumer can select/epoll/kqueue on it instead of dedicating
 // a blocking thread per channel.
 //
-// Everything here is gated on LIBIPC_NOTIFY_FD and is ZERO COST when the gate is
+// Everything here is gated on THOTH_IPC_NOTIFY_FD and is ZERO COST when the gate is
 // off: the objects hold no resources and the send hot path performs no extra
 // syscalls (the members below become empty and the seam calls compile away).
 //
@@ -24,26 +24,26 @@
 //     and channel (N->N) broadcast directly. This is the default on Apple.
 //
 //   * POSIX  -> named FIFO (mkfifo): portable fallback (Linux, or Apple with
-//     LIBIPC_NOTIFY_FIFO). A FIFO is point-to-point, so broadcast is honoured by
+//     THOTH_IPC_NOTIFY_FIFO). A FIFO is point-to-point, so broadcast is honoured by
 //     giving each reader connection slot its own FIFO: a receiver owns the FIFO
 //     for its slot, and a sender pokes every connected slot on enqueue.
 
 #include "thoth-ipc/imp/detect_plat.h"
 
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
 
 // Backend selection: named auto-reset Events on Windows; libnotify on Apple by
-// default; POSIX FIFO elsewhere (and on Apple when LIBIPC_NOTIFY_FIFO forces the
+// default; POSIX FIFO elsewhere (and on Apple when THOTH_IPC_NOTIFY_FIFO forces the
 // portable path).
-#if defined(LIBIPC_OS_WIN)
-#  define LIBIPC_NOTIFY_BACKEND_WINEVENT 1
-#elif defined(LIBIPC_OS_APPLE) && !defined(LIBIPC_NOTIFY_FIFO)
-#  define LIBIPC_NOTIFY_BACKEND_LIBNOTIFY 1
+#if defined(THOTH_IPC_OS_WIN)
+#  define THOTH_IPC_NOTIFY_BACKEND_WINEVENT 1
+#elif defined(THOTH_IPC_OS_APPLE) && !defined(THOTH_IPC_NOTIFY_FIFO)
+#  define THOTH_IPC_NOTIFY_BACKEND_LIBNOTIFY 1
 #else
-#  define LIBIPC_NOTIFY_BACKEND_FIFO 1
+#  define THOTH_IPC_NOTIFY_BACKEND_FIFO 1
 #endif
 
-#if !defined(LIBIPC_NOTIFY_BACKEND_WINEVENT)
+#if !defined(THOTH_IPC_NOTIFY_BACKEND_WINEVENT)
 #include <fcntl.h>
 #include <unistd.h>
 #endif
@@ -73,11 +73,11 @@ inline std::string notify_hash(std::string const &prefix, std::string const &nam
 } // namespace ipc
 
 // =============================================================================
-#if defined(LIBIPC_NOTIFY_BACKEND_WINEVENT)
+#if defined(THOTH_IPC_NOTIFY_BACKEND_WINEVENT)
 // =============================================================================
 
 #include <intrin.h> // _BitScanForward
-#include "thoth-ipc/imp/log.h"                // LIBIPC_LOG (used by get_sa.h)
+#include "thoth-ipc/imp/log.h"                // THOTH_IPC_LOG (used by get_sa.h)
 #include "thoth-ipc/platform/win/to_tchar.h" // to_tchar + win_object_name (+ <Windows.h>)
 #include "thoth-ipc/platform/win/get_sa.h"   // detail::get_sa (SECURITY_ATTRIBUTES)
 
@@ -191,7 +191,7 @@ inline void notify_clear_slot(std::string const &, std::string const &,
 } // namespace ipc
 
 // =============================================================================
-#elif defined(LIBIPC_NOTIFY_BACKEND_LIBNOTIFY)
+#elif defined(THOTH_IPC_NOTIFY_BACKEND_LIBNOTIFY)
 // =============================================================================
 
 #include <notify.h>
@@ -274,14 +274,14 @@ inline void notify_clear_slot(std::string const &, std::string const &,
 } // namespace ipc
 
 // =============================================================================
-#else // LIBIPC_NOTIFY_BACKEND_FIFO
+#else // THOTH_IPC_NOTIFY_BACKEND_FIFO
 // =============================================================================
 
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <cstdlib>
 
-#if !defined(LIBIPC_OS_APPLE)
+#if !defined(THOTH_IPC_OS_APPLE)
 #  include <csignal>
 #endif
 
@@ -298,10 +298,10 @@ inline int notify_slot_of(ipc::circ::cc_t bit) noexcept {
 
 // Deterministic FIFO path shared by both processes: <dir>/ipcntf_<hash>.<slot>.
 // Directory is /tmp by default (a path both peers agree on), overridable via
-// LIBIPC_NOTIFY_DIR for sandboxed/multi-user setups.
+// THOTH_IPC_NOTIFY_DIR for sandboxed/multi-user setups.
 inline std::string notify_fifo_path(std::string const &prefix,
                                     std::string const &name, int slot) {
-    char const *dir = std::getenv("LIBIPC_NOTIFY_DIR");
+    char const *dir = std::getenv("THOTH_IPC_NOTIFY_DIR");
     std::string base = (dir != nullptr && dir[0] != '\0') ? dir : "/tmp";
     std::string out;
     out.reserve(base.size() + 32);
@@ -313,7 +313,7 @@ inline std::string notify_fifo_path(std::string const &prefix,
 
 // Suppress SIGPIPE for a write to a FIFO whose reader vanished; we want EPIPE,
 // never the signal. macOS has a per-fd flag; elsewhere block it on this thread.
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
 inline void notify_set_nosigpipe(int fd) noexcept { ::fcntl(fd, F_SETNOSIGPIPE, 1); }
 struct notify_sigpipe_guard { notify_sigpipe_guard() noexcept {} };
 #else
@@ -444,4 +444,4 @@ inline void notify_clear_slot(std::string const &prefix, std::string const &name
 
 #endif // backend selection
 
-#endif // LIBIPC_NOTIFY_FD
+#endif // THOTH_IPC_NOTIFY_FD

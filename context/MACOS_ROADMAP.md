@@ -8,7 +8,7 @@ Status: **All 254 tests pass.** Library compiles and runs on macOS with full IPC
 
 ### 1. POSIX Shared Memory Name Length Limit ✅
 
-macOS enforces `PSHMNAMLEN = 31` characters for `shm_open()` names. Implemented as a **zero-cost opt-in feature for all platforms** via `LIBIPC_SHM_NAME_MAX` CMake option (auto-enabled on macOS, defaults to 0/disabled elsewhere).
+macOS enforces `PSHMNAMLEN = 31` characters for `shm_open()` names. Implemented as a **zero-cost opt-in feature for all platforms** via `THOTH_IPC_SHM_NAME_MAX` CMake option (auto-enabled on macOS, defaults to 0/disabled elsewhere).
 
 - `src/libipc/platform/posix/shm_name.h` — FNV-1a 64-bit hash, compiles away when disabled
 - Applied in `shm_posix.cpp` (`acquire`, `remove`) and `semaphore_impl.h` (`open`, `clear_storage`)
@@ -33,7 +33,7 @@ macOS requires `alignment >= sizeof(void*)` for `std::aligned_alloc`. Added a cl
 
 ### 5. Platform Detection Test ✅
 
-Added `LIBIPC_OS_APPLE` and `LIBIPC_OS_FREEBSD` branches to `test/imp/test_imp_detect_plat.cpp`.
+Added `THOTH_IPC_OS_APPLE` and `THOTH_IPC_OS_FREEBSD` branches to `test/imp/test_imp_detect_plat.cpp`.
 
 ### 6. `librt` Linking ✅
 
@@ -41,7 +41,7 @@ macOS doesn't have `librt`. Excluded Darwin from `-lrt` in `src/CMakeLists.txt`.
 
 ### 7. Platform Switch Files ✅
 
-Added `LIBIPC_OS_APPLE` to all platform conditional includes:
+Added `THOTH_IPC_OS_APPLE` to all platform conditional includes:
 
 - `sync/mutex.cpp`, `sync/condition.cpp`, `sync/semaphore.cpp`, `sync/waiter.cpp`
 - `platform/platform.cpp`, `platform/platform.c`
@@ -87,12 +87,12 @@ management path.
 
 ### 13. Memory-Mapped File Fallback ✅
 
-`-DLIBIPC_USE_FILE_SHM=ON` CMake option. Uses regular files in `/tmp/cpp-ipc/`
+`-DTHOTH_IPC_USE_FILE_SHM=ON` CMake option. Uses regular files in `/tmp/cpp-ipc/`
 with `open()`/`mmap()` instead of `shm_open()`. Avoids the 31-char `PSHMNAMLEN`
 limit entirely and sidesteps all macOS `ftruncate`/`fstat` quirks (files report
 exact sizes). All 254 tests pass with this backend.
 
-- `shm_posix.cpp`: `#if defined(LIBIPC_USE_FILE_SHM)` guards for `file_shm_open`/`file_shm_unlink`
+- `shm_posix.cpp`: `#if defined(THOTH_IPC_USE_FILE_SHM)` guards for `file_shm_open`/`file_shm_unlink`
 - Names flattened into `/tmp/cpp-ipc/` with `/` → `_` replacement
 
 ### 14. Universal Binary CI ✅

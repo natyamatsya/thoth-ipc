@@ -1,6 +1,6 @@
 #include "thoth-ipc/execution/reactor.h"
 
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
 
 #include <atomic>
 #include <mutex>
@@ -9,7 +9,7 @@
 
 // Platform headers MUST be included at file scope (not inside namespace ipc),
 // or every Win32 / POSIX symbol lands in ipc::detail and `::Foo` fails to resolve.
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
 #  include "thoth-ipc/imp/windows_preamble.h" // full <Windows.h> (thread-pool wait API)
 #else
 #  include <condition_variable>
@@ -19,7 +19,7 @@
 #  include <cerrno>
 #  include <fcntl.h>
 #  include <unistd.h>
-#  if defined(LIBIPC_OS_APPLE)
+#  if defined(THOTH_IPC_OS_APPLE)
 #    include <sys/event.h>
 #    include <sys/types.h>
 #  else
@@ -31,7 +31,7 @@
 namespace ipc {
 namespace detail {
 
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
 
 // =============================================================================
 // Windows reactor — a thin registry over the Win32 thread pool.
@@ -175,7 +175,7 @@ struct ctl_item {
 
 struct reactor::impl {
     int poll_fd = -1;
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
     int wake_r = -1, wake_w = -1; // self-pipe
 #else
     int wake_fd = -1;             // eventfd
@@ -194,7 +194,7 @@ struct reactor::impl {
     std::thread th;
 
     impl() {
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
         poll_fd = ::kqueue();
         int fds[2];
         if (::pipe(fds) == 0) {
@@ -223,7 +223,7 @@ struct reactor::impl {
         stop.store(true, std::memory_order_release);
         wake();
         if (th.joinable()) th.join();
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
         if (wake_r != -1) ::close(wake_r);
         if (wake_w != -1) ::close(wake_w);
 #else
@@ -233,7 +233,7 @@ struct reactor::impl {
     }
 
     void wake() noexcept {
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
         char c = 1;
         while (::write(wake_w, &c, 1) < 0 && errno == EINTR) {}
 #else
@@ -243,7 +243,7 @@ struct reactor::impl {
     }
 
     void drain_wake() noexcept {
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
         char buf[64];
         while (::read(wake_r, buf, sizeof(buf)) > 0) {}
 #else
@@ -253,7 +253,7 @@ struct reactor::impl {
     }
 
     void arm(int fd) noexcept {
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
         struct kevent kev;
         EV_SET(&kev, fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, nullptr);
         ::kevent(poll_fd, &kev, 1, nullptr, 0, nullptr);
@@ -266,7 +266,7 @@ struct reactor::impl {
     }
 
     void disarm(int fd) noexcept {
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
         struct kevent kev;
         EV_SET(&kev, fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
         ::kevent(poll_fd, &kev, 1, nullptr, 0, nullptr);
@@ -347,7 +347,7 @@ struct reactor::impl {
     }
 
     void run() {
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
         for (;;) {
             struct kevent evs[64];
             int n = ::kevent(poll_fd, nullptr, 0, evs, 64, nullptr);
@@ -429,4 +429,4 @@ void reactor::remove(wait_handle_t h, reactor_waiter *w) {
 } // namespace detail
 } // namespace ipc
 
-#endif // LIBIPC_NOTIFY_FD
+#endif // THOTH_IPC_NOTIFY_FD

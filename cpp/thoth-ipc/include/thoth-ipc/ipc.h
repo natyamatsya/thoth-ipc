@@ -16,7 +16,7 @@ using buff_t   = buffer;
 /**
  * \brief Native waitable handle for a channel's readiness (opt-in Layer 1).
  *
- * When libipc is built with LIBIPC_NOTIFY_FD, a receiver channel exposes a
+ * When libipc is built with THOTH_IPC_NOTIFY_FD, a receiver channel exposes a
  * kernel object, signalled whenever a message is enqueued for it, that a
  * consumer can register with its own reactor (epoll / kqueue / Qt
  * QSocketNotifier / WaitForMultipleObjects) instead of dedicating a blocking
@@ -24,7 +24,7 @@ using buff_t   = buffer;
  *
  * See context/stdexec-async-recv-rfc.md.
  */
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
 using wait_handle_t = void*; // HANDLE
 inline wait_handle_t const invalid_wait_handle = nullptr;
 #else
@@ -38,7 +38,7 @@ enum : unsigned {
 };
 
 template <typename Flag>
-struct LIBIPC_EXPORT chan_impl {
+struct THOTH_IPC_EXPORT chan_impl {
     static ipc::handle_t init_first();
 
     static bool connect   (ipc::handle_t * ph, char const * name, unsigned mode);
@@ -67,7 +67,7 @@ struct LIBIPC_EXPORT chan_impl {
     static buff_t try_recv(ipc::handle_t h);
 
     // Opt-in Layer 1: readiness handle for this (receiver) channel. Returns
-    // ipc::invalid_wait_handle unless libipc was built with LIBIPC_NOTIFY_FD and
+    // ipc::invalid_wait_handle unless libipc was built with THOTH_IPC_NOTIFY_FD and
     // the handle is connected as a receiver.
     static wait_handle_t native_wait_handle(ipc::handle_t h) noexcept;
 };
@@ -235,7 +235,7 @@ public:
      * Signalled whenever a message is enqueued for this channel; register it
      * with a reactor (epoll / kqueue / QSocketNotifier / WaitForMultipleObjects)
      * to multiplex many channels on one thread instead of blocking in recv().
-     * Returns ipc::invalid_wait_handle unless built with LIBIPC_NOTIFY_FD and
+     * Returns ipc::invalid_wait_handle unless built with THOTH_IPC_NOTIFY_FD and
      * connected as a receiver. The handle is owned by this channel and stays
      * valid until disconnect/destruction — do not close it.
      */

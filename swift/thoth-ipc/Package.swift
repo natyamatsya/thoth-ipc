@@ -61,7 +61,7 @@ let package = Package(
             name: "ThothIPCSecureCrypto",
             dependencies: [
                 "ThothIPC",
-                .product(name: "LibIPCSecureCryptoC", package: "secure-crypto-c"),
+                .product(name: "ThothIPCSecureCryptoC", package: "secure-crypto-c"),
             ],
             path: "Sources/ThothIPCSecureCrypto",
             swiftSettings: [

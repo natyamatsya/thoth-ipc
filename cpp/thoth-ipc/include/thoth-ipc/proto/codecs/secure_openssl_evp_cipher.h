@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "libipc/proto/codecs/secure_crypto_c.h"
+#include "thoth-ipc/proto/codecs/secure_crypto_c.h"
 
 namespace ipc {
 namespace proto {
@@ -24,7 +24,7 @@ concept openssl_evp_key_provider = requires {
     { KeyProvider::key_size() } -> std::convertible_to<std::size_t>;
 };
 
-template <libipc_secure_algorithm_id Algorithm, openssl_evp_key_provider KeyProvider>
+template <thoth_ipc_secure_algorithm_id Algorithm, openssl_evp_key_provider KeyProvider>
 struct secure_openssl_evp_cipher {
     static constexpr std::uint16_t algorithm_id() {
         return static_cast<std::uint16_t>(Algorithm);
@@ -39,11 +39,11 @@ struct secure_openssl_evp_cipher {
                      std::vector<std::uint8_t> &nonce,
                      std::vector<std::uint8_t> &ciphertext,
                      std::vector<std::uint8_t> &tag) {
-        libipc_secure_blob nonce_blob {nullptr, 0};
-        libipc_secure_blob ciphertext_blob {nullptr, 0};
-        libipc_secure_blob tag_blob {nullptr, 0};
+        thoth_ipc_secure_blob nonce_blob {nullptr, 0};
+        thoth_ipc_secure_blob ciphertext_blob {nullptr, 0};
+        thoth_ipc_secure_blob tag_blob {nullptr, 0};
 
-        const auto status = libipc_secure_aead_encrypt(
+        const auto status = thoth_ipc_secure_aead_encrypt(
             Algorithm,
             KeyProvider::key_data(),
             KeyProvider::key_size(),
@@ -55,10 +55,10 @@ struct secure_openssl_evp_cipher {
             &ciphertext_blob,
             &tag_blob);
 
-        if (status != LIBIPC_SECURE_STATUS_OK) {
-            libipc_secure_blob_free(&tag_blob);
-            libipc_secure_blob_free(&ciphertext_blob);
-            libipc_secure_blob_free(&nonce_blob);
+        if (status != THOTH_IPC_SECURE_STATUS_OK) {
+            thoth_ipc_secure_blob_free(&tag_blob);
+            thoth_ipc_secure_blob_free(&ciphertext_blob);
+            thoth_ipc_secure_blob_free(&nonce_blob);
             return false;
         }
 
@@ -67,9 +67,9 @@ struct secure_openssl_evp_cipher {
                           ciphertext_blob.data + ciphertext_blob.size);
         tag.assign(tag_blob.data, tag_blob.data + tag_blob.size);
 
-        libipc_secure_blob_free(&tag_blob);
-        libipc_secure_blob_free(&ciphertext_blob);
-        libipc_secure_blob_free(&nonce_blob);
+        thoth_ipc_secure_blob_free(&tag_blob);
+        thoth_ipc_secure_blob_free(&ciphertext_blob);
+        thoth_ipc_secure_blob_free(&nonce_blob);
         return true;
     }
 
@@ -80,9 +80,9 @@ struct secure_openssl_evp_cipher {
                      const std::uint8_t *tag_data,
                      const std::size_t tag_size,
                      std::vector<std::uint8_t> &plain) {
-        libipc_secure_blob plain_blob {nullptr, 0};
+        thoth_ipc_secure_blob plain_blob {nullptr, 0};
 
-        const auto status = libipc_secure_aead_decrypt(
+        const auto status = thoth_ipc_secure_aead_decrypt(
             Algorithm,
             KeyProvider::key_data(),
             KeyProvider::key_size(),
@@ -96,13 +96,13 @@ struct secure_openssl_evp_cipher {
             0,
             &plain_blob);
 
-        if (status != LIBIPC_SECURE_STATUS_OK) {
-            libipc_secure_blob_free(&plain_blob);
+        if (status != THOTH_IPC_SECURE_STATUS_OK) {
+            thoth_ipc_secure_blob_free(&plain_blob);
             return false;
         }
 
         plain.assign(plain_blob.data, plain_blob.data + plain_blob.size);
-        libipc_secure_blob_free(&plain_blob);
+        thoth_ipc_secure_blob_free(&plain_blob);
         return true;
     }
 };

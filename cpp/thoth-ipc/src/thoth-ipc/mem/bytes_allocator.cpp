@@ -32,7 +32,7 @@ void bytes_allocator::swap(bytes_allocator &other) noexcept {
 }
 
 void *bytes_allocator::allocate(std::size_t s, std::size_t a) const {
-  LIBIPC_LOG();
+  THOTH_IPC_LOG();
   if ((a & (a - 1)) != 0) {
     log.error("failed: allocate alignment is not a power of 2.");
     return nullptr;
@@ -41,7 +41,7 @@ void *bytes_allocator::allocate(std::size_t s, std::size_t a) const {
 }
 
 void bytes_allocator::deallocate(void *p, std::size_t s, std::size_t a) const {
-  LIBIPC_LOG();
+  THOTH_IPC_LOG();
   if ((a & (a - 1)) != 0) {
     log.error("failed: allocate alignment is not a power of 2.");
     return;

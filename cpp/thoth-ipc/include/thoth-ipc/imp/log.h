@@ -69,13 +69,13 @@ template <typename... T>
 std::string context_to_string(context<T...> const &l_ctx) {
   std::string log_txt;
   fmt_context f_ctx(log_txt);
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     if (!context_to_string(f_ctx, l_ctx)) {
       return {};
     }
     f_ctx.finish();
     return log_txt;
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     f_ctx.finish();
     throw;
   }
@@ -105,13 +105,13 @@ inline auto &make_std_out() noexcept {
 
 /// \brief Get the exception information.
 inline char const *exception_string(std::exception_ptr eptr) noexcept {
-  LIBIPC_TRY {
+  THOTH_IPC_TRY {
     if (eptr) {
       std::rethrow_exception(eptr);
     }
-  } LIBIPC_CATCH(std::exception const &e) {
+  } THOTH_IPC_CATCH(std::exception const &e) {
     return e.what();
-  } LIBIPC_CATCH(...) {
+  } THOTH_IPC_CATCH(...) {
     return "unknown";
   }
   return "none";
@@ -156,12 +156,12 @@ public:
     if (underlyof(l) < underlyof(level_limit_)) {
       return *this;
     }
-    LIBIPC_TRY {
+    THOTH_IPC_TRY {
       out_(context<A &&...> {
         l, std::chrono::system_clock::now(), func_,
         std::forward_as_tuple(std::forward<A>(args)...),
       });
-    } LIBIPC_CATCH(...) {
+    } THOTH_IPC_CATCH(...) {
       exception_print(func_, std::current_exception());
     }
     return *this;
@@ -188,7 +188,7 @@ inline auto make_logger(char const * /*ignore*/, char const *name, level level_l
   return make_logger(name, make_std_out(), level_limit);
 }
 
-#define LIBIPC_LOG(...) \
+#define THOTH_IPC_LOG(...) \
   auto log \
     = [](auto &&...args) noexcept { \
         return ::ipc::log::make_logger(__func__, std::forward<decltype(args)>(args)...); \

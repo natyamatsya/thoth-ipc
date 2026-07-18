@@ -158,7 +158,7 @@ swift/thoth-ipc/
 ### 1.1 Shared memory (`Shm`)
 
 - `shm_open` / `mmap` wrapper with `open(name:create:size:)` and `close()`
-- File-backed fallback (`LIBIPC_USE_FILE_SHM` equivalent) via `open(2)` + `mmap`
+- File-backed fallback (`THOTH_IPC_USE_FILE_SHM` equivalent) via `open(2)` + `mmap`
 - macOS `PSHMNAMLEN` name-length constraint → FNV-1a hash truncation
   (same algorithm as `shm_name.rs` / `shm_name.h`)
 - Process-local shm cache (required on macOS for `PTHREAD_PROCESS_SHARED` —

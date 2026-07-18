@@ -23,7 +23,7 @@
 
 #include "shm_name.h"
 
-#if defined(LIBIPC_USE_FILE_SHM)
+#if defined(THOTH_IPC_USE_FILE_SHM)
 #include <string>
 namespace {
 
@@ -81,12 +81,12 @@ namespace ipc {
 namespace shm {
 
 id_t acquire(char const * name, std::size_t size, unsigned mode) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (!is_valid_string(name)) {
         log.error("fail acquire: name is empty");
         return nullptr;
     }
-#if defined(LIBIPC_USE_FILE_SHM)
+#if defined(THOTH_IPC_USE_FILE_SHM)
     std::string op_name = make_file_path(name);
 #else
     std::string op_name = ipc::posix_::detail::make_shm_name(name);
@@ -95,7 +95,7 @@ id_t acquire(char const * name, std::size_t size, unsigned mode) {
     int flag = O_RDWR;
     switch (mode) {
     case open:
-#if defined(LIBIPC_OS_APPLE) && !defined(LIBIPC_USE_FILE_SHM)
+#if defined(THOTH_IPC_OS_APPLE) && !defined(THOTH_IPC_USE_FILE_SHM)
         // On macOS, fstat returns page-rounded sizes which would place the
         // ref counter at the wrong offset. Keep the caller's size if provided
         // so get_mem uses calc_size consistently with the creator.
@@ -115,7 +115,7 @@ id_t acquire(char const * name, std::size_t size, unsigned mode) {
         break;
     }
     constexpr auto perms = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
-#if defined(LIBIPC_USE_FILE_SHM)
+#if defined(THOTH_IPC_USE_FILE_SHM)
     int fd = file_shm_open(op_name.c_str(), flag, perms);
 #else
     int fd = ::shm_open(op_name.c_str(), flag, perms);
@@ -147,7 +147,7 @@ std::int32_t get_ref(id_t id) {
 }
 
 void sub_ref(id_t id) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (id == nullptr) {
         log.error("fail sub_ref: invalid id (null)");
         return;
@@ -161,7 +161,7 @@ void sub_ref(id_t id) {
 }
 
 void * get_mem(id_t id, std::size_t * size) {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (id == nullptr) {
         log.error("fail get_mem: invalid id (null)");
         return nullptr;
@@ -191,7 +191,7 @@ void * get_mem(id_t id, std::size_t * size) {
     else {
         ii->size_ = calc_size(ii->size_);
         if (::ftruncate(fd, static_cast<off_t>(ii->size_)) != 0) {
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
             // macOS returns EINVAL when ftruncate is called on an already-sized
             // shm object. Check if the existing size is compatible.
             if (errno == EINVAL) {
@@ -204,7 +204,7 @@ void * get_mem(id_t id, std::size_t * size) {
                 // Unlink it, recreate, and retry ftruncate.
                 ::close(fd);
                 ii->fd_ = -1;
-#if defined(LIBIPC_USE_FILE_SHM)
+#if defined(THOTH_IPC_USE_FILE_SHM)
                 file_shm_unlink(ii->name_.c_str());
                 fd = file_shm_open(ii->name_.c_str(), O_RDWR | O_CREAT,
                                    S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
@@ -229,7 +229,7 @@ void * get_mem(id_t id, std::size_t * size) {
                 return nullptr;
             }
         }
-#if defined(LIBIPC_OS_APPLE)
+#if defined(THOTH_IPC_OS_APPLE)
         ftruncate_ok:
 #endif
         (void)0;
@@ -248,7 +248,7 @@ void * get_mem(id_t id, std::size_t * size) {
 }
 
 std::int32_t release(id_t id) noexcept {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (id == nullptr) {
         log.error("fail release: invalid id (null)");
         return -1;
@@ -261,7 +261,7 @@ std::int32_t release(id_t id) noexcept {
     else if ((ret = acc_of(ii->mem_, ii->size_).fetch_sub(1, std::memory_order_acq_rel)) <= 1) {
         ::munmap(ii->mem_, ii->size_);
         if (!ii->name_.empty()) {
-#if defined(LIBIPC_USE_FILE_SHM)
+#if defined(THOTH_IPC_USE_FILE_SHM)
             int unlink_ret = file_shm_unlink(ii->name_.c_str());
 #else
             int unlink_ret = ::shm_unlink(ii->name_.c_str());
@@ -277,7 +277,7 @@ std::int32_t release(id_t id) noexcept {
 }
 
 void remove(id_t id) noexcept {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (id == nullptr) {
         log.error("fail remove: invalid id (null)");
         return;
@@ -290,7 +290,7 @@ void remove(id_t id) noexcept {
     // release() already unlinks as the last owner (ref <= 1).
     if (released_ref <= 1 && released_ref != -1) return;
 
-#if defined(LIBIPC_USE_FILE_SHM)
+#if defined(THOTH_IPC_USE_FILE_SHM)
     int unlink_ret = file_shm_unlink(name.c_str());
 #else
     int unlink_ret = ::shm_unlink(name.c_str());
@@ -301,12 +301,12 @@ void remove(id_t id) noexcept {
 }
 
 void remove(char const * name) noexcept {
-    LIBIPC_LOG();
+    THOTH_IPC_LOG();
     if (!is_valid_string(name)) {
         log.error("fail remove: name is empty");
         return;
     }
-#if defined(LIBIPC_USE_FILE_SHM)
+#if defined(THOTH_IPC_USE_FILE_SHM)
     std::string op_name = make_file_path(name);
     int unlink_ret = file_shm_unlink(op_name.c_str());
 #else

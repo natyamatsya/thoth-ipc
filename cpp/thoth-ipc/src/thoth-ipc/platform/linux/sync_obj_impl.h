@@ -19,7 +19,7 @@ protected:
     sync_t *h_ = nullptr;
 
     sync_t *acquire_handle(char const *name) {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!shm_.acquire(name, sizeof(sync_t))) {
             log.error("[acquire_handle] fail shm.acquire: ", name);
             return nullptr;

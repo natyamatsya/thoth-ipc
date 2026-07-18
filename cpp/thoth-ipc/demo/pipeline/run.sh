@@ -29,7 +29,7 @@ for b in "$CPP" "$RUST" "$SWIFT" "$ZIG"; do
 missing binary: $b
 
 Build the four pipeline demos first:
-  (cd cpp/thoth-ipc  && cmake -B build -DLIBIPC_BUILD_DEMOS=ON . && cmake --build build --target pipeline -j)
+  (cd cpp/thoth-ipc  && cmake -B build -DTHOTH_IPC_BUILD_DEMOS=ON . && cmake --build build --target pipeline -j)
   (cd rust/thoth-ipc && cargo build --release --bin demo_pipeline)
   (cd swift/thoth-ipc && swift build -c release --product demo-pipeline)
   (cd zig/thoth-ipc  && zig build -Doptimize=ReleaseSafe)

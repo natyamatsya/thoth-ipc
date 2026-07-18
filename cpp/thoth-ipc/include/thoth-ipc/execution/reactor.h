@@ -3,7 +3,7 @@
 // A single process-global reactor thread that multiplexes every async channel's
 // readiness fd (Layer 1's native_wait_handle) on one kqueue/epoll, replacing one
 // blocking recv thread per channel. It has no stdexec dependency — only fds — so
-// it is compiled with Layer 1 (LIBIPC_NOTIFY_FD) and is shared by both the
+// it is compiled with Layer 1 (THOTH_IPC_NOTIFY_FD) and is shared by both the
 // stdexec senders/receivers front end (async_recv.h) and the coroutine front end
 // (coro_recv.h).
 //
@@ -13,7 +13,7 @@
 #include "thoth-ipc/imp/detect_plat.h"
 #include "thoth-ipc/ipc.h" // ipc::wait_handle_t (int fd on POSIX, HANDLE/void* on Windows)
 
-#if defined(LIBIPC_NOTIFY_FD)
+#if defined(THOTH_IPC_NOTIFY_FD)
 
 namespace ipc {
 namespace detail {
@@ -79,4 +79,4 @@ private:
 } // namespace detail
 } // namespace ipc
 
-#endif // LIBIPC_NOTIFY_FD
+#endif // THOTH_IPC_NOTIFY_FD

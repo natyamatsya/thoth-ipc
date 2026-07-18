@@ -8,15 +8,15 @@ option(SECURE_CRYPTO_C_OPENSSL
     "Enable OpenSSL EVP backend for the secure crypto C ABI."
     OFF)
 
-add_library(libipc_secure_crypto_c STATIC
+add_library(thoth_ipc_secure_crypto_c STATIC
     src/secure_crypto_c.c
 )
 
-set_target_properties(libipc_secure_crypto_c PROPERTIES
+set_target_properties(thoth_ipc_secure_crypto_c PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
-target_include_directories(libipc_secure_crypto_c
+target_include_directories(thoth_ipc_secure_crypto_c
     PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>"
         "$<INSTALL_INTERFACE:include>"
@@ -24,11 +24,11 @@ target_include_directories(libipc_secure_crypto_c
 
 if(SECURE_CRYPTO_C_OPENSSL)
     find_package(OpenSSL REQUIRED COMPONENTS Crypto)
-    target_compile_definitions(libipc_secure_crypto_c PUBLIC LIBIPC_SECURE_OPENSSL)
-    target_link_libraries(libipc_secure_crypto_c PUBLIC OpenSSL::Crypto)
+    target_compile_definitions(thoth_ipc_secure_crypto_c PUBLIC THOTH_IPC_SECURE_OPENSSL)
+    target_link_libraries(thoth_ipc_secure_crypto_c PUBLIC OpenSSL::Crypto)
 endif()
 
-add_library(libipc::secure_crypto_c ALIAS libipc_secure_crypto_c)
+add_library(thoth_ipc::secure_crypto_c ALIAS thoth_ipc_secure_crypto_c)
 
 set(_secure_crypto_export_set "secure-crypto-c-targets")
 set(_secure_crypto_emit_export_file ON)
@@ -37,7 +37,7 @@ if(DEFINED SECURE_CRYPTO_C_EXPORT_SET)
     set(_secure_crypto_emit_export_file OFF)
 endif()
 
-install(TARGETS libipc_secure_crypto_c
+install(TARGETS thoth_ipc_secure_crypto_c
     EXPORT ${_secure_crypto_export_set}
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib

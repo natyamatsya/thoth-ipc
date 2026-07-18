@@ -41,11 +41,24 @@ Notable changes to thoth-ipc. The format follows
   include dir `include/libipc/` → `include/thoth-ipc/` (so `#include
   "thoth-ipc/…"`); the Rust library `libipc` → `thoth_ipc` (`use thoth_ipc::`);
   and the Swift module `LibIPC` → `ThothIPC` (`import ThothIPC`). **Breaking**
-  for downstream consumers' includes/imports. Deliberately unchanged: the `ipc::`
-  C++ namespace, the internal `LIBIPC_` C++ macro namespace, the shared
-  `secure-crypto-c` package (its `libipc_secure_*` C ABI), the runtime wire/shm
-  identifiers (`__libipc_sync_abi_*`, the `libipc_<hex>` shm-name format), and
-  upstream cpp-ipc attribution.
+  for downstream consumers' includes/imports.
+- **Rebranded the internal `LIBIPC_` C++ macro namespace → `THOTH_IPC_`**
+  (`THOTH_IPC_LOG`/`EXPORT`/`OS_*`/`CPP_*`/`UNUSED`/… and the CMake options/defines
+  `THOTH_IPC_BUILD_TESTS`/`_DEMOS`/`_PROTO`/`_STDEXEC`/`_SECURE_OPENSSL`, plus the
+  build env `THOTH_IPC_OPENSSL_PREFIX`). **Breaking** for downstream C++ that used
+  the `LIBIPC_*` config macros or `-DLIBIPC_*` CMake flags.
+- **Rebranded the shared `secure-crypto-c` C ABI**: its C symbols
+  `libipc_secure_*` → `thoth_ipc_secure_*` and enum constants `LIBIPC_SECURE_*` →
+  `THOTH_IPC_SECURE_*`; the include dir `include/libipc/` → `include/thoth-ipc/`
+  (so `#include "thoth-ipc/proto/codecs/secure_crypto_c.h"`); the CMake target
+  `libipc_secure_crypto_c` → `thoth_ipc_secure_crypto_c` (alias
+  `thoth_ipc::secure_crypto_c`); and the Swift product/module `LibIPCSecureCryptoC`
+  → `ThothIPCSecureCryptoC`. Wire-compatible (the AEAD envelope bytes are
+  unchanged — only internal symbol names moved).
+- **Deliberately unchanged** across all of the above: the `ipc::` C++ namespace,
+  the runtime wire/shm identifiers (`__libipc_sync_abi_*`, the `libipc_<hex>`
+  shm-name format), the Swift port's `libipc_shm_open_*` C shim, and upstream
+  cpp-ipc / libipc attribution in `LICENSE`, `NOTICE` and `// Port of …` comments.
 - `IpcMutex.openSync(name:)` (Swift) is now `public`, mirroring
   `Route.connectBlocking` — a blocking mutex open for non-async call sites.
 

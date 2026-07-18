@@ -56,7 +56,7 @@ Failover gap | Reconnect + re-send config | Activate stream flag only
 ## Building
 
 ```bash
-cmake -B build -DLIBIPC_BUILD_PROTO=ON -DCMAKE_BUILD_TYPE=Release
+cmake -B build -DTHOTH_IPC_BUILD_PROTO=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
@@ -174,7 +174,7 @@ The Rust service is built automatically when `cargo` is found on `PATH`.
 If cargo is not available, the Rust target is silently skipped.
 
 ```bash
-cmake -B build -DLIBIPC_BUILD_PROTO=ON -DCMAKE_BUILD_TYPE=Release
+cmake -B build -DTHOTH_IPC_BUILD_PROTO=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 

@@ -92,7 +92,7 @@ public:
     }
 
     bool open(char const *name, std::uint32_t count) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         close();
         name_ = name ? name : "";
         if (!shm_.acquire(name, sizeof(mach_sem_state_t))) {
@@ -141,7 +141,7 @@ public:
     }
 
     bool wait(std::uint64_t tm) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
 
         using clock = std::chrono::steady_clock;
@@ -181,7 +181,7 @@ public:
     }
 
     bool post(std::uint32_t count) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         for (std::uint32_t i = 0; i < count; ++i) {
             data_->count.fetch_add(1, std::memory_order_release);

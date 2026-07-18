@@ -29,7 +29,7 @@ func fnv1a64(_ data: some Sequence<UInt8>) -> UInt64 {
 
 /// Maximum length for POSIX shm names.
 /// On macOS `PSHMNAMLEN` is 31. On Linux the limit is typically 255.
-/// Mirrors `LIBIPC_SHM_NAME_MAX` from the C++ build.
+/// Mirrors `THOTH_IPC_SHM_NAME_MAX` from the C++ build.
 #if os(macOS)
 let shmNameMax: Int = 31
 #else

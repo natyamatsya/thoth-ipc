@@ -29,7 +29,7 @@ fn to_hex(val: u64) -> [u8; 16] {
 /// Maximum length for POSIX shm names. Set to 0 to disable truncation.
 ///
 /// On macOS `PSHMNAMLEN` is 31. On Linux the limit is typically 255.
-/// This mirrors `LIBIPC_SHM_NAME_MAX` from the C++ build.
+/// This mirrors `THOTH_IPC_SHM_NAME_MAX` from the C++ build.
 #[cfg(target_os = "macos")]
 pub const SHM_NAME_MAX: usize = 31;
 

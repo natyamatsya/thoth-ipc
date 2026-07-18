@@ -18,7 +18,7 @@
 //   secure_pos pinpad  [count]    card reader: seals + broadcasts events
 //
 // Start the receivers first; the pinpad waits for both. The AEAD backend is
-// compiled in with -DLIBIPC_SECURE_OPENSSL=ON (runtime-checked below).
+// compiled in with -DTHOTH_IPC_SECURE_OPENSSL=ON (runtime-checked below).
 //
 // DEMO KEY ONLY: real deployments provision the key into the pinpad's secure
 // element and the gateway's HSM/KMS — it never appears in source.
@@ -138,7 +138,7 @@ struct card_event {
 template <typename Key>
 using sealed_codec = ipc::proto::secure_codec<
     ipc::proto::protobuf_codec,
-    ipc::proto::secure_openssl_evp_cipher<LIBIPC_SECURE_ALG_AES_256_GCM, Key>>;
+    ipc::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, Key>>;
 
 template <typename Key>
 using sealed_bus = ipc::proto::typed_route_codec<card_event, sealed_codec<Key>>;
@@ -212,8 +212,8 @@ int pos(int count) {
 } // namespace
 
 int main(int argc, char **argv) {
-    if (libipc_secure_crypto_available() == 0) {
-        std::fprintf(stderr, "crypto backend unavailable — build with -DLIBIPC_SECURE_OPENSSL=ON\n");
+    if (thoth_ipc_secure_crypto_available() == 0) {
+        std::fprintf(stderr, "crypto backend unavailable — build with -DTHOTH_IPC_SECURE_OPENSSL=ON\n");
         return 2;
     }
     std::string role = (argc > 1) ? argv[1] : "";

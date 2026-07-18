@@ -19,7 +19,7 @@ public:
     ~condition() = default;
 
     bool wait(ipc::sync::mutex &mtx, std::uint64_t tm) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         if (tm == invalid_value) {
             int eno = A0_SYSERR(a0_cnd_wait(native(), static_cast<a0_mtx_t *>(mtx.native())));
@@ -41,7 +41,7 @@ public:
     }
 
     bool notify(ipc::sync::mutex &mtx) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         int eno = A0_SYSERR(a0_cnd_signal(native(), static_cast<a0_mtx_t *>(mtx.native())));
         if (eno != 0) {
@@ -52,7 +52,7 @@ public:
     }
 
     bool broadcast(ipc::sync::mutex &mtx) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         int eno = A0_SYSERR(a0_cnd_broadcast(native(), static_cast<a0_mtx_t *>(mtx.native())));
         if (eno != 0) {

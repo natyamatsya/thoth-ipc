@@ -61,7 +61,7 @@ using is_memory_resource =
  * \see https://en.cppreference.com/w/cpp/memory/memory_resource
  *      https://en.cppreference.com/w/cpp/memory/container_allocator
  */
-class LIBIPC_EXPORT bytes_allocator {
+class THOTH_IPC_EXPORT bytes_allocator {
 
   class holder_mr_base {
   public:

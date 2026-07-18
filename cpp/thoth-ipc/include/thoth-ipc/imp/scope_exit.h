@@ -74,7 +74,7 @@ struct scope_exit_helper {
 
 } // namespace detail_scope_exit
 
-#define LIBIPC_SCOPE_EXIT($VAL) \
-  LIBIPC_UNUSED auto $VAL = ::ipc::detail_scope_exit::scope_exit_helper{}
+#define THOTH_IPC_SCOPE_EXIT($VAL) \
+  THOTH_IPC_UNUSED auto $VAL = ::ipc::detail_scope_exit::scope_exit_helper{}
 
 } // namespace ipc

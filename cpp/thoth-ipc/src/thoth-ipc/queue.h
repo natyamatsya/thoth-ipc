@@ -31,7 +31,7 @@ protected:
 
     template <typename Elems>
     Elems* open(char const * name) {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!is_valid_string(name)) {
             log.error("fail open waiter: name is empty!");
             return nullptr;

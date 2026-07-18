@@ -7,7 +7,7 @@
 
 TEST(byte, construct) {
   {
-    LIBIPC_UNUSED ipc::byte b;
+    THOTH_IPC_UNUSED ipc::byte b;
     SUCCEED();
   }
   {

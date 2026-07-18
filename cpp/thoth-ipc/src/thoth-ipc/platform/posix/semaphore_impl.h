@@ -35,7 +35,7 @@ public:
     }
 
     bool open(char const *name, std::uint32_t count) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         close();
         if (!shm_.acquire(name, 1)) {
             log.error("[open_semaphore] fail shm.acquire: ", name);
@@ -54,7 +54,7 @@ public:
     }
 
     void close() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return;
         if (::sem_close(h_) != 0) {
             log.error("fail sem_close[", errno, "]");
@@ -71,7 +71,7 @@ public:
     }
 
     void clear() noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (valid()) {
             if (::sem_close(h_) != 0) {
                 log.error("fail sem_close[", errno, "]");
@@ -93,7 +93,7 @@ public:
     }
 
     bool wait(std::uint64_t tm) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         if (tm == invalid_value) {
             if (::sem_wait(h_) != 0) {
@@ -113,7 +113,7 @@ public:
     }
 
     bool post(std::uint32_t count) noexcept {
-        LIBIPC_LOG();
+        THOTH_IPC_LOG();
         if (!valid()) return false;
         for (std::uint32_t i = 0; i < count; ++i) {
             if (::sem_post(h_) != 0) {

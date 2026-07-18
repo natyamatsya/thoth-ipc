@@ -120,8 +120,8 @@ using secure_route =
 ```
 
 For production crypto backends, a stable C ABI is exposed in
-`libipc/proto/codecs/secure_crypto_c.h`. The OpenSSL EVP implementation is
-optional and enabled only when `LIBIPC_SECURE_OPENSSL=ON`.
+`thoth-ipc/proto/codecs/secure_crypto_c.h`. The OpenSSL EVP implementation is
+optional and enabled only when `THOTH_IPC_SECURE_OPENSSL=ON`.
 
 `secure_openssl_evp_cipher.h` provides an AEAD cipher-policy adapter that plugs
 the C ABI into `secure_codec`.
@@ -155,7 +155,7 @@ flatc --cpp -o build/ my_protocol.fbs
 
 ## CMake Integration
 
-Enable with `-DLIBIPC_BUILD_PROTO=ON`. This fetches FlatBuffers v25.2.10 via
+Enable with `-DTHOTH_IPC_BUILD_PROTO=ON`. This fetches FlatBuffers v25.2.10 via
 `FetchContent` and builds `flatc`. To compile schemas in your own CMake:
 
 ```cmake
@@ -169,7 +169,7 @@ add_custom_command(
 Enable optional secure crypto backend (OpenSSL EVP) only when needed:
 
 ```bash
-cmake -S . -B build -DLIBIPC_SECURE_OPENSSL=ON
+cmake -S . -B build -DTHOTH_IPC_SECURE_OPENSSL=ON
 ```
 
 This keeps default builds dependency-free and preserves zero-overhead behavior

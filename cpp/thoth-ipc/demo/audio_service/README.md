@@ -40,7 +40,7 @@ Defined in `audio_protocol.fbs`:
 ## Building
 
 ```bash
-cmake -B build -DLIBIPC_BUILD_PROTO=ON -DCMAKE_BUILD_TYPE=Release
+cmake -B build -DTHOTH_IPC_BUILD_PROTO=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 

@@ -27,14 +27,14 @@
 #include "thoth-ipc/imp/detect_plat.h"
 #include "thoth-ipc/circ/elem_def.h" // ipc::circ::cc_t
 
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
 #  include <process.h>
 #  include "thoth-ipc/imp/windows_preamble.h" // OpenProcess/GetProcessTimes/GetExitCodeProcess
 #else
 #  include <csignal>
 #  include <cerrno>
 #  include <unistd.h>
-#  if defined(LIBIPC_OS_APPLE)
+#  if defined(THOTH_IPC_OS_APPLE)
 #    include <libproc.h>
 #    include <sys/proc_info.h>
 #  else
@@ -76,7 +76,7 @@ inline int slot_index(ipc::circ::cc_t bit) noexcept {
 
 // This process's identity.
 inline std::int32_t self_pid() noexcept {
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
     return static_cast<std::int32_t>(::_getpid());
 #else
     return static_cast<std::int32_t>(::getpid());
@@ -92,7 +92,7 @@ inline std::int32_t self_pid() noexcept {
 //   * macOS: BSD start time packed as tvsec * 1'000'000 + tvusec.
 //   * Linux: the raw starttime jiffies from /proc/<pid>/stat field 22.
 inline std::uint64_t start_token(std::int32_t pid) noexcept {
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
     if (pid <= 0) return 0;
     HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
                              static_cast<DWORD>(pid));
@@ -107,7 +107,7 @@ inline std::uint64_t start_token(std::int32_t pid) noexcept {
     }
     ::CloseHandle(h);
     return tok;
-#elif defined(LIBIPC_OS_APPLE)
+#elif defined(THOTH_IPC_OS_APPLE)
     if (pid <= 0) return 0;
     struct proc_bsdinfo info;
     int n = ::proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info));
@@ -153,7 +153,7 @@ inline std::uint64_t self_start_token() noexcept {
 // different process. Conservative: any "can't determine" answer errs toward
 // ALIVE, so a live-but-idle peer is never falsely reaped.
 inline bool is_process_alive(std::int32_t pid, std::uint64_t tok) noexcept {
-#if defined(LIBIPC_OS_WIN)
+#if defined(THOTH_IPC_OS_WIN)
     if (pid <= 0) return false;
     HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
                              static_cast<DWORD>(pid));
