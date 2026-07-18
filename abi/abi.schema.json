@@ -119,7 +119,14 @@
       "properties": {
         "name": { "$ref": "#/$defs/identifier" },
         "template": { "type": "string", "description": "e.g. \"{prefix}__IPC_SHM__QU_CONN__{name}__{data_length}__{align_size}\"" },
-        "description": { "type": "string" }
+        "description": { "type": "string" },
+        "golden": {
+          "description": "expected resolved name for the canonical binding (prefix=\"\", name=\"xchan\", data_length=64, align_size per-target, chunk_size=1024). String, or a per-target map when the template embeds {align_size}. The naming gate resolves {template} against that binding and checks it equals this.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "object", "additionalProperties": { "type": "string" } }
+          ]
+        }
       }
     }
   }

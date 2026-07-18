@@ -54,6 +54,73 @@ fn resolve_int(v: &Value, target: &str) -> Option<u64> {
     v.get(target).and_then(as_u64)
 }
 
+/// A plain string, or a per-target object resolved for `target`.
+fn resolve_str<'a>(v: &'a Value, target: &str) -> Option<&'a str> {
+    if let Some(s) = v.as_str() {
+        return Some(s);
+    }
+    v.get(target).and_then(|x| x.as_str())
+}
+
+/// FNV-1a-64 — byte-identical to the C++ `shm_name.h` / `notify.h` hash.
+fn fnv1a_64(data: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in data {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Naming gate: resolve each `names[]` template against the canonical binding
+/// (prefix="", name="xchan", data_length, align_size per-target, chunk_size=1024)
+/// and check it equals the stored golden; then independently recompute the notify
+/// FNV-1a-64 to validate the notify_hash golden. Returns true on full agreement.
+fn check_naming(abi: &Value, target: &str) -> bool {
+    let constant = |n: &str| abi["constants"].as_array().unwrap().iter().find(|c| c["name"] == n);
+    let data_length = constant("data_length").and_then(|c| resolve_int(&c["value"], target)).expect("data_length");
+    let align_size = resolve_int(&abi["targets"][target]["align_size"], target)
+        .unwrap_or_else(|| panic!("no align_size for target '{target}'"));
+    let notify_hash = constant("notify_hash_xchan").and_then(|c| c["value"].as_str()).expect("notify_hash_xchan");
+
+    let subst = |t: &str| t
+        .replace("{prefix}", "")
+        .replace("{name}", "xchan")
+        .replace("{data_length}", &data_length.to_string())
+        .replace("{align_size}", &align_size.to_string())
+        .replace("{chunk_size}", "1024")
+        .replace("{notify_hash}", notify_hash);
+
+    let (mut ok, mut bad) = (0usize, 0usize);
+    for n in abi["names"].as_array().unwrap_or(&vec![]) {
+        let name = n["name"].as_str().unwrap();
+        let Some(golden) = n.get("golden").and_then(|g| resolve_str(g, target)) else { continue };
+        let resolved = subst(n["template"].as_str().unwrap());
+        if resolved == golden {
+            ok += 1;
+        } else {
+            bad += 1;
+            println!("  ✗ name {name}: template resolves to {resolved:?} but golden = {golden:?}");
+        }
+    }
+
+    // Independent check of the notify_hash golden: hash make_prefix("", "NOTIFY__", "xchan").
+    let notify_id = "__IPC_SHM__NOTIFY__xchan";
+    let computed = format!("{:016x}", fnv1a_64(notify_id.as_bytes()));
+    let fnv_ok = computed == notify_hash;
+    if !fnv_ok {
+        bad += 1;
+        println!("  ✗ notify_hash: fnv1a_64({notify_id:?}) = {computed} but abi.json = {notify_hash}");
+    }
+
+    println!(
+        "{} naming ({target}): {ok} template(s) resolve to their golden; notify FNV-1a-64 {}",
+        if bad == 0 { "✓" } else { "✗" },
+        if fnv_ok { "verified" } else { "FAILED" }
+    );
+    bad == 0
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let root = repo_root();
@@ -173,7 +240,9 @@ fn run_check(root: &Path, args: &[String]) {
             uncovered.join(", ")
         );
     }
-    if mismatches > 0 {
+    let naming_ok = check_naming(&abi, &target);
+
+    if mismatches > 0 || !naming_ok {
         std::process::exit(1);
     }
     println!("\n✓ ABI conformance OK");

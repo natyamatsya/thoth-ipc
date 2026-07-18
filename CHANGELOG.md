@@ -7,6 +7,15 @@ Notable changes to thoth-ipc. The format follows
 ## [Unreleased]
 
 ### Changed
+- **ABI naming-template gate.** Each `abi.json` `names[]` template now carries a
+  `golden` (its resolution for a canonical binding: `prefix=""`, `name="xchan"`,
+  `data_length=64`, `align_size` per-target, `chunk_size=1024`). The `abi` checker
+  resolves each template and diffs it against the golden, and **independently
+  recomputes** the notify `fnv1a_64` in Rust to validate `notify_hash_xchan` — so
+  the shm-name contract (`__IPC_SHM__…`, `ipc.ntf.…`) can't drift silently in the
+  spec. Runs as part of `cargo run -p abi -- check` (both targets in CI). The ring
+  golden is per-target (`…__64__8` vs `…__64__16`). Per-port name-builder
+  agreement remains behaviourally matrix-verified.
 - **Per-target ABI generation (align 8 vs 16), deduplicated.** `abi.json` stores
   the align-dependent values as per-target maps `{apple_arm64, x86_64}`; only
   three actually differ (`route_elem.size` 88/96, `route_ring.size` 22784/24832,

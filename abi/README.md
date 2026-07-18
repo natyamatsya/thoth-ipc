@@ -129,7 +129,15 @@ cpp-ipc v1.4.1 and proven across four ports). This is the global contract versio
    (`sync_abi_suffix_mutex`/`_condition`) — all now generated and re-sourced by
    every port. Still hand-written: the codec/alg enums and `liveness_slot_*`.
 2. Grow `abi.json` + dumper coverage (`msg_t` offsets via a small introspection
-   shim, SIPC / SyncAbi framing, naming-template checks).
+   shim, SIPC / SyncAbi framing).
+2a. **Naming-template checks — done.** Each `names[]` template carries a `golden`
+   (its resolution for the canonical binding `prefix=""`, `name="xchan"`,
+   `data_length=64`, `align_size` per-target, `chunk_size=1024`). The checker
+   resolves the template and diffs it against the golden, and **independently
+   recomputes** the notify `fnv1a_64` in Rust to validate `notify_hash_xchan` — so
+   the shm-name contract cannot drift silently in `abi.json`. (Per-port
+   name-builder agreement stays behaviourally matrix-verified; a per-port golden
+   unit test is the natural follow-up.)
 3. **Per-target generation — done.** `abi.json` stores align-dependent values as
    per-target maps `{apple_arm64, x86_64}` (only `route_elem.size`,
    `route_ring.size`, `chunk_header_size` actually differ — 8- vs 16-align). The
