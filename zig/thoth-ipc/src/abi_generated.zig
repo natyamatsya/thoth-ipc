@@ -18,7 +18,7 @@ pub const ring_size: usize = 256;
 pub const large_msg_align: usize = 1024;
 /// chunk slots per chunk size (id_pool capacity)
 pub const large_msg_cache: usize = 32;
-/// per-chunk header = make_align(8, sizeof(atomic<cc_t>)=4)
+/// per-chunk header = make_align(alignof(max_align_t), sizeof(atomic<cc_t>)=4); align-dependent
 pub const chunk_header_size: usize = 8;
 /// sizeof(chunk_info_t)
 pub const chunk_info_size: usize = 40;
@@ -79,7 +79,7 @@ pub const ring_header_lc_off: usize = 4;
 pub const ring_header_constructed_off: usize = 8;
 pub const ring_header_cursor_off: usize = 64;
 pub const ring_header_epoch_off: usize = 128;
-/// single-writer route slot (elem_t<80,8>)
+/// single-writer route slot (elem_t<80,AlignSize>); size is align-dependent
 pub const route_elem_size: usize = 88;
 pub const route_elem_data_off: usize = 0;
 pub const route_elem_rc_off: usize = 80;
@@ -88,9 +88,9 @@ pub const channel_elem_size: usize = 96;
 pub const channel_elem_data_off: usize = 0;
 pub const channel_elem_rc_off: usize = 80;
 pub const channel_elem_f_ct_off: usize = 88;
-/// sizeof(elem_array<route,80,8>) — ftruncate target
+/// sizeof(elem_array<route,80,AlignSize>) — ftruncate target; align-dependent
 pub const route_ring_size: usize = 22784;
-/// sizeof(elem_array<channel,80,8>) — ftruncate target
+/// sizeof(elem_array<channel,80,AlignSize>) — ftruncate target; same on both align classes (the f_ct_ flag already makes the slot 96)
 pub const channel_ring_size: usize = 24832;
 /// LV_CONN__ owner table entry (32 of them = 512 B)
 pub const liveness_slot_size: usize = 16;

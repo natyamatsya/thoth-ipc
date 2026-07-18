@@ -245,9 +245,10 @@ struct RingHeader {
     _pad_c: [u8; 52],              // @140..192
 }
 
-/// Total ring shm size — byte-exact `sizeof(C++ elem_array<broadcast,80,8>)` on
-/// Apple arm64 (see spec §2). Includes C++'s trailing sender-flag region so the
-/// mapping matches. TODO(xlang): compute per-target from the slot geometry.
+/// Total ring shm size — byte-exact `sizeof(C++ elem_array<broadcast,80,AlignSize>)`,
+/// including C++'s trailing sender-flag region so the mapping matches.
+/// `abi::route_ring_size` is align-gated by the generator (22784 on apple_arm64,
+/// 24832 on align-16 targets), so this is now per-target from the generated ABI.
 const RING_SHM_SIZE: usize = abi::route_ring_size;
 
 /// Total shared memory size for the ring.

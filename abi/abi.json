@@ -13,7 +13,7 @@
     { "name": "ring_size",        "type": "usize", "value": 256,  "description": "ring slot count (block_[256])" },
     { "name": "large_msg_align",  "type": "usize", "value": 1024, "description": "chunk-size alignment" },
     { "name": "large_msg_cache",  "type": "usize", "value": 32,   "description": "chunk slots per chunk size (id_pool capacity)" },
-    { "name": "chunk_header_size","type": "usize", "value": 8,    "description": "per-chunk header = make_align(8, sizeof(atomic<cc_t>)=4)" },
+    { "name": "chunk_header_size","type": "usize", "value": { "apple_arm64": 8, "x86_64": 16 }, "description": "per-chunk header = make_align(alignof(max_align_t), sizeof(atomic<cc_t>)=4); align-dependent" },
     { "name": "chunk_info_size",  "type": "usize", "value": 40,   "description": "sizeof(chunk_info_t)" },
 
     { "name": "route_ep_mask", "type": "u64", "value": "0x00000000ffffffff", "description": "route rc_: low 32 = connection bitmask" },
@@ -67,7 +67,7 @@
         { "name": "epoch",       "offset": 128, "type": "u64",  "description": "writer epoch (atomic on channel, plain on route)" }
       ] },
 
-    { "name": "route_elem", "size": 88, "align": 8, "description": "single-writer route slot (elem_t<80,8>)",
+    { "name": "route_elem", "size": { "apple_arm64": 88, "x86_64": 96 }, "align": 8, "description": "single-writer route slot (elem_t<80,AlignSize>); size is align-dependent",
       "fields": [
         { "name": "data", "offset": 0,  "type": "bytes", "count": 80, "description": "holds a msg_t" },
         { "name": "rc",   "offset": 80, "type": "u64", "atomic": true, "description": "read-counter (bitmask + epoch)" }
@@ -80,8 +80,8 @@
         { "name": "f_ct",  "offset": 88, "type": "u64", "atomic": true, "description": "commit flag (~ct published / next-lap free)" }
       ] },
 
-    { "name": "route_ring",   "size": { "apple_arm64": 22784 }, "align": 64, "description": "sizeof(elem_array<route,80,8>) — ftruncate target",   "fields": [] },
-    { "name": "channel_ring", "size": { "apple_arm64": 24832 }, "align": 64, "description": "sizeof(elem_array<channel,80,8>) — ftruncate target", "fields": [] },
+    { "name": "route_ring",   "size": { "apple_arm64": 22784, "x86_64": 24832 }, "align": 64, "description": "sizeof(elem_array<route,80,AlignSize>) — ftruncate target; align-dependent",   "fields": [] },
+    { "name": "channel_ring", "size": 24832, "align": 64, "description": "sizeof(elem_array<channel,80,AlignSize>) — ftruncate target; same on both align classes (the f_ct_ flag already makes the slot 96)", "fields": [] },
 
     { "name": "liveness_slot", "size": 16, "align": 8, "description": "LV_CONN__ owner table entry (32 of them = 512 B)",
       "fields": [

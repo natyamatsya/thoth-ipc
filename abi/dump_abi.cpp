@@ -31,11 +31,15 @@
 
 using namespace thoth;
 
-// DataSize/AlignSize of the ring element = sizeof/alignof(msg_t<64,8>) = 80/8.
+// Runtime AlignSize, exactly as ipc.cpp derives it: min(DataSize, alignof(max_align_t))
+// = 8 on apple_arm64, 16 elsewhere. Measuring the platform's actual layout (rather
+// than forcing 8) lets a cross-compile (`-arch x86_64`, run under Rosetta) emit the
+// align-16 target's values for the per-target semantic gate.
+static constexpr std::size_t A = (thoth::detail::min)(static_cast<std::size_t>(80), alignof(std::max_align_t));
 using RouteP   = prod_cons_impl<wr<relat::single, relat::multi, trans::broadcast>>;
 using ChanP    = prod_cons_impl<wr<relat::multi,  relat::multi, trans::broadcast>>;
-using RouteArr = circ::elem_array<RouteP, 80, 8>;
-using ChanArr  = circ::elem_array<ChanP, 80, 8>;
+using RouteArr = circ::elem_array<RouteP, 80, A>;
+using ChanArr  = circ::elem_array<ChanP, 80, A>;
 
 int main() {
     std::printf("{\n");
@@ -44,13 +48,13 @@ int main() {
     std::printf("  \"large_msg_cache\": %zu,\n",   static_cast<std::size_t>(large_msg_cache));
     std::printf("  \"ring_size\": %zu,\n",         static_cast<std::size_t>(RouteArr::elem_max));
 
-    std::printf("  \"route_elem.size\": %zu,\n",   sizeof(RouteP::elem_t<80, 8>));
-    std::printf("  \"channel_elem.size\": %zu,\n", sizeof(ChanP::elem_t<80, 8>));
+    std::printf("  \"route_elem.size\": %zu,\n",   sizeof(RouteP::elem_t<80, A>));
+    std::printf("  \"channel_elem.size\": %zu,\n", sizeof(ChanP::elem_t<80, A>));
     std::printf("  \"route_ring.size\": %zu,\n",   sizeof(RouteArr));
     std::printf("  \"channel_ring.size\": %zu,\n", sizeof(ChanArr));
 
     std::printf("  \"ring_header.size\": %zu,\n",   static_cast<std::size_t>(RouteArr::head_size));
-    std::printf("  \"msg_t.size\": %zu,\n",         sizeof(detail::msg_t<64, 8>));
+    std::printf("  \"msg_t.size\": %zu,\n",         sizeof(detail::msg_t<64, A>));
     std::printf("  \"chunk_header_size\": %zu,\n",  detail::chunk_header_size);
     std::printf("  \"chunk_info_size\": %zu,\n",    sizeof(detail::chunk_info_t));
     std::printf("  \"liveness_slot.size\": %zu,\n", sizeof(detail::slot_owner));

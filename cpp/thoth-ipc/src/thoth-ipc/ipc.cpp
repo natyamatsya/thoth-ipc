@@ -52,21 +52,24 @@ using thoth::detail::calc_chunk_size;
 // templates / def.h, so `abi/dump_abi.cpp` remains an independent ground-truth
 // for the semantic gate; these compile-time asserts make C++ a *checked* peer
 // of the generated Rust/Swift/Zig modules rather than collapsing that gate.
-// Byte-exact target: apple_arm64 (AlignSize=8), matching dump_abi.cpp.
+// Target-aware: AbiAlign is the runtime AlignSize (8 on apple_arm64, 16 elsewhere),
+// so these check the platform's actual layout against the align-gated thoth::abi
+// values (matching dump_abi.cpp). A cross-compile (-arch x86_64) verifies x86_64.
 // -----------------------------------------------------------------------------
 namespace {
+constexpr std::size_t AbiAlign = (thoth::detail::min)(static_cast<std::size_t>(80), alignof(std::max_align_t));
 using AbiRouteP = thoth::prod_cons_impl<thoth::wr<thoth::relat::single, thoth::relat::multi, thoth::trans::broadcast>>;
 using AbiChanP  = thoth::prod_cons_impl<thoth::wr<thoth::relat::multi,  thoth::relat::multi, thoth::trans::broadcast>>;
-using AbiRouteArr = thoth::circ::elem_array<AbiRouteP, 80, 8>;
-using AbiChanArr  = thoth::circ::elem_array<AbiChanP, 80, 8>;
+using AbiRouteArr = thoth::circ::elem_array<AbiRouteP, 80, AbiAlign>;
+using AbiChanArr  = thoth::circ::elem_array<AbiChanP, 80, AbiAlign>;
 
 static_assert(thoth::data_length     == thoth::abi::data_length,     "abi drift: data_length");
 static_assert(thoth::large_msg_align == thoth::abi::large_msg_align, "abi drift: large_msg_align");
 static_assert(thoth::large_msg_cache == thoth::abi::large_msg_cache, "abi drift: large_msg_cache");
 static_assert(AbiRouteArr::elem_max == thoth::abi::ring_size,      "abi drift: ring_size");
 
-static_assert(sizeof(AbiRouteP::elem_t<80, 8>) == thoth::abi::route_elem_size,   "abi drift: route_elem.size");
-static_assert(sizeof(AbiChanP::elem_t<80, 8>)  == thoth::abi::channel_elem_size, "abi drift: channel_elem.size");
+static_assert(sizeof(AbiRouteP::elem_t<80, AbiAlign>) == thoth::abi::route_elem_size,   "abi drift: route_elem.size");
+static_assert(sizeof(AbiChanP::elem_t<80, AbiAlign>)  == thoth::abi::channel_elem_size, "abi drift: channel_elem.size");
 static_assert(sizeof(AbiRouteArr) == thoth::abi::route_ring_size,   "abi drift: route_ring.size");
 static_assert(sizeof(AbiChanArr)  == thoth::abi::channel_ring_size, "abi drift: channel_ring.size");
 // ring_header.size = elem_array::head_size = the aligned byte offset of block_[0]

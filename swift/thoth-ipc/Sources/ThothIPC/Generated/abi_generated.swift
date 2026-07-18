@@ -17,7 +17,7 @@ public enum ABI {
     public static let large_msg_align: Int = 1024
     /// chunk slots per chunk size (id_pool capacity)
     public static let large_msg_cache: Int = 32
-    /// per-chunk header = make_align(8, sizeof(atomic<cc_t>)=4)
+    /// per-chunk header = make_align(alignof(max_align_t), sizeof(atomic<cc_t>)=4); align-dependent
     public static let chunk_header_size: Int = 8
     /// sizeof(chunk_info_t)
     public static let chunk_info_size: Int = 40

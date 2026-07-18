@@ -58,7 +58,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let root = repo_root();
     match args.get(1).map(String::as_str) {
-        None | Some("check") => run_check(&root),
+        None | Some("check") => run_check(&root, &args[2..]),
         Some("generate") => run_generate(&root, &args[2..]),
         Some(other) => {
             eprintln!("unknown subcommand '{other}' (expected: check | generate)");
@@ -69,7 +69,23 @@ fn main() {
 
 // ---------------------------------------------------------------- check -------
 
-fn run_check(root: &Path) {
+/// The target this checker binary was built for — so `check` on a Linux x86_64
+/// CI host resolves the x86_64 abi values, not apple's.
+fn host_target() -> &'static str {
+    if cfg!(all(target_arch = "aarch64", target_vendor = "apple")) { "apple_arm64" } else { "x86_64" }
+}
+
+fn run_check(root: &Path, args: &[String]) {
+    // `check [--target <t>]` — default to the host target; a non-host target
+    // cross-compiles the dumper (macOS `-arch`, run under Rosetta) for a local
+    // per-target check without needing a second machine.
+    let mut target = host_target().to_string();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--target" {
+            target = it.next().expect("--target needs a value").clone();
+        }
+    }
     let schema = read_json(&root.join("abi/abi.schema.json"));
     let abi = read_json(&root.join("abi/abi.json"));
 
@@ -89,31 +105,43 @@ fn run_check(root: &Path) {
 
     let mut flat: BTreeMap<String, u64> = BTreeMap::new();
     for c in abi["constants"].as_array().unwrap_or(&vec![]) {
-        if let (Some(name), Some(u)) = (c["name"].as_str(), resolve_int(&c["value"], TARGET)) {
+        if let (Some(name), Some(u)) = (c["name"].as_str(), resolve_int(&c["value"], &target)) {
             flat.insert(name.to_string(), u);
         }
     }
     for s in abi["structs"].as_array().unwrap_or(&vec![]) {
-        if let (Some(name), Some(u)) = (s["name"].as_str(), resolve_int(&s["size"], TARGET)) {
+        if let (Some(name), Some(u)) = (s["name"].as_str(), resolve_int(&s["size"], &target)) {
             flat.insert(format!("{name}.size"), u);
         }
     }
 
-    let bin = std::env::temp_dir().join("thoth_dump_abi");
+    let bin = std::env::temp_dir().join(format!("thoth_dump_abi_{target}"));
     let cxx = std::env::var("CXX").unwrap_or_else(|_| "c++".to_string());
-    let compile = Command::new(&cxx)
-        .args([
-            "-std=c++20",
-            "-I",
-            root.join("cpp/thoth-ipc/include").to_str().unwrap(),
-            "-I",
-            root.join("cpp/thoth-ipc/src").to_str().unwrap(),
-            root.join("abi/dump_abi.cpp").to_str().unwrap(),
-            "-o",
-            bin.to_str().unwrap(),
-        ])
-        .status()
-        .expect("invoke C++ compiler");
+    let mut cmd = Command::new(&cxx);
+    cmd.arg("-std=c++20");
+    if target != host_target() {
+        // Local cross-target check: build for the other align class and let Rosetta
+        // run it. macOS-only (`-arch`); the default host check needs no cross-arch.
+        let arch = match target.as_str() {
+            "x86_64" => "x86_64",
+            "apple_arm64" => "arm64",
+            t => {
+                eprintln!("✗ no cross-compile arch for target '{t}' (host is {})", host_target());
+                std::process::exit(2);
+            }
+        };
+        cmd.arg("-arch").arg(arch);
+    }
+    cmd.args([
+        "-I",
+        root.join("cpp/thoth-ipc/include").to_str().unwrap(),
+        "-I",
+        root.join("cpp/thoth-ipc/src").to_str().unwrap(),
+        root.join("abi/dump_abi.cpp").to_str().unwrap(),
+        "-o",
+        bin.to_str().unwrap(),
+    ]);
+    let compile = cmd.status().expect("invoke C++ compiler");
     if !compile.success() {
         eprintln!("✗ failed to compile abi/dump_abi.cpp (need a C++20 compiler)");
         std::process::exit(1);
@@ -135,7 +163,7 @@ fn run_check(root: &Path) {
         }
     }
     let uncovered: Vec<&str> = flat.keys().map(String::as_str).filter(|k| !dobj.contains_key(*k)).collect();
-    println!("✓ semantic: {checked} value(s) match the deployed C++, {mismatches} mismatch(es)");
+    println!("✓ semantic ({target}): {checked} value(s) match the deployed C++, {mismatches} mismatch(es)");
     if !uncovered.is_empty() {
         println!(
             "  ({} not dumper-reachable (types in heavier headers) — each a compile-time \
@@ -285,6 +313,56 @@ fn each_field(s: &Value) -> impl Iterator<Item = &Value> {
     s["fields"].as_array().map(|v| v.as_slice()).unwrap_or(&[]).iter()
 }
 
+// ---- per-target emission (dedup + align-gating) --------------------------------
+//
+// Most ABI values are identical on every target and are emitted once, ungated.
+// The few that depend on AlignSize (8 on apple_arm64, 16 elsewhere) are emitted
+// as align-gated variants — but only for the multi-platform ports (Rust, C++).
+// Swift/Zig are macOS-arm64-only, so they always resolve to `apple_arm64`.
+
+/// abi.json targets, `apple_arm64` (the align-8 target) first, others after.
+fn targets(abi: &Value) -> Vec<String> {
+    let mut ts: Vec<String> = abi["targets"].as_object().unwrap().keys().cloned().collect();
+    ts.sort_by_key(|t| (t != "apple_arm64", t.clone()));
+    ts
+}
+
+/// The Rust `cfg` predicate that selects `target`: apple_arm64 gets the positive
+/// align-8 predicate, every other (align-16) target is its negation.
+fn rust_cfg(target: &str) -> &'static str {
+    match target {
+        "apple_arm64" => "#[cfg(all(target_arch = \"aarch64\", target_vendor = \"apple\"))]",
+        _ => "#[cfg(not(all(target_arch = \"aarch64\", target_vendor = \"apple\")))]",
+    }
+}
+
+/// Emit `<prefix> = <value>;` — once if `render` is identical across targets,
+/// else one `#[cfg]`-gated line per target.
+fn emit_rust(o: &mut String, prefix: &str, ts: &[String], render: impl Fn(&str) -> String) {
+    if ts.iter().all(|t| render(t) == render(&ts[0])) {
+        o.push_str(&format!("{prefix} = {};\n", render(&ts[0])));
+    } else {
+        for t in ts {
+            o.push_str(&format!("{}\n{prefix} = {};\n", rust_cfg(t), render(t)));
+        }
+    }
+}
+
+/// C++ analogue: one line if uniform, else an `#if/#else/#endif` over the two
+/// align classes (apple_arm64 vs everything else).
+fn emit_cpp(o: &mut String, prefix: &str, suffix: &str, ts: &[String], render: impl Fn(&str) -> String) {
+    if ts.iter().all(|t| render(t) == render(&ts[0])) {
+        o.push_str(&format!("{prefix} = {}{suffix};\n", render(&ts[0])));
+    } else {
+        let other = ts.iter().find(|t| *t != "apple_arm64").expect("need a non-apple target");
+        o.push_str("#if defined(__APPLE__) && defined(__aarch64__)\n");
+        o.push_str(&format!("{prefix} = {}{suffix};\n", render("apple_arm64")));
+        o.push_str("#else\n");
+        o.push_str(&format!("{prefix} = {}{suffix};\n", render(other)));
+        o.push_str("#endif\n");
+    }
+}
+
 // ---- Rust ----
 
 fn rust_type(t: &str) -> &str {
@@ -294,9 +372,10 @@ fn rust_type(t: &str) -> &str {
     }
 }
 
-fn gen_rust(abi: &Value, target: &str) -> String {
+fn gen_rust(abi: &Value, _target: &str) -> String {
+    let ts = targets(abi);
     let mut o = String::new();
-    gen_header(&mut o, "rust", target, "//");
+    gen_header(&mut o, "rust", &ts.join(" / "), "//");
     o.push_str("#![allow(non_upper_case_globals, non_camel_case_types, dead_code)]\n\n");
     o.push_str(&format!("pub const abi_version: &str = \"{}\";\n\n", abi["version"].as_str().unwrap()));
 
@@ -309,7 +388,7 @@ fn gen_rust(abi: &Value, target: &str) -> String {
         if ty == "string" {
             o.push_str(&format!("pub const {name}: &str = \"{}\";\n", c["value"].as_str().unwrap()));
         } else {
-            o.push_str(&format!("pub const {name}: {} = {};\n", rust_type(ty), zig_num(&c["value"], target)));
+            emit_rust(&mut o, &format!("pub const {name}: {}", rust_type(ty)), &ts, |t| zig_num(&c["value"], t));
         }
     }
 
@@ -329,9 +408,10 @@ fn gen_rust(abi: &Value, target: &str) -> String {
     o.push_str("\n// --- struct layout (byte sizes + field offsets) ---\n");
     for s in abi["structs"].as_array().unwrap() {
         let name = s["name"].as_str().unwrap();
-        o.push_str(&format!("pub const {name}_size: usize = {};\n", resolve_int(&s["size"], target).unwrap()));
+        emit_rust(&mut o, &format!("pub const {name}_size: usize"), &ts, |t| resolve_int(&s["size"], t).unwrap().to_string());
         for f in each_field(s) {
-            o.push_str(&format!("pub const {name}_{}_off: usize = {};\n", f["name"].as_str().unwrap(), resolve_int(&f["offset"], target).unwrap()));
+            let fname = f["name"].as_str().unwrap();
+            emit_rust(&mut o, &format!("pub const {name}_{fname}_off: usize"), &ts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
         }
     }
     o
@@ -409,9 +489,10 @@ fn cpp_type(t: &str) -> &str {
     }
 }
 
-fn gen_cpp(abi: &Value, target: &str) -> String {
+fn gen_cpp(abi: &Value, _target: &str) -> String {
+    let ts = targets(abi);
     let mut o = String::new();
-    gen_header(&mut o, "cpp", target, "//");
+    gen_header(&mut o, "cpp", &ts.join(" / "), "//");
     o.push_str("\n#pragma once\n#include <cstddef>\n#include <cstdint>\n\nnamespace thoth::abi {\n\n");
     o.push_str(&format!("inline constexpr const char* abi_version = \"{}\";\n\n", abi["version"].as_str().unwrap()));
 
@@ -425,7 +506,7 @@ fn gen_cpp(abi: &Value, target: &str) -> String {
             o.push_str(&format!("inline constexpr const char* {name} = \"{}\";\n", c["value"].as_str().unwrap()));
         } else {
             let suffix = if ty == "u64" { "ull" } else { "" };
-            o.push_str(&format!("inline constexpr {} {name} = {}{suffix};\n", cpp_type(ty), zig_num(&c["value"], target)));
+            emit_cpp(&mut o, &format!("inline constexpr {} {name}", cpp_type(ty)), suffix, &ts, |t| zig_num(&c["value"], t));
         }
     }
 
@@ -445,9 +526,10 @@ fn gen_cpp(abi: &Value, target: &str) -> String {
     o.push_str("\n// --- struct layout (byte sizes + field offsets) ---\n");
     for s in abi["structs"].as_array().unwrap() {
         let name = s["name"].as_str().unwrap();
-        o.push_str(&format!("inline constexpr std::size_t {name}_size = {};\n", resolve_int(&s["size"], target).unwrap()));
+        emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_size"), "", &ts, |t| resolve_int(&s["size"], t).unwrap().to_string());
         for f in each_field(s) {
-            o.push_str(&format!("inline constexpr std::size_t {name}_{}_off = {};\n", f["name"].as_str().unwrap(), resolve_int(&f["offset"], target).unwrap()));
+            let fname = f["name"].as_str().unwrap();
+            emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_{fname}_off"), "", &ts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
         }
     }
     o.push_str("\n} // namespace thoth::abi\n");

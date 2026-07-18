@@ -7,6 +7,18 @@ Notable changes to thoth-ipc. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Per-target ABI generation (align 8 vs 16), deduplicated.** `abi.json` stores
+  the align-dependent values as per-target maps `{apple_arm64, x86_64}`; only
+  three actually differ (`route_elem.size` 88/96, `route_ring.size` 22784/24832,
+  `chunk_header_size` 8/16). The generator now **deduplicates** — values identical
+  across targets emit a single constant; differing ones emit `#[cfg]` (Rust) /
+  `#if defined(__APPLE__) && defined(__aarch64__)` (C++) variants, while
+  macOS-arm64-only Swift/Zig keep a single value. The C++ conformance probe +
+  `static_assert`s now use the **runtime `AlignSize`** instead of a forced 8, so
+  they check the platform's real layout; `cargo run -p abi -- check --target
+  x86_64` cross-compiles the dumper (`-arch`, Rosetta) and gate-checks the
+  align-16 target too (both pass 20/20). Closes the rust `TODO(xlang)` — the ring
+  shm size is now per-target from the generated ABI.
 - **ABI semantic gate now covers the message/chunk framing.** Extracted the
   ABI-impacting wire-layout types (`msg_t`, `chunk_t`, `chunk_info_t`,
   `chunk_header_size`) out of `ipc.cpp`'s anonymous namespace into a private

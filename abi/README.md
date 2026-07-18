@@ -130,7 +130,12 @@ cpp-ipc v1.4.1 and proven across four ports). This is the global contract versio
    every port. Still hand-written: the codec/alg enums and `liveness_slot_*`.
 2. Grow `abi.json` + dumper coverage (`msg_t` offsets via a small introspection
    shim, SIPC / SyncAbi framing, naming-template checks).
-3. Per-target generation for the multi-platform ports (Rust/C++): today the
-   align-dependent values (`*_ring_size`) are generated for `apple_arm64` and the
-   ports carry a matching apple-target assert; a Linux/Windows target would want
-   `cfg`/`#if`-gated variants emitted from `abi.json`'s per-target maps.
+3. **Per-target generation — done.** `abi.json` stores align-dependent values as
+   per-target maps `{apple_arm64, x86_64}` (only `route_elem.size`,
+   `route_ring.size`, `chunk_header_size` actually differ — 8- vs 16-align). The
+   generator **deduplicates**: identical-across-targets values emit one constant;
+   differing ones emit `#[cfg]` (Rust) / `#if` (C++) variants (Swift/Zig are
+   macOS-arm64-only, single value). The conformance probe uses the runtime
+   `AlignSize`, so `cargo run -p abi -- check --target x86_64` cross-compiles the
+   dumper (`-arch`, Rosetta) and gate-checks the x86_64 layout too — both targets
+   pass 20/20. Remaining: wire the x86_64 check into CI (currently local-only).

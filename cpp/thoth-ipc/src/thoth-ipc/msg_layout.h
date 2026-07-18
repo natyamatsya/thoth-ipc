@@ -105,14 +105,13 @@ struct chunk_info_t {
 // (which now include this header) enforce them. msg_t is non-standard-layout
 // (base + alignas member) so only sizeof is checkable; offsets stay matrix-only.
 //
-// chunk_* depend on alignof(std::max_align_t) (8 Apple / 16 Linux-Win x86-64);
-// the generated values are apple_arm64, so those two asserts are Apple-guarded.
+// chunk_header_size depends on alignof(std::max_align_t) (8 on Apple arm64, 16 on
+// x86-64), and thoth::abi::chunk_header_size is align-gated to match — so this is
+// portable now, no platform guard needed. (chunk_info_size is the same on both.)
 // -----------------------------------------------------------------------------
 static_assert(sizeof(msg_t<64, 8>) == thoth::abi::msg_t_size, "abi drift: msg_t.size");
-#if defined(__APPLE__)
 static_assert(sizeof(chunk_info_t) == thoth::abi::chunk_info_size, "abi drift: chunk_info.size");
 static_assert(chunk_header_size    == thoth::abi::chunk_header_size, "abi drift: chunk_header_size");
-#endif
 
 } // namespace detail
 } // namespace thoth
