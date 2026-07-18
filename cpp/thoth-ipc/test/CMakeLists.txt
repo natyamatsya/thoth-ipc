@@ -37,14 +37,14 @@ list(FILTER HEAD_FILES EXCLUDE REGEX "archive")
 add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEAD_FILES})
 
 link_directories(${THOTH_IPC_PROJECT_DIR}/3rdparty/gperftools)
-target_link_libraries(${PROJECT_NAME} gtest gtest_main ipc)
+target_link_libraries(${PROJECT_NAME} gtest gtest_main thoth_ipc)
 
 # Cross-language round-trip harness (C++ endpoint). Uniform CLI shared with the
 # Rust and Swift harnesses; driven by tools/xlang-runner. See
 # context/xlang-channel-abi.md.
 add_executable(xlang_ipc ${THOTH_IPC_PROJECT_DIR}/test/xlang/xlang.cpp)
 target_include_directories(xlang_ipc PRIVATE ${THOTH_IPC_PROJECT_DIR}/include)
-target_link_libraries(xlang_ipc ipc)
+target_link_libraries(xlang_ipc thoth_ipc)
 set_target_properties(xlang_ipc PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
@@ -55,7 +55,7 @@ set_target_properties(xlang_ipc PROPERTIES
 if(THOTH_IPC_STDEXEC)
     add_executable(xasync ${THOTH_IPC_PROJECT_DIR}/test/xlang/xasync.cpp)
     target_include_directories(xasync PRIVATE ${THOTH_IPC_PROJECT_DIR}/include)
-    target_link_libraries(xasync ipc)
+    target_link_libraries(xasync thoth_ipc)
     set_target_properties(xasync PROPERTIES
         CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -66,7 +66,7 @@ endif()
 if(THOTH_IPC_NOTIFY_FD)
     add_executable(xcoro ${THOTH_IPC_PROJECT_DIR}/test/xlang/xcoro.cpp)
     target_include_directories(xcoro PRIVATE ${THOTH_IPC_PROJECT_DIR}/include)
-    target_link_libraries(xcoro ipc)
+    target_link_libraries(xcoro thoth_ipc)
     set_target_properties(xcoro PROPERTIES
         CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

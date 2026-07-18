@@ -87,6 +87,13 @@ Notable changes to thoth-ipc. The format follows
   `libipc`-prefixed (`__IPC_SHM__…`, `ipc.ntf.…`), the `"LISA"` SyncAbi wire magic
   (and its "LibIPC Sync ABI" acronym derivation), and upstream cpp-ipc / libipc
   attribution in `LICENSE`, `NOTICE` and `// Port of …` comments.
+- **Renamed the C++ CMake library target `ipc` → `thoth_ipc`** (the nested
+  `project(ipc)` in `src/CMakeLists.txt` was the last `ipc` build identifier). The
+  built artifact is now `libthoth_ipc.a` (was `libipc.a`), and the exported
+  package target is `thoth-ipc::thoth_ipc`. **Breaking** for downstream that
+  linked `thoth-ipc::ipc` or referenced `libipc.a`. In-tree consumers
+  (tests/demos/benches) and CI updated; the `xlang_ipc` test-harness executable
+  name is unchanged.
 - `IpcMutex.openSync(name:)` (Swift) is now `public`, mirroring
   `Route.connectBlocking` — a blocking mutex open for non-async call sites.
 

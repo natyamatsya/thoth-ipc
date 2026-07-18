@@ -1,4 +1,4 @@
-project(ipc)
+project(thoth_ipc)
 
 set (PACKAGE_VERSION 0.1.0)
 

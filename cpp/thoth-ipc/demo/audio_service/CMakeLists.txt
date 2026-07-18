@@ -23,7 +23,7 @@ target_include_directories(audio_host PRIVATE
     ${THOTH_IPC_PROJECT_DIR}/3rdparty
     ${CMAKE_CURRENT_BINARY_DIR}
 )
-target_link_libraries(audio_host ipc flatbuffers)
+target_link_libraries(audio_host thoth_ipc flatbuffers)
 
 # Service executable. Uses std::print, so it needs the C++23 <print>
 # support probed by the parent CMakeLists (THOTH_IPC_HAS_STD_PRINT).
@@ -35,7 +35,7 @@ if(THOTH_IPC_HAS_STD_PRINT)
         ${THOTH_IPC_PROJECT_DIR}/3rdparty
         ${CMAKE_CURRENT_BINARY_DIR}
     )
-    target_link_libraries(audio_service ipc flatbuffers)
+    target_link_libraries(audio_service thoth_ipc flatbuffers)
 
     # Keep the service process explicitly at C++23 for clarity.
     # The project default is also C++23.

@@ -7,7 +7,7 @@ add_executable(rt_audio_host host.cpp)
 target_include_directories(rt_audio_host PRIVATE
     ${THOTH_IPC_PROJECT_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(rt_audio_host PRIVATE ipc)
+target_link_libraries(rt_audio_host PRIVATE thoth_ipc)
 
 # The service process is compiled as C++23 to demonstrate that process
 # separation allows each component to use a different language standard.
@@ -19,7 +19,7 @@ if(THOTH_IPC_HAS_STD_PRINT)
     target_include_directories(rt_audio_service PRIVATE
         ${THOTH_IPC_PROJECT_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(rt_audio_service PRIVATE ipc)
+    target_link_libraries(rt_audio_service PRIVATE thoth_ipc)
     set_target_properties(rt_audio_service PROPERTIES
         CXX_STANDARD 23
         CXX_STANDARD_REQUIRED ON
@@ -37,7 +37,7 @@ add_library(rt_audio_ffi STATIC rt_audio_ffi.cpp)
 target_include_directories(rt_audio_ffi PRIVATE
     ${THOTH_IPC_PROJECT_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(rt_audio_ffi PRIVATE ipc)
+target_link_libraries(rt_audio_ffi PRIVATE thoth_ipc)
 set_target_properties(rt_audio_ffi PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 

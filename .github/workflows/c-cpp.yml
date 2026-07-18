@@ -113,5 +113,5 @@ jobs:
       run: make -j
       working-directory: cpp/thoth-ipc
     - name: verify architectures
-      run: lipo -info lib/libipc.a
+      run: lipo -info lib/libthoth_ipc.a
       working-directory: cpp/thoth-ipc
