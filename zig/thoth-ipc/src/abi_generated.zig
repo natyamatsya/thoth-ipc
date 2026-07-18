@@ -7,7 +7,7 @@
 
 /// ABI contract version (semver; decoupled from the release version). Peers
 /// interoperate iff they share the same MAJOR. See abi/README.md#abi-versioning.
-pub const abi_version: []const u8 = "1.0.0";
+pub const abi_version: []const u8 = "1.1.0";
 
 // --- constants ---
 /// msg_t payload fragment size (large_msg_limit)
@@ -46,6 +46,10 @@ pub const sipc_magic: []const u8 = "SIPC";
 pub const sipc_version: u8 = 1;
 /// golden fnv1a_64("__IPC_SHM__NOTIFY__xchan") for (prefix="", name="xchan")
 pub const notify_hash_xchan: []const u8 = "d7484adebb2d170d";
+/// cross-process sync sidecar shm-name suffix for a mutex; full name = <channel-name> + this suffix (byte-exact across all ports)
+pub const sync_abi_suffix_mutex: []const u8 = "__thoth_ipc_sync_abi_mutex";
+/// cross-process sync sidecar shm-name suffix for a condition variable; full name = <channel-name> + this suffix (byte-exact across all ports)
+pub const sync_abi_suffix_condition: []const u8 = "__thoth_ipc_sync_abi_condition";
 
 // --- enums ---
 /// typed codec ids

@@ -58,8 +58,8 @@ impl PrimitiveKind {
 
     fn sidecar_suffix(self) -> &'static str {
         match self {
-            PrimitiveKind::Mutex => "__thoth_ipc_sync_abi_mutex",
-            PrimitiveKind::Condition => "__thoth_ipc_sync_abi_condition",
+            PrimitiveKind::Mutex => abi::sync_abi_suffix_mutex,
+            PrimitiveKind::Condition => abi::sync_abi_suffix_condition,
         }
     }
 

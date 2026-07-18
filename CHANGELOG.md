@@ -73,6 +73,16 @@ Notable changes to thoth-ipc. The format follows
   impact). *(The "`libipc_<hex>` shm-name format" noted as unchanged in earlier
   entries never existed as a literal — the shortened form is
   `/<truncated-original-name>_<hex>`, carrying no `libipc` string.)*
+- **The sync sidecar shm-name suffixes are now generated from `abi.json`, not
+  hand-maintained.** Added `sync_abi_suffix_mutex` / `sync_abi_suffix_condition`
+  string constants to `abi/abi.json` (ABI contract `1.0.0` → `1.1.0`, a
+  backward-compatible addition); all four ports re-source them from their
+  generated `abi_generated.*` module instead of hard-coding the literal, so a
+  future change is one spec edit + regenerate and CI's staleness gate guarantees
+  no port drifts. Motivated by this rename having required five hand-edits of a
+  byte-exact wire string across four languages — exactly the drift the ABI
+  single-source-of-truth exists to prevent. (The C++ `_unknown` sentinel and the
+  Swift test keep independent literals by design.)
 - **Deliberately unchanged**: the shm-name templates that were never
   `libipc`-prefixed (`__IPC_SHM__…`, `ipc.ntf.…`), the `"LISA"` SyncAbi wire magic
   (and its "LibIPC Sync ABI" acronym derivation), and upstream cpp-ipc / libipc

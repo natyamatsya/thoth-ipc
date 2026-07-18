@@ -11,7 +11,7 @@
 
 namespace thoth::abi {
 
-inline constexpr const char* abi_version = "1.0.0";
+inline constexpr const char* abi_version = "1.1.0";
 
 // --- constants ---
 /// msg_t payload fragment size (large_msg_limit)
@@ -50,6 +50,10 @@ inline constexpr const char* sipc_magic = "SIPC";
 inline constexpr std::uint8_t sipc_version = 1;
 /// golden fnv1a_64("__IPC_SHM__NOTIFY__xchan") for (prefix="", name="xchan")
 inline constexpr const char* notify_hash_xchan = "d7484adebb2d170d";
+/// cross-process sync sidecar shm-name suffix for a mutex; full name = <channel-name> + this suffix (byte-exact across all ports)
+inline constexpr const char* sync_abi_suffix_mutex = "__thoth_ipc_sync_abi_mutex";
+/// cross-process sync sidecar shm-name suffix for a condition variable; full name = <channel-name> + this suffix (byte-exact across all ports)
+inline constexpr const char* sync_abi_suffix_condition = "__thoth_ipc_sync_abi_condition";
 
 // --- enums ---
 /// typed codec ids

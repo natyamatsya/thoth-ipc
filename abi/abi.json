@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "$schema": "./abi.schema.json",
   "description": "thoth-ipc cross-language ABI — language-neutral source of truth. Structurally validated by abi.schema.json; semantically validated against the deployed C++ by abi/dump_abi.cpp via the `tools/abi` Rust checker; behaviourally validated by the xlang matrix. This is an initial slice (ring layouts + core constants); extend it as the codegen adopts more of the surface.",
 
@@ -29,7 +29,9 @@
     { "name": "syncabi_backend_ulock", "type": "u32", "value": 2,          "description": "SyncAbi backend id: apple_ulock" },
     { "name": "sipc_magic",            "type": "string", "value": "SIPC",  "description": "secure envelope v1 magic" },
     { "name": "sipc_version",          "type": "u8",  "value": 1,          "description": "secure envelope v1 version" },
-    { "name": "notify_hash_xchan",     "type": "string", "value": "d7484adebb2d170d", "description": "golden fnv1a_64(\"__IPC_SHM__NOTIFY__xchan\") for (prefix=\"\", name=\"xchan\")" }
+    { "name": "notify_hash_xchan",     "type": "string", "value": "d7484adebb2d170d", "description": "golden fnv1a_64(\"__IPC_SHM__NOTIFY__xchan\") for (prefix=\"\", name=\"xchan\")" },
+    { "name": "sync_abi_suffix_mutex",     "type": "string", "value": "__thoth_ipc_sync_abi_mutex",     "description": "cross-process sync sidecar shm-name suffix for a mutex; full name = <channel-name> + this suffix (byte-exact across all ports)" },
+    { "name": "sync_abi_suffix_condition", "type": "string", "value": "__thoth_ipc_sync_abi_condition", "description": "cross-process sync sidecar shm-name suffix for a condition variable; full name = <channel-name> + this suffix (byte-exact across all ports)" }
   ],
 
   "enums": [

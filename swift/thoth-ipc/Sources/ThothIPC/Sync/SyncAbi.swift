@@ -29,8 +29,8 @@ private enum SyncAbiPrimitive: UInt32 {
 
     var sidecarSuffix: String {
         switch self {
-        case .mutex: return "__thoth_ipc_sync_abi_mutex"
-        case .condition: return "__thoth_ipc_sync_abi_condition"
+        case .mutex: return ABI.sync_abi_suffix_mutex
+        case .condition: return ABI.sync_abi_suffix_condition
         }
     }
 

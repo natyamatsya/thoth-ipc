@@ -109,9 +109,9 @@ inline char const *backend_hint(
 inline char const *suffix_of(primitive_kind const kind) noexcept {
     switch (kind) {
     case primitive_kind::mutex:
-        return "__thoth_ipc_sync_abi_mutex";
+        return thoth::abi::sync_abi_suffix_mutex;
     case primitive_kind::condition:
-        return "__thoth_ipc_sync_abi_condition";
+        return thoth::abi::sync_abi_suffix_condition;
     }
     return "__thoth_ipc_sync_abi_unknown";
 }

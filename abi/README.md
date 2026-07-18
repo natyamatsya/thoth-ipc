@@ -124,8 +124,10 @@ cpp-ipc v1.4.1 and proven across four ports). This is the global contract versio
 ## Next steps
 
 1. Extend the migrated ports beyond the transport core to the sync/secure
-   surface (`syncabi_*`, `sipc_*`, codec/alg enums, `liveness_slot_*`), which
-   still lives hand-written in the `sync_abi` / secure modules of each port.
+   surface. Done so far: `syncabi_magic`/`syncabi_backend_ulock`, `sipc_magic`/
+   `sipc_version`, and the sync sidecar shm-name suffixes
+   (`sync_abi_suffix_mutex`/`_condition`) — all now generated and re-sourced by
+   every port. Still hand-written: the codec/alg enums and `liveness_slot_*`.
 2. Grow `abi.json` + dumper coverage (`msg_t` offsets via a small introspection
    shim, SIPC / SyncAbi framing, naming-template checks).
 3. Per-target generation for the multi-platform ports (Rust/C++): today the

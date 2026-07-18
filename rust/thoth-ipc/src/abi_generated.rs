@@ -6,7 +6,7 @@
 // Target: apple_arm64.
 #![allow(non_upper_case_globals, non_camel_case_types, dead_code)]
 
-pub const abi_version: &str = "1.0.0";
+pub const abi_version: &str = "1.1.0";
 
 // --- constants ---
 /// msg_t payload fragment size (large_msg_limit)
@@ -45,6 +45,10 @@ pub const sipc_magic: &str = "SIPC";
 pub const sipc_version: u8 = 1;
 /// golden fnv1a_64("__IPC_SHM__NOTIFY__xchan") for (prefix="", name="xchan")
 pub const notify_hash_xchan: &str = "d7484adebb2d170d";
+/// cross-process sync sidecar shm-name suffix for a mutex; full name = <channel-name> + this suffix (byte-exact across all ports)
+pub const sync_abi_suffix_mutex: &str = "__thoth_ipc_sync_abi_mutex";
+/// cross-process sync sidecar shm-name suffix for a condition variable; full name = <channel-name> + this suffix (byte-exact across all ports)
+pub const sync_abi_suffix_condition: &str = "__thoth_ipc_sync_abi_condition";
 
 // --- enums ---
 /// typed codec ids
