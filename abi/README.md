@@ -151,12 +151,21 @@ cpp-ipc v1.4.1 and proven across four ports). This is the global contract versio
   diffs it; each port's test runs its own `make_shm_name` against the golden — so
   the shortening (`/__THOTH_SHM___7d090bf7fa85c547` on macOS) is verified per port,
   not just by the matrix.
+- **`msg_t` field offsets are gated.** `msg_t` was a two-level template
+  (`msg_t<0,A>` base + derived) inherited from cpp-ipc, which made it
+  non-standard-layout (no `offsetof`). Since the base was never used on its own, it
+  was **flattened** into one standard-layout struct — byte-identical (matrix
+  confirms) — so every field offset (`cc_id`/`id`/`remain`/`storage`/`payload`) is
+  now `offsetof`-`static_assert`ed against `thoth::abi`.
 
 **Remaining**, roughly in priority order:
 
-1. **`msg_t` field offsets.** Its size is gated, but the field offsets stay
-   matrix-only: `msg_t` is non-standard-layout, so `offsetof` is ill-formed. Cover
-   them with a small standard-layout mirror or an introspection shim.
+1. **`ring_header` field offsets.** The same story one level up: `elem_array`
+   inherits `conn_head` and adds a member, so it is non-standard-layout and the
+   header field offsets (`cc`/`lc`/`constructed`/`cursor`/`epoch`) stay matrix-only.
+   Flattening `conn_head` in is a bigger change (it carries the connection-mgmt
+   methods + DCLP init, not just data), so this is a considered refactor, not a
+   quick win.
 2. **Native x86_64 / Windows.** x86_64 is verified by Rosetta cross-compile today;
    a native Linux run would drop the emulation, and a Windows target entry would
    pin its object-namespace prefix.

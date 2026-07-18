@@ -7,6 +7,14 @@ Notable changes to thoth-ipc. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Flattened `msg_t` and gated its field offsets.** `msg_t` was a two-level
+  template inherited from cpp-ipc — a header-only `msg_t<0, AlignSize>` base and a
+  `msg_t<DataSize, AlignSize>` derived adding the payload. The base was never used
+  on its own, and the inheritance made `msg_t` non-standard-layout, so `offsetof`
+  was ill-formed and its field offsets were matrix-only. Collapsed it into a single
+  **standard-layout** struct (byte-identical — same fields/order/`alignas`, matrix
+  confirms), so all five field offsets (`cc_id`/`id`/`remain`/`storage`/`payload`)
+  are now `offsetof`-`static_assert`ed against `thoth::abi`.
 - **POSIX shm-name shortening is now statically gated.** `abi.json` gained
   `shm_name_max` per target (macOS 31, else 0) and a `posix_golden` for the ring
   name (its 35-char form exceeds macOS `PSHMNAMLEN`, so it shortens to

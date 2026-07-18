@@ -27,24 +27,26 @@ namespace detail {
 
 using msg_id_t = std::uint32_t;
 
+// Flat, standard-layout message framing: the header fields followed by the inline
+// payload. This was a two-level template inherited from cpp-ipc — a header-only
+// `msg_t<0, AlignSize>` base and a `msg_t<DataSize, AlignSize>` derived adding the
+// payload. The base was never used on its own, and the inheritance made msg_t
+// *non-standard-layout*, so `offsetof` was ill-formed and its field offsets could
+// only be matrix-verified. This flat form is byte-identical (same fields, same
+// order, same `alignas`) but standard-layout, so every field offset is now a
+// compile-time checked peer (see the static_asserts below).
 template <std::size_t DataSize, std::size_t AlignSize>
-struct msg_t;
-
-template <std::size_t AlignSize>
-struct msg_t<0, AlignSize> {
+struct msg_t {
     msg_id_t     cc_id_;
     msg_id_t     id_;
     std::int32_t remain_;
     bool         storage_;
-};
-
-template <std::size_t DataSize, std::size_t AlignSize>
-struct msg_t : msg_t<0, AlignSize> {
     alignas(AlignSize) thoth::byte_t data_[DataSize] {};
 
     msg_t() = default;
     msg_t(msg_id_t cc_id, msg_id_t id, std::int32_t remain, void const * data, std::size_t size)
-        : msg_t<0, AlignSize> {cc_id, id, remain, (data == nullptr) || (size == 0)} {
+        : cc_id_{cc_id}, id_{id}, remain_{remain},
+          storage_{(data == nullptr) || (size == 0)} {
         if (this->storage_) {
             if (data != nullptr) {
                 // copy storage-id
@@ -102,14 +104,21 @@ struct chunk_info_t {
 // -----------------------------------------------------------------------------
 // ABI conformance — these layout values must match the generated thoth::abi
 // (abi/abi.json). Kept next to the definitions so both ipc.cpp and dump_abi.cpp
-// (which now include this header) enforce them. msg_t is non-standard-layout
-// (base + alignas member) so only sizeof is checkable; offsets stay matrix-only.
+// (which include this header) enforce them. msg_t is standard-layout now, so all
+// its field offsets are offsetof-checked here (previously matrix-only).
 //
 // chunk_header_size depends on alignof(std::max_align_t) (8 on Apple arm64, 16 on
 // x86-64), and thoth::abi::chunk_header_size is align-gated to match — so this is
 // portable now, no platform guard needed. (chunk_info_size is the same on both.)
 // -----------------------------------------------------------------------------
-static_assert(sizeof(msg_t<64, 8>) == thoth::abi::msg_t_size, "abi drift: msg_t.size");
+// Alias so offsetof's function-like macro doesn't split on the template comma.
+using abi_msg_t = msg_t<64, 8>;
+static_assert(sizeof(abi_msg_t)             == thoth::abi::msg_t_size,        "abi drift: msg_t.size");
+static_assert(offsetof(abi_msg_t, cc_id_)   == thoth::abi::msg_t_cc_id_off,   "abi drift: msg_t.cc_id");
+static_assert(offsetof(abi_msg_t, id_)      == thoth::abi::msg_t_id_off,      "abi drift: msg_t.id");
+static_assert(offsetof(abi_msg_t, remain_)  == thoth::abi::msg_t_remain_off,  "abi drift: msg_t.remain");
+static_assert(offsetof(abi_msg_t, storage_) == thoth::abi::msg_t_storage_off, "abi drift: msg_t.storage");
+static_assert(offsetof(abi_msg_t, data_)    == thoth::abi::msg_t_payload_off, "abi drift: msg_t.payload");
 static_assert(sizeof(chunk_info_t) == thoth::abi::chunk_info_size, "abi drift: chunk_info.size");
 static_assert(chunk_header_size    == thoth::abi::chunk_header_size, "abi drift: chunk_header_size");
 
