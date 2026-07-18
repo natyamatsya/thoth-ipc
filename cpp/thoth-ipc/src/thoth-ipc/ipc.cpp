@@ -73,9 +73,28 @@ static_assert(sizeof(AbiChanP::elem_t<80, AbiAlign>)  == thoth::abi::channel_ele
 static_assert(sizeof(AbiRouteArr) == thoth::abi::route_ring_size,   "abi drift: route_ring.size");
 static_assert(sizeof(AbiChanArr)  == thoth::abi::channel_ring_size, "abi drift: channel_ring.size");
 // ring_header.size = elem_array::head_size = the aligned byte offset of block_[0]
-// (align_up(sizeof(base_t), alignof(policy_t)) + sizeof(policy_t)). msg_t.size /
+// (align_up(sizeof(conn_t), alignof(policy_t)) + sizeof(policy_t)). msg_t.size /
 // chunk_* are asserted in msg_layout.h, next to their definitions.
 static_assert(AbiRouteArr::head_size == thoth::abi::ring_header_size, "abi drift: ring_header.size");
+
+// ring_header field offsets. elem_array now *composes* conn_head (standard-layout),
+// so these are offsetof-checked directly instead of matrix-only. The header spans
+// two composed pieces: the connection head (conn_, at the ring start) contributes
+// cc/lc/constructed; the policy (head_, cache-line-aligned after it) contributes
+// cursor/epoch. conn_head_base and the policy are each standard-layout, so their
+// own field offsets are well-formed; elem_array::{conn,head}_offset() place them.
+static_assert(AbiRouteArr::conn_offset() == thoth::abi::ring_header_cc_off,
+              "abi drift: ring_header.conn_head not at ring start");
+static_assert(thoth::circ::conn_head_base::cc_offset()          == thoth::abi::ring_header_cc_off,
+              "abi drift: ring_header.cc");
+static_assert(thoth::circ::conn_head_base::lc_offset()          == thoth::abi::ring_header_lc_off,
+              "abi drift: ring_header.lc");
+static_assert(thoth::circ::conn_head_base::constructed_offset() == thoth::abi::ring_header_constructed_off,
+              "abi drift: ring_header.constructed");
+static_assert(AbiRouteArr::head_offset() + offsetof(AbiRouteP, wt_)    == thoth::abi::ring_header_cursor_off,
+              "abi drift: ring_header.cursor");
+static_assert(AbiRouteArr::head_offset() + offsetof(AbiRouteP, epoch_) == thoth::abi::ring_header_epoch_off,
+              "abi drift: ring_header.epoch");
 
 static_assert(AbiRouteP::ep_mask == thoth::abi::route_ep_mask, "abi drift: route_ep_mask");
 static_assert(AbiRouteP::ep_incr == thoth::abi::route_ep_incr, "abi drift: route_ep_incr");

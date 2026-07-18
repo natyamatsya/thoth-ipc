@@ -7,6 +7,17 @@ Notable changes to thoth-ipc. The format follows
 ## [Unreleased]
 
 ### Changed
+- **`elem_array` composes `conn_head` (was inheritance); ring-header offsets gated.**
+  `elem_array` inherited `conn_head`, and a base class with data members made it
+  non-standard-layout — so `offsetof` was ill-formed and the ring-header field
+  offsets (`cc`/`lc`/`constructed`/`cursor`/`epoch`) were matrix-only. Unlike
+  `msg_t`'s gratuitous base, `conn_head` is a real abstraction (the connection state
+  machine + DCLP `init()`), so rather than flatten it away, its interface is now a
+  `ConnHead` **concept** and `elem_array` *composes* the head (`conn_` member). The
+  ring is byte-identical (the full matrix confirms) but `elem_array` is now
+  **standard-layout**, so the ring-header field offsets are `offsetof`-`static_assert`ed
+  against `thoth::abi` in `ipc.cpp` (via `conn_head_base`/policy field offsets +
+  `elem_array::{conn,head}_offset()`).
 - **Flattened `msg_t` and gated its field offsets.** `msg_t` was a two-level
   template inherited from cpp-ipc — a header-only `msg_t<0, AlignSize>` base and a
   `msg_t<DataSize, AlignSize>` derived adding the payload. The base was never used

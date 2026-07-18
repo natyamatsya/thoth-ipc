@@ -157,15 +157,19 @@ cpp-ipc v1.4.1 and proven across four ports). This is the global contract versio
   was **flattened** into one standard-layout struct — byte-identical (matrix
   confirms) — so every field offset (`cc_id`/`id`/`remain`/`storage`/`payload`) is
   now `offsetof`-`static_assert`ed against `thoth::abi`.
+- **`ring_header` field offsets are gated.** Same story one level up: `elem_array`
+  *inherited* `conn_head` and added a member, so it was non-standard-layout. But
+  `conn_head` is a real abstraction (the connection state machine + DCLP `init()`),
+  not gratuitous like `msg_t`'s base — so instead of flattening it away, the
+  interface was captured as a `ConnHead` **concept** and `elem_array` now
+  *composes* the head (`conn_` member) rather than inheriting it. That makes
+  `elem_array` standard-layout with a byte-identical ring (matrix confirms), so the
+  header field offsets are `offsetof`-checked in `ipc.cpp`: `conn_head_base` and the
+  policy expose their own field offsets (`cc`/`lc`/`constructed` and
+  `cursor`/`epoch`), and `elem_array::{conn,head}_offset()` place them in the ring.
 
 **Remaining**, roughly in priority order:
 
-1. **`ring_header` field offsets.** The same story one level up: `elem_array`
-   inherits `conn_head` and adds a member, so it is non-standard-layout and the
-   header field offsets (`cc`/`lc`/`constructed`/`cursor`/`epoch`) stay matrix-only.
-   Flattening `conn_head` in is a bigger change (it carries the connection-mgmt
-   methods + DCLP init, not just data), so this is a considered refactor, not a
-   quick win.
-2. **Native x86_64 / Windows.** x86_64 is verified by Rosetta cross-compile today;
+1. **Native x86_64 / Windows.** x86_64 is verified by Rosetta cross-compile today;
    a native Linux run would drop the emulation, and a Windows target entry would
    pin its object-namespace prefix.
