@@ -59,6 +59,9 @@ path = "src/bin/demo_send_recv.rs"
 [[bin]]
 name = "demo_chat"
 path = "src/bin/demo_chat.rs"
+[[bin]]
+name = "demo_channel_aggregator"
+path = "src/bin/demo_channel_aggregator.rs"
 
 [[bin]]
 name = "demo_msg_que"

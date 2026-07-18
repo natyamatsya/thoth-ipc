@@ -15,6 +15,7 @@ let package = Package(
         .library(name: "LibIPCSecureCrypto", targets: ["LibIPCSecureCrypto"]),
         .executable(name: "demo-send-recv", targets: ["DemoSendRecv"]),
         .executable(name: "demo-chat",      targets: ["DemoChat"]),
+        .executable(name: "demo-channel-aggregator", targets: ["DemoChannelAggregator"]),
         .executable(name: "demo-msg-que",   targets: ["DemoMsgQue"]),
         .executable(name: "bench-ipc",        targets: ["BenchIpc"]),
         .executable(name: "xlang-harness",    targets: ["XlangHarness"]),
@@ -79,6 +80,11 @@ let package = Package(
             name: "DemoChat",
             dependencies: ["LibIPC"],
             path: "Sources/Demos/DemoChat"
+        ),
+        .executableTarget(
+            name: "DemoChannelAggregator",
+            dependencies: ["LibIPC"],
+            path: "Sources/Demos/DemoChannelAggregator"
         ),
         .executableTarget(
             name: "DemoMsgQue",

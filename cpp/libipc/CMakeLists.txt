@@ -151,6 +151,7 @@ endif()
 
 if (LIBIPC_BUILD_DEMOS)
     add_subdirectory(demo/chat)
+    add_subdirectory(demo/channel_aggregator)
     add_subdirectory(demo/msg_que)
     add_subdirectory(demo/send_recv)
     # Secure codec demo (PCI-style card pipeline); the AEAD backend needs

@@ -4,6 +4,18 @@ Notable changes to thoth-ipc. The format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow SemVer
 (pre-1.0: minor bumps may include behavioural changes).
 
+## [Unreleased]
+
+### Added
+- **Channel aggregator demo** in all four ports
+  ([`cpp/libipc/demo/channel_aggregator/`](cpp/libipc/demo/channel_aggregator/),
+  `rust/…/demo_channel_aggregator.rs`, `swift/…/DemoChannelAggregator`,
+  `zig/…/demo_channel_aggregator.zig`) — a multi-writer `ipc::channel` fan-in:
+  N producers `send` into one channel, a single collector reads the merged
+  stream and tallies by producer (the pattern a single-writer `route` cannot
+  express). Roles are mixable across languages — verified with a collector of
+  one language receiving from producers of all four.
+
 ## [0.4.0] — 2026-07-18
 
 ### Added
