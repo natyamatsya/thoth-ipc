@@ -98,8 +98,8 @@ public func waitForExit(_ h: ProcessHandle, timeout: Duration) -> WaitResult {
         var status: Int32 = 0
         let ret = waitpid(h.pid, &status, WNOHANG)
         if ret == h.pid {
-            if libipc_wifexited(status)  != 0 { r.exited = true;   r.exitCode = libipc_wexitstatus(status) }
-            if libipc_wifsignaled(status) != 0 { r.signaled = true;  r.signal   = libipc_wtermsig(status) }
+            if thoth_ipc_wifexited(status)  != 0 { r.exited = true;   r.exitCode = thoth_ipc_wexitstatus(status) }
+            if thoth_ipc_wifsignaled(status) != 0 { r.signaled = true;  r.signal   = thoth_ipc_wtermsig(status) }
             return r
         }
         if ret == -1 { return r }

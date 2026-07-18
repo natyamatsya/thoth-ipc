@@ -68,22 +68,22 @@ public struct ShmHandle: ~Copyable, @unchecked Sendable {
         let (fd, needTruncate): (Int32, Bool)
         switch mode {
         case .create:
-            let f = posixName.withCString { libipc_shm_open_create($0, perms) }
+            let f = posixName.withCString { thoth_ipc_shm_open_create($0, perms) }
             guard f != -1 else { throw .osError(errno) }
             (fd, needTruncate) = (f, true)
 
         case .open:
-            let f = posixName.withCString { libipc_shm_open_open($0, perms) }
+            let f = posixName.withCString { thoth_ipc_shm_open_open($0, perms) }
             guard f != -1 else { throw .osError(errno) }
             (fd, needTruncate) = (f, false)
 
         case .createOrOpen:
-            let f = posixName.withCString { libipc_shm_open_create($0, perms) }
+            let f = posixName.withCString { thoth_ipc_shm_open_create($0, perms) }
             if f != -1 {
                 (fd, needTruncate) = (f, true)
             } else {
                 guard errno == EEXIST else { throw .osError(errno) }
-                let f2 = posixName.withCString { libipc_shm_open_open($0, perms) }
+                let f2 = posixName.withCString { thoth_ipc_shm_open_open($0, perms) }
                 guard f2 != -1 else { throw .osError(errno) }
                 (fd, needTruncate) = (f2, false)
             }

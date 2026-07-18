@@ -59,7 +59,7 @@ private func setRealtimeMacOS(periodNs: UInt64, computationNs: UInt64, constrain
                 machThread,
                 thread_policy_flavor_t(THREAD_TIME_CONSTRAINT_POLICY),
                 ptr,
-                mach_msg_type_number_t(libipc_thread_time_constraint_policy_count())
+                mach_msg_type_number_t(thoth_ipc_thread_time_constraint_policy_count())
             )
         }
     }

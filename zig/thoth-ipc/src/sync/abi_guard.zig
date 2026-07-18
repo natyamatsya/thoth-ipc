@@ -44,8 +44,8 @@ pub const Primitive = enum(u32) {
 
     fn suffix(self: Primitive) []const u8 {
         return switch (self) {
-            .mutex => "__libipc_sync_abi_mutex",
-            .condition => "__libipc_sync_abi_condition",
+            .mutex => "__thoth_ipc_sync_abi_mutex",
+            .condition => "__thoth_ipc_sync_abi_condition",
         };
     }
 };

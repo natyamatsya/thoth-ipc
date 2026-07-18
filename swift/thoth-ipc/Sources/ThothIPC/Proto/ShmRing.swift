@@ -176,7 +176,7 @@ private func rawAcquire(name: String, size: Int, create: Bool) throws(IpcError) 
 
     let fd: Int32
     if create {
-        let f = posixName.withCString { libipc_shm_open_create($0, perms) }
+        let f = posixName.withCString { thoth_ipc_shm_open_create($0, perms) }
         if f != -1 {
             guard ftruncate(f, off_t(total)) == 0 else {
                 let e = errno; Darwin.close(f); throw .osError(e)
@@ -184,12 +184,12 @@ private func rawAcquire(name: String, size: Int, create: Bool) throws(IpcError) 
             fd = f
         } else {
             guard errno == EEXIST else { throw .osError(errno) }
-            let f2 = posixName.withCString { libipc_shm_open_open($0, perms) }
+            let f2 = posixName.withCString { thoth_ipc_shm_open_open($0, perms) }
             guard f2 != -1 else { throw .osError(errno) }
             fd = f2
         }
     } else {
-        let f = posixName.withCString { libipc_shm_open_open($0, perms) }
+        let f = posixName.withCString { thoth_ipc_shm_open_open($0, perms) }
         guard f != -1 else { throw .osError(errno) }
         fd = f
     }

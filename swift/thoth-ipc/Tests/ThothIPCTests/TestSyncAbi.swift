@@ -11,7 +11,7 @@ struct TestSyncAbi {
     }
 
     private static func mutexSidecarName(_ name: String) -> String {
-        "\(name)__libipc_sync_abi_mutex"
+        "\(name)__thoth_ipc_sync_abi_mutex"
     }
 
     private static func storeWord(base: UnsafeMutableRawPointer, index: Int, value: UInt32) {

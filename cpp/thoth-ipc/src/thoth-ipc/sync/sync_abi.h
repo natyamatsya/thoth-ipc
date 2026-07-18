@@ -109,11 +109,11 @@ inline char const *backend_hint(
 inline char const *suffix_of(primitive_kind const kind) noexcept {
     switch (kind) {
     case primitive_kind::mutex:
-        return "__libipc_sync_abi_mutex";
+        return "__thoth_ipc_sync_abi_mutex";
     case primitive_kind::condition:
-        return "__libipc_sync_abi_condition";
+        return "__thoth_ipc_sync_abi_condition";
     }
-    return "__libipc_sync_abi_unknown";
+    return "__thoth_ipc_sync_abi_unknown";
 }
 
 inline std::string sidecar_name(char const *name, primitive_kind const kind) {

@@ -62,9 +62,20 @@ Notable changes to thoth-ipc. The format follows
   consumer (a `namespace ipc = thoth;` alias restores source-compat if needed).
   Wire/shm-compatible — a pure C++-symbol rename with no ABI-byte impact (the full
   xlang matrix stays byte-exact across all four ports).
-- **Deliberately unchanged** across all of the above: the runtime wire/shm
-  identifiers (`__libipc_sync_abi_*`, the `libipc_<hex>` shm-name format), the
-  Swift port's `libipc_shm_open_*` C shim, and upstream cpp-ipc / libipc
+- **Renamed the runtime wire/shm identifiers `libipc` → `thoth_ipc`**: the
+  cross-process sync sidecar shm-object names `__libipc_sync_abi_mutex` /
+  `_condition` → `__thoth_ipc_sync_abi_*` (byte-exact across all four ports), and
+  the Swift port's internal C shim `libipc_shm_open_*` / `libipc_wifexited` / … →
+  `thoth_ipc_*` (header `libipc_shim.h` → `thoth_ipc_shim.h`). The sync sidecar
+  names are a **wire/shm break** — a build using the old names will not rendezvous
+  with a new one — but all four ports move together, so the xlang matrix stays
+  byte-exact (`primitives` 64/64). The Swift C shim is process-internal (no wire
+  impact). *(The "`libipc_<hex>` shm-name format" noted as unchanged in earlier
+  entries never existed as a literal — the shortened form is
+  `/<truncated-original-name>_<hex>`, carrying no `libipc` string.)*
+- **Deliberately unchanged**: the shm-name templates that were never
+  `libipc`-prefixed (`__IPC_SHM__…`, `ipc.ntf.…`), the `"LISA"` SyncAbi wire magic
+  (and its "LibIPC Sync ABI" acronym derivation), and upstream cpp-ipc / libipc
   attribution in `LICENSE`, `NOTICE` and `// Port of …` comments.
 - `IpcMutex.openSync(name:)` (Swift) is now `public`, mirroring
   `Route.connectBlocking` — a blocking mutex open for non-async call sites.

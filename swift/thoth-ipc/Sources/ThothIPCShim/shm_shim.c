@@ -7,14 +7,14 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
-int libipc_shm_open_create(const char *name, mode_t mode) {
+int thoth_ipc_shm_open_create(const char *name, mode_t mode) {
     return shm_open(name, O_RDWR | O_CREAT | O_EXCL, mode);
 }
 
-int libipc_shm_open_create_or_open(const char *name, mode_t mode) {
+int thoth_ipc_shm_open_create_or_open(const char *name, mode_t mode) {
     return shm_open(name, O_RDWR | O_CREAT | O_EXCL, mode);
 }
 
-int libipc_shm_open_open(const char *name, mode_t mode) {
+int thoth_ipc_shm_open_open(const char *name, mode_t mode) {
     return shm_open(name, O_RDWR, mode);
 }
