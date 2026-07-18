@@ -35,7 +35,7 @@ Because macOS restricts certain high-performance APIs (like `ulock`) from the Ma
 ### Phase 2: Implement `ulock` Backend ✅
 
 * [x] Created `src/libipc/platform/apple/ulock.h` with C bindings for `__ulock_wait` and `__ulock_wake` (all flag constants from XNU).
-* [x] Rewrote `ipc::detail::sync::mutex` (`platform/apple/mutex.h`) — 32-bit word-lock (0=unlocked, 1=locked, 2=locked+waiters), eliminates `pthread_mutex_t` and all `sleep_for` polling. Dead-holder recovery preserved via PID liveness check.
+* [x] Rewrote `thoth::detail::sync::mutex` (`platform/apple/mutex.h`) — 32-bit word-lock (0=unlocked, 1=locked, 2=locked+waiters), eliminates `pthread_mutex_t` and all `sleep_for` polling. Dead-holder recovery preserved via PID liveness check.
 * [x] Created `src/libipc/platform/apple/condition.h` — sequence-counter condvar using `__ulock_wait/wake`, eliminates `pthread_cond_t`.
 * [x] Rewrote `src/libipc/platform/apple/semaphore_impl.h` — atomic count + `__ulock_wait/wake`, eliminates `sem_t` and 100µs polling loop.
 * [x] Updated `sync/condition.cpp` to select `apple/condition.h` on `THOTH_IPC_OS_APPLE`.

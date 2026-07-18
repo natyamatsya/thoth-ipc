@@ -13,12 +13,12 @@
 #include "get_wait_time.h"
 #include "shm_name.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
 class semaphore {
-    ipc::shm::handle shm_;
+    thoth::shm::handle shm_;
     sem_t *h_ = SEM_FAILED;
     std::string sem_name_;  // Store the actual semaphore name used
 
@@ -44,7 +44,7 @@ public:
         // Use a separate namespace for semaphores to avoid conflicts with shm.
         // Append "_s" before hashing so the hash differs from the shm name.
         std::string raw = std::string(name) + "_s";
-        sem_name_ = ipc::posix_::detail::make_shm_name(raw.c_str());
+        sem_name_ = thoth::posix_::detail::make_shm_name(raw.c_str());
         h_ = ::sem_open(sem_name_.c_str(), O_CREAT, 0666, static_cast<unsigned>(count));
         if (h_ == SEM_FAILED) {
             log.error("fail sem_open[", errno, "]: ", sem_name_);
@@ -87,9 +87,9 @@ public:
 
     static void clear_storage(char const *name) noexcept {
         std::string raw = std::string(name) + "_s";
-        std::string sem_name = ipc::posix_::detail::make_shm_name(raw.c_str());
+        std::string sem_name = thoth::posix_::detail::make_shm_name(raw.c_str());
         ::sem_unlink(sem_name.c_str());
-        ipc::shm::handle::clear_storage(name);
+        thoth::shm::handle::clear_storage(name);
     }
 
     bool wait(std::uint64_t tm) noexcept {
@@ -127,4 +127,4 @@ public:
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

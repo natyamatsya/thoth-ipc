@@ -16,7 +16,7 @@
 #include "thoth-ipc/imp/error.h"
 #include "thoth-ipc/imp/result.h"
 
-namespace ipc {
+namespace thoth {
 namespace sys {
 
 /// \brief A platform-dependent error code.
@@ -33,4 +33,4 @@ enum class info : std::int32_t {
 THOTH_IPC_EXPORT result<std::int64_t> conf(info) noexcept;
 
 } // namespace sys
-} // namespace ipc
+} // namespace thoth

@@ -16,7 +16,7 @@ import FlatBuffers
 /// The buffer is owned; access to the root is a zero-copy pointer cast
 /// into the underlying `ByteBuffer`.
 ///
-/// Port of `ipc::proto::message<T>`.
+/// Port of `thoth::proto::message<T>`.
 public struct Message<T: FlatBufferTable & Verifiable>: Sendable {
 
     public let buffer: IpcBuffer
@@ -64,7 +64,7 @@ public struct Message<T: FlatBufferTable & Verifiable>: Sendable {
 /// try channel.send(buffer: b.ipcBuffer)
 /// ```
 ///
-/// Port of `ipc::proto::builder`.
+/// Port of `thoth::proto::builder`.
 public struct Builder {
 
     public var fbb: FlatBufferBuilder

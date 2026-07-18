@@ -14,7 +14,7 @@
 #include "thoth-ipc/mem/resource.h"
 #include "thoth-ipc/platform/detail.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 struct has_value_type_ {
@@ -29,7 +29,7 @@ template <typename T, typename U>
 struct is_same_char<T, U, std::true_type> : std::is_same<T, typename U::value_type> {};
 
 template <typename T, typename S, typename R = S>
-using IsSameChar = ipc::require<is_same_char<T, S>::value, R>;
+using IsSameChar = thoth::require<is_same_char<T, S>::value, R>;
 
 ////////////////////////////////////////////////////////////////
 /// Windows named-object namespace qualification
@@ -91,4 +91,4 @@ auto to_tchar(std::string &&external) -> IsSameChar<T, std::wstring> {
 }
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

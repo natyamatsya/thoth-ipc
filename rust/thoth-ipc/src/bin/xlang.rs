@@ -4,7 +4,7 @@
 // Cross-language round-trip harness (Rust endpoint). Shares the CLI contract
 // of the C++ (xlang_ipc) and Swift (xlang) harnesses so the matrix driver
 // (tools/xlang-runner) can pair any writer language with any reader language
-// on the ipc::route wire.
+// on the thoth::route wire.
 //
 // Verbs (see tools/xlang-runner/README.md for the scenario each serves):
 //   write/read (route), cwrite/cread (multi-writer channel), aread (async),
@@ -23,7 +23,7 @@ fn pattern(n: usize) -> Vec<u8> {
     (0..n).map(|i| b'A' + (i % 26) as u8).collect()
 }
 
-/// Multi-writer endpoints on ipc::channel (N writers, N readers) — same wire
+/// Multi-writer endpoints on thoth::channel (N writers, N readers) — same wire
 /// ABI as route, but exercises the multi-producer claim/CAS paths and cc_id
 /// self-filtering with concurrent senders of different languages.
 fn do_cwrite(name: &str, count: usize, size: usize) -> i32 {

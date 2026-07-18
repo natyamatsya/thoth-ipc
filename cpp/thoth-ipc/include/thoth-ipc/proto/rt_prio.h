@@ -19,7 +19,7 @@
 #  include <windows.h>
 #endif
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 // Set real-time thread priority for the calling thread.
@@ -108,4 +108,4 @@ inline uint64_t audio_period_ns(uint32_t sample_rate, uint32_t frames_per_buffer
 }
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

@@ -6,24 +6,24 @@
 #include "thoth-ipc/proto/codecs/flatbuffers_codec.h"
 #include "thoth-ipc/proto/typed_route_codec.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
-// A typed wrapper around ipc::route for FlatBuffer messages, implemented
+// A typed wrapper around thoth::route for FlatBuffer messages, implemented
 // through the generic codec-based typed_route_codec.
 // T is the FlatBuffers-generated root table type.
-// ipc::route is single-writer, multiple-reader (broadcast).
+// thoth::route is single-writer, multiple-reader (broadcast).
 //
 // Usage:
 //   // Sender
-//   ipc::proto::typed_route<MyMsg> r("my_route", ipc::sender);
-//   ipc::proto::builder b;
+//   thoth::proto::typed_route<MyMsg> r("my_route", thoth::sender);
+//   thoth::proto::builder b;
 //   auto off = CreateMyMsg(b.fbb(), ...);
 //   b.finish(off);
 //   r.send(b);
 //
 //   // Receiver
-//   ipc::proto::typed_route<MyMsg> r("my_route", ipc::receiver);
+//   thoth::proto::typed_route<MyMsg> r("my_route", thoth::receiver);
 //   auto msg = r.recv();
 //   if (msg) { auto *root = msg.root(); ... }
 //
@@ -31,4 +31,4 @@ template <typename T>
 using typed_route = typed_route_codec<T, flatbuffers_codec>;
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

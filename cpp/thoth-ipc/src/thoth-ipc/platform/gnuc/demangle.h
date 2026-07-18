@@ -14,7 +14,7 @@
 #include "thoth-ipc/imp/scope_exit.h"
 #include "thoth-ipc/imp/detect_plat.h"
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \brief The conventional way to obtain demangled symbol name.
@@ -43,4 +43,4 @@ std::string demangle(std::string name) noexcept {
   }
 }
 
-} // namespace ipc
+} // namespace thoth

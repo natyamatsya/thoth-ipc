@@ -65,7 +65,7 @@
 /// Yield to other threads
 ////////////////////////////////////////////////////////////////
 
-namespace ipc {
+namespace thoth {
 
 template <typename K>
 inline void yield(K& k) noexcept {
@@ -108,11 +108,11 @@ inline void sleep(K& k) {
     });
 }
 
-} // namespace ipc
+} // namespace thoth
 
 #pragma pop_macro("IPC_LOCK_PAUSE_")
 
-namespace ipc {
+namespace thoth {
 
 class spin_lock {
     std::atomic<std::uint32_t> lc_ { 0 };
@@ -185,4 +185,4 @@ public:
     }
 };
 
-} // namespace ipc
+} // namespace thoth

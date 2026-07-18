@@ -11,7 +11,7 @@
 #include "thoth-ipc/mem/memory_resource.h"
 #include "thoth-ipc/mem/verify_args.h"
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 
 /**
@@ -44,7 +44,7 @@ void *new_delete_resource::allocate(std::size_t bytes, std::size_t alignment) no
   /// \remark The size parameter must be an integral multiple of alignment.
   /// macOS requires alignment >= sizeof(void*).
   if (alignment < sizeof(void*)) alignment = sizeof(void*);
-  return std::aligned_alloc(alignment, ipc::round_up(bytes, alignment));
+  return std::aligned_alloc(alignment, thoth::round_up(bytes, alignment));
 #else
   if (alignment <= alignof(std::max_align_t)) {
     /// \see https://en.cppreference.com/w/cpp/memory/c/malloc
@@ -103,4 +103,4 @@ void new_delete_resource::deallocate(void *p, std::size_t bytes, std::size_t ali
 }
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

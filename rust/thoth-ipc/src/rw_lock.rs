@@ -29,7 +29,7 @@ const W_FLAG: u32 = W_MASK + 1;        // 0x8000_0000 — writer flag
 
 /// A single-word atomic read-write lock.
 ///
-/// Port of `ipc::rw_lock` from cpp-ipc. Writers get exclusive access,
+/// Port of `thoth::rw_lock` from cpp-ipc. Writers get exclusive access,
 /// multiple readers can hold the lock concurrently.
 ///
 /// The high bit signals a write lock; the remaining 31 bits count active readers.

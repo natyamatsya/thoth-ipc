@@ -20,7 +20,7 @@ cargo run --release --bin bench_ipc
 * **Compiler (Rust):** rustc 1.85.0, Release build (`--release`)
 * **Workload:** 100,000 messages of random sizes between 2 and 256 bytes
 
-### `ipc::route` — 1 sender, N receivers
+### `thoth::route` — 1 sender, N receivers
 
 | Receivers | C++ RTT (ms) (Before Fix) | C++ RTT (ms) (After Fix) | Rust RTT (ms) |
 | :---: | :---: | :---: | :---: |
@@ -29,7 +29,7 @@ cargo run --release --bin bench_ipc
 | 4 | 781.98 | 780.37 | **2.44** |
 | 8 | 1790.42 | 1874.48 | **2.16** |
 
-### `ipc::channel` — 1 sender, N receivers (1-N)
+### `thoth::channel` — 1 sender, N receivers (1-N)
 
 | Receivers | C++ RTT (ms) (Before Fix) | C++ RTT (ms) (After Fix) | Rust RTT (ms) |
 | :---: | :---: | :---: | :---: |
@@ -38,7 +38,7 @@ cargo run --release --bin bench_ipc
 | 4 | 774.00 | 783.96 | **2.33** |
 | 8 | 1796.00 | 1818.23 | **2.31** |
 
-### `ipc::channel` — N senders, 1 receiver (N-1)
+### `thoth::channel` — N senders, 1 receiver (N-1)
 
 | Senders | C++ RTT (ms) (Before Fix) | C++ RTT (ms) (After Fix) | Rust RTT (ms) |
 | :---: | :---: | :---: | :---: |
@@ -47,7 +47,7 @@ cargo run --release --bin bench_ipc
 | 4 | 208.92 | 208.11 | **5.04** |
 | 8 | 318.92 | 252.52 | **8.51** |
 
-### `ipc::channel` — N senders, N receivers (N-N)
+### `thoth::channel` — N senders, N receivers (N-N)
 
 | Threads | C++ RTT (ms) (Before Fix) | C++ RTT (ms) (After Fix) | Rust RTT (ms) |
 | :---: | :---: | :---: | :---: |

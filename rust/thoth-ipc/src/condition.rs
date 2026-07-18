@@ -45,7 +45,7 @@ impl IpcCondition {
     }
 
     /// Whether this condition handle is valid (always true after successful `open`).
-    /// Mirrors C++ `ipc::sync::condition::valid()`.
+    /// Mirrors C++ `thoth::sync::condition::valid()`.
     pub fn valid(&self) -> bool {
         true
     }

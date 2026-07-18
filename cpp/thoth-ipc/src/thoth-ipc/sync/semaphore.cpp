@@ -19,12 +19,12 @@
 #   error "Unsupported platform."
 #endif
 
-namespace ipc {
+namespace thoth {
 namespace sync {
 
-class semaphore::semaphore_ : public ipc::pimpl<semaphore_> {
+class semaphore::semaphore_ : public thoth::pimpl<semaphore_> {
 public:
-    ipc::detail::sync::semaphore sem_;
+    thoth::detail::sync::semaphore sem_;
 };
 
 semaphore::semaphore()
@@ -71,7 +71,7 @@ void semaphore::clear() noexcept {
 }
 
 void semaphore::clear_storage(char const * name) noexcept {
-    ipc::detail::sync::semaphore::clear_storage(name);
+    thoth::detail::sync::semaphore::clear_storage(name);
 }
 
 bool semaphore::wait(std::uint64_t tm) noexcept {
@@ -83,4 +83,4 @@ bool semaphore::post(std::uint32_t count) noexcept {
 }
 
 } // namespace sync
-} // namespace ipc
+} // namespace thoth

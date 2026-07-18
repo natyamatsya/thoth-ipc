@@ -36,7 +36,7 @@ impl IpcSemaphore {
     }
 
     /// Whether this semaphore handle is valid (always true after successful `open`).
-    /// Mirrors C++ `ipc::sync::semaphore::valid()`.
+    /// Mirrors C++ `thoth::sync::semaphore::valid()`.
     pub fn valid(&self) -> bool {
         true
     }

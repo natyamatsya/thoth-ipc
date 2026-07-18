@@ -66,7 +66,7 @@ extern "C" void rt_ffi_state_touch_heartbeat(rt_ffi_shared_state_handle h) {
 
 // --- Ring buffer ---
 
-using ring_type = ipc::proto::shm_ring<audio_block, 4>;
+using ring_type = thoth::proto::shm_ring<audio_block, 4>;
 
 extern "C" rt_ffi_ring_handle rt_ffi_ring_open(const char *name) {
     auto *r = new ring_type(name);
@@ -94,32 +94,32 @@ extern "C" void rt_ffi_ring_write_overwrite(rt_ffi_ring_handle h, const rt_ffi_a
 // --- Service registry ---
 
 extern "C" rt_ffi_registry_handle rt_ffi_registry_open(const char *domain) {
-    return new ipc::proto::service_registry(domain);
+    return new thoth::proto::service_registry(domain);
 }
 
 extern "C" void rt_ffi_registry_close(rt_ffi_registry_handle h) {
-    delete static_cast<ipc::proto::service_registry *>(h);
+    delete static_cast<thoth::proto::service_registry *>(h);
 }
 
 extern "C" bool rt_ffi_registry_register(rt_ffi_registry_handle h,
                                          const char *name,
                                          const char *ctrl,
                                          const char *reply) {
-    return static_cast<ipc::proto::service_registry *>(h)->register_service(name, ctrl, reply);
+    return static_cast<thoth::proto::service_registry *>(h)->register_service(name, ctrl, reply);
 }
 
 extern "C" bool rt_ffi_registry_unregister(rt_ffi_registry_handle h, const char *name) {
-    return static_cast<ipc::proto::service_registry *>(h)->unregister_service(name);
+    return static_cast<thoth::proto::service_registry *>(h)->unregister_service(name);
 }
 
 // --- Real-time priority ---
 
 extern "C" bool rt_ffi_set_realtime_priority(uint64_t period_ns) {
-    return ipc::proto::set_realtime_priority(period_ns);
+    return thoth::proto::set_realtime_priority(period_ns);
 }
 
 extern "C" uint64_t rt_ffi_audio_period_ns(uint32_t sample_rate, uint32_t frames_per_buffer) {
-    return ipc::proto::audio_period_ns(sample_rate, frames_per_buffer);
+    return thoth::proto::audio_period_ns(sample_rate, frames_per_buffer);
 }
 
 // --- Utility ---

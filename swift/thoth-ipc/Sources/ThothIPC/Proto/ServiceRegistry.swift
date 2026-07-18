@@ -111,7 +111,7 @@ private struct RegistryData {
 /// Any process that opens a `ServiceRegistry` with the same domain sees the
 /// same set of registered services.
 ///
-/// Port of `ipc::proto::service_registry`.
+/// Port of `thoth::proto::service_registry`.
 public final class ServiceRegistry: @unchecked Sendable {
 
     private let shm: ShmHandle

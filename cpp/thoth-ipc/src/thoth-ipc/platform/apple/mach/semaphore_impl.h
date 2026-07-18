@@ -25,7 +25,7 @@
 #include "thoth-ipc/shm.h"
 #include "thoth-ipc/def.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
@@ -75,7 +75,7 @@ inline void release(const std::string& name) {
 } // namespace mach_sem_detail
 
 class semaphore {
-    ipc::shm::handle   shm_;
+    thoth::shm::handle   shm_;
     mach_sem_state_t  *data_ = nullptr;
     semaphore_t        sem_  = MACH_PORT_NULL;
     std::string        name_;
@@ -137,7 +137,7 @@ public:
     }
 
     static void clear_storage(char const *name) noexcept {
-        ipc::shm::handle::clear_storage(name);
+        thoth::shm::handle::clear_storage(name);
     }
 
     bool wait(std::uint64_t tm) noexcept {
@@ -193,4 +193,4 @@ public:
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

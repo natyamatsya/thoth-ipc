@@ -32,12 +32,12 @@ constexpr std::size_t calc_size(std::size_t size) {
 }
 
 inline auto& acc_of(void* mem, std::size_t size) {
-    return reinterpret_cast<info_t*>(static_cast<ipc::byte_t*>(mem) + size - sizeof(info_t))->acc_;
+    return reinterpret_cast<info_t*>(static_cast<thoth::byte_t*>(mem) + size - sizeof(info_t))->acc_;
 }
 
 } // internal-linkage
 
-namespace ipc {
+namespace thoth {
 namespace shm {
 
 id_t acquire(char const * name, std::size_t size, unsigned mode) {
@@ -47,7 +47,7 @@ id_t acquire(char const * name, std::size_t size, unsigned mode) {
         return nullptr;
     }
     HANDLE h;
-    auto fmt_name = ipc::detail::to_tchar(ipc::detail::win_object_name(name));
+    auto fmt_name = thoth::detail::to_tchar(thoth::detail::win_object_name(name));
     // Opens a named file mapping object.
     if (mode == open) {
         h = ::OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, fmt_name.c_str());
@@ -184,5 +184,5 @@ void remove(char const * name) noexcept {
 }
 
 } // namespace shm
-} // namespace ipc
+} // namespace thoth
 

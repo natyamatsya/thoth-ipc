@@ -2,7 +2,7 @@ name: Cross-language ABI
 
 # Proves the C++, Rust and Swift ports share one byte-exact wire ABI
 # (context/xlang-channel-abi.md) by running every writer->reader pairing over
-# an ipc::route channel and checking the payload round-trips byte-for-byte.
+# an thoth::route channel and checking the payload round-trips byte-for-byte.
 # Same-language test suites do NOT catch ABI drift — this matrix does.
 #
 # The matrix is planned and executed by tools/xlang-runner (config:

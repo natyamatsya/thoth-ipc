@@ -22,7 +22,7 @@
 #include <cstdio>
 #include <cstddef>
 
-using namespace ipc;
+using namespace thoth;
 
 // DataSize/AlignSize of the ring element = sizeof/alignof(msg_t<64,8>) = 80/8.
 using RouteP   = prod_cons_impl<wr<relat::single, relat::multi, trans::broadcast>>;

@@ -8,14 +8,14 @@
 #include "thoth-ipc/imp/detect_plat.h"
 #include "thoth-ipc/mem/memory_resource.h"
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 namespace {
 
 template <typename Node>
 Node *make_node(bytes_allocator const &upstream, std::size_t initial_size, std::size_t alignment) noexcept {
   THOTH_IPC_LOG();
-  auto sz = ipc::round_up(sizeof(Node), alignment) + initial_size;
+  auto sz = thoth::round_up(sizeof(Node), alignment) + initial_size;
   THOTH_IPC_TRY {
     auto *node = static_cast<Node *>(upstream.allocate(sz));
     if (node == nullptr) {
@@ -29,7 +29,7 @@ Node *make_node(bytes_allocator const &upstream, std::size_t initial_size, std::
   } THOTH_IPC_CATCH(...) {
     log.error("failed: allocate memory for `monotonic_buffer_resource`'s node.", 
               " bytes = ", initial_size, ", alignment = ", alignment,
-              "\n\texception: ", ipc::log::exception_string(std::current_exception()));
+              "\n\texception: ", thoth::log::exception_string(std::current_exception()));
     return nullptr;
   }
 }
@@ -58,10 +58,10 @@ monotonic_buffer_resource::monotonic_buffer_resource(std::size_t initial_size, b
   , initial_buffer_(nullptr)
   , initial_size_  (initial_size) {}
 
-monotonic_buffer_resource::monotonic_buffer_resource(ipc::span<ipc::byte> buffer) noexcept
+monotonic_buffer_resource::monotonic_buffer_resource(thoth::span<thoth::byte> buffer) noexcept
   : monotonic_buffer_resource(buffer, bytes_allocator{}) {}
 
-monotonic_buffer_resource::monotonic_buffer_resource(ipc::span<ipc::byte> buffer, bytes_allocator upstream) noexcept
+monotonic_buffer_resource::monotonic_buffer_resource(thoth::span<thoth::byte> buffer, bytes_allocator upstream) noexcept
   : upstream_      (std::move(upstream))
   , free_list_     (nullptr)
   , head_          (buffer.begin())
@@ -88,7 +88,7 @@ void monotonic_buffer_resource::release() noexcept {
     }
   } THOTH_IPC_CATCH(...) {
     log.error("failed: deallocate memory for `monotonic_buffer_resource`.",
-              "\n\texception: ", ipc::log::exception_string(std::current_exception()));
+              "\n\texception: ", thoth::log::exception_string(std::current_exception()));
   }
   // reset to initial state at contruction
   if ((head_ = initial_buffer_) != nullptr) {
@@ -123,9 +123,9 @@ void *monotonic_buffer_resource::allocate(std::size_t bytes, std::size_t alignme
                 " bytes = ", bytes, ", alignment = ", alignment);
       return nullptr;
     }
-    tail_ = static_cast<ipc::byte *>(p) + s;
+    tail_ = static_cast<thoth::byte *>(p) + s;
   }
-  head_ = static_cast<ipc::byte *>(p) + bytes;
+  head_ = static_cast<thoth::byte *>(p) + bytes;
   return p;
 }
 
@@ -137,4 +137,4 @@ void monotonic_buffer_resource::deallocate(void *p, std::size_t bytes, std::size
 }
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

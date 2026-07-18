@@ -34,7 +34,7 @@ per-channel polling thread).
 Model readiness as a single opaque, platform-typed handle and keep the reactor
 contract in terms of it.
 
-### 1) `ipc::wait_handle_t` is the readiness type
+### 1) `thoth::wait_handle_t` is the readiness type
 
 - C++ (`ipc.h`): `using wait_handle_t = int` (fd) on POSIX, `void*` (HANDLE) on
   Windows; `invalid_wait_handle` = `-1` / `nullptr`.

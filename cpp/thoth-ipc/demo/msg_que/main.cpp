@@ -23,10 +23,10 @@ constexpr std::size_t const max_sz = 1024 * 16;
 std::atomic<bool> is_quit__ {false};
 std::atomic<std::size_t> size_counter__ {0};
 
-using msg_que_t = ipc::chan<ipc::relat::single, ipc::relat::multi, ipc::trans::broadcast>;
+using msg_que_t = thoth::chan<thoth::relat::single, thoth::relat::multi, thoth::trans::broadcast>;
 
 msg_que_t que__{ name__ };
-ipc::byte_t buff__[max_sz];
+thoth::byte_t buff__[max_sz];
 capo::random<> rand__{ 
     static_cast<int>(min_sz), 
     static_cast<int>(max_sz)
@@ -62,14 +62,14 @@ void do_send() {
         << __func__ << ": start [" 
         << str_of_size(min_sz) << " - " << str_of_size(max_sz) 
         << "]...\n";
-    if (!que__.reconnect(ipc::sender)) {
+    if (!que__.reconnect(thoth::sender)) {
         std::cerr << __func__ << ": connect failed.\n";
     }
     else {
         std::thread counting{ do_counting };
         while (!is_quit__.load(std::memory_order_acquire)) {
             std::size_t sz = static_cast<std::size_t>(rand__());
-            if (!que__.send(ipc::buff_t(buff__, sz))) {
+            if (!que__.send(thoth::buff_t(buff__, sz))) {
                 std::cerr << __func__ << ": send failed.\n";
                 std::cout << __func__ << ": waiting for receiver...\n";
                 if (!que__.wait_for_recv(1)) {
@@ -91,7 +91,7 @@ void do_recv() {
         << __func__ << ": start ["
         << str_of_size(min_sz) << " - " << str_of_size(max_sz)
         << "]...\n";
-    if (!que__.reconnect(ipc::receiver)) {
+    if (!que__.reconnect(thoth::receiver)) {
         std::cerr << __func__ << ": connect failed.\n";
     }
     else {

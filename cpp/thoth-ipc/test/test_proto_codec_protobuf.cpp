@@ -39,7 +39,7 @@ struct fake_proto_message {
     }
 };
 
-ipc::buff_t owning_buffer_from_bytes(const std::vector<std::uint8_t> &bytes) {
+thoth::buff_t owning_buffer_from_bytes(const std::vector<std::uint8_t> &bytes) {
     auto *data = new std::uint8_t[bytes.size()];
     std::memcpy(data, bytes.data(), bytes.size());
     return {data, bytes.size(), [](void *p, std::size_t) {
@@ -47,7 +47,7 @@ ipc::buff_t owning_buffer_from_bytes(const std::vector<std::uint8_t> &bytes) {
     }};
 }
 
-static_assert(ipc::proto::proto_codec<ipc::proto::protobuf_codec, fake_proto_message>);
+static_assert(thoth::proto::proto_codec<thoth::proto::protobuf_codec, fake_proto_message>);
 
 } // namespace
 
@@ -55,7 +55,7 @@ TEST(ProtobufCodec, BuilderFromMessageSerializesBytes) {
     fake_proto_message msg;
     msg.value_ = 1234;
 
-    auto builder = ipc::proto::protobuf_builder::from_message(msg);
+    auto builder = thoth::proto::protobuf_builder::from_message(msg);
 
     ASSERT_EQ(builder.size(), sizeof(std::uint32_t));
 
@@ -68,10 +68,10 @@ TEST(ProtobufCodec, DecodeReturnsTypedMessage) {
     fake_proto_message msg;
     msg.value_ = 77;
 
-    auto builder = ipc::proto::protobuf_builder::from_message(msg);
+    auto builder = thoth::proto::protobuf_builder::from_message(msg);
     auto buf = owning_buffer_from_bytes(builder.bytes());
 
-    auto decoded = ipc::proto::protobuf_codec::decode<fake_proto_message>(std::move(buf));
+    auto decoded = thoth::proto::protobuf_codec::decode<fake_proto_message>(std::move(buf));
 
     ASSERT_TRUE(decoded.verify());
     ASSERT_NE(decoded.root(), nullptr);
@@ -82,7 +82,7 @@ TEST(ProtobufCodec, DecodeInvalidPayloadFailsVerification) {
     std::vector<std::uint8_t> bytes {1, 2, 3};
     auto buf = owning_buffer_from_bytes(bytes);
 
-    auto decoded = ipc::proto::protobuf_codec::decode<fake_proto_message>(std::move(buf));
+    auto decoded = thoth::proto::protobuf_codec::decode<fake_proto_message>(std::move(buf));
 
     EXPECT_FALSE(decoded.verify());
     EXPECT_EQ(decoded.root(), nullptr);

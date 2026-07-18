@@ -210,7 +210,7 @@ Mirror `test_shm.rs`, `test_mutex.rs`, `test_semaphore.rs`,
 ### 2.1 `IpcBuffer`
 
 - Fixed-size slot buffer in shared memory
-- Matches the C++ `ipc::buf_t` memory layout exactly
+- Matches the C++ `thoth::buf_t` memory layout exactly
 
 ### 2.2 `Waiter`
 

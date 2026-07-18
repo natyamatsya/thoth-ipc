@@ -6,7 +6,7 @@
 #include "thoth-ipc/mem/central_cache_allocator.h"
 
 TEST(central_cache_allocator, allocate) {
-  auto &a = ipc::mem::central_cache_allocator();
+  auto &a = thoth::mem::central_cache_allocator();
   ASSERT_FALSE(nullptr == a.allocate(1));
   ASSERT_FALSE(nullptr == a.allocate(10));
   ASSERT_FALSE(nullptr == a.allocate(100));

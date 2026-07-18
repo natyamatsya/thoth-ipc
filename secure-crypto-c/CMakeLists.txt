@@ -51,7 +51,7 @@ install(DIRECTORY include/
 if(_secure_crypto_emit_export_file)
     install(EXPORT ${_secure_crypto_export_set}
         FILE secure-crypto-c-targets.cmake
-        NAMESPACE libipc::
+        NAMESPACE thoth_ipc::
         DESTINATION share/secure-crypto-c
     )
 endif()

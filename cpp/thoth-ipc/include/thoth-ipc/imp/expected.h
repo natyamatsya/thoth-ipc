@@ -18,7 +18,7 @@
 #include "thoth-ipc/imp/generic.h"
 #include "thoth-ipc/imp/byte.h"
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \brief In-place construction tag for unexpected value in expected.
@@ -392,4 +392,4 @@ bool operator!=(expected<T1, E1> const &lhs, expected<T2, E2> const &rhs) {
   return !(lhs == rhs);
 }
 
-} // namespace ipc
+} // namespace thoth

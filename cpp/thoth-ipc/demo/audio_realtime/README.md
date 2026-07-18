@@ -36,7 +36,7 @@ flowchart LR
 
 Feature | Basic (`audio_service`) | Real-time (`audio_realtime`)
 --------|------------------------|-----------------------------
-Data transport | `ipc::channel` + FlatBuffers | `shm_ring<audio_block, 4>` (zero-alloc)
+Data transport | `thoth::channel` + FlatBuffers | `shm_ring<audio_block, 4>` (zero-alloc)
 Parameter updates | FlatBuffers control messages | Atomic writes in `shared_state`
 Thread priority | Default | `THREAD_TIME_CONSTRAINT_POLICY`
 Heartbeat | PID liveness (`kill(pid,0)`) | Monotonic timestamp in shm (sub-ms)

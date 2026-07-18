@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
-// Polyglot pipeline stage — one hop of a multi-language `ipc::route` pipeline.
+// Polyglot pipeline stage — one hop of a multi-language `thoth::route` pipeline.
 //
 // Usage:
 //   demo_pipeline source <out> <count> <tag>
 //   demo_pipeline stage  <in> <out> <count> <tag>
 //   demo_pipeline sink   <in> <count> <tag>
 //
-// A pipeline is a chain of single-writer→single-reader `ipc::route` hops, each
+// A pipeline is a chain of single-writer→single-reader `thoth::route` hops, each
 // hop a separate process — and, because the wire format is byte-exact across
 // the C++, Rust, Swift and Zig ports, each stage can be a *different language*.
 // The `source` seeds items, every `stage` appends its tag, and the `sink` prints

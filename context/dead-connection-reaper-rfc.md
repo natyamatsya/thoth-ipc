@@ -10,7 +10,7 @@ cross-language contract this extends).
 
 ## Problem
 
-A broadcast route (`ipc::route = chan<single, multi, broadcast>`) tracks connected
+A broadcast route (`thoth::route = chan<single, multi, broadcast>`) tracks connected
 receivers as a **32-bit atomic bitmask**, `conn_head_base::cc_`
 (`circ/elem_def.h`, `cc_t = uint_t<32>`). A receiver claims the lowest free bit on
 connect:

@@ -75,7 +75,7 @@ cargo run --manifest-path tools/abi/Cargo.toml
 emits a per-language constant module from `abi.json` (constants, enums, struct
 sizes/field-offsets, and `abi_version`, resolved for `--target`). Each language's
 idiom: Zig `pub const`, Rust `pub const` + `#[repr]` enums, Swift a caseless
-`enum ABI` namespace, C++ `namespace ipc::abi` with `inline constexpr`. CI runs
+`enum ABI` namespace, C++ `namespace thoth::abi` with `inline constexpr`. CI runs
 `generate --lang <l> --check` for all four (staleness gate) and compiles the
 generated Rust/C++ modules.
 
@@ -92,12 +92,12 @@ regeneration. The generated file is named `abi_generated.*` in every port:
 | Zig | `zig/thoth-ipc/src/abi_generated.zig` | `layout.zig` / `channel_multi.zig` / `chunk.zig` re-export |
 | Rust | `rust/thoth-ipc/src/abi_generated.rs` (`pub mod abi_generated`) | `channel.rs` constants + layout `const _` asserts |
 | Swift | `swift/thoth-ipc/Sources/LibIPC/Generated/abi_generated.swift` (`enum ABI`) | `Channel.swift` constants + `assertHeaderLayout()` |
-| C++ | `cpp/thoth-ipc/include/thoth-ipc/abi_generated.hpp` (`namespace ipc::abi`) | `ipc.cpp` compile-time `static_assert` conformance layer |
+| C++ | `cpp/thoth-ipc/include/thoth-ipc/abi_generated.hpp` (`namespace thoth::abi`) | `ipc.cpp` compile-time `static_assert` conformance layer |
 
 **Rust/Swift/Zig re-source** their constants from the generated module (the value
 literals live only in the module). **C++ is a *checked* peer**: it keeps
 *deriving* its layout from the templates / `def.h` and `static_assert`s the
-result against `ipc::abi`. This is deliberate — the semantic gate
+result against `thoth::abi`. This is deliberate — the semantic gate
 (`dump_abi.cpp`) extracts ground truth *from* those same C++ derivations, so
 re-sourcing them from the generated header would make that gate tautological. The
 `static_assert`s make C++ conformance compile-time-enforced without collapsing

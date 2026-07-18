@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
-// Multi-writer `ipc::channel` fan-in aggregator.
+// Multi-writer `thoth::channel` fan-in aggregator.
 //
 // Usage (run the collector first, then one or more producers):
 //   demo_channel_aggregator collect <total>
 //   demo_channel_aggregator produce <id> <count>
 //
-// N producer processes each `send` into ONE shared `ipc::channel`; a single
+// N producer processes each `send` into ONE shared `thoth::channel`; a single
 // collector `recv`s the merged, correctly-reassembled stream and tallies it by
-// producer. This is the pattern a single-writer `ipc::route` cannot express —
+// producer. This is the pattern a single-writer `thoth::route` cannot express —
 // a `channel` has multiple committing writers. Because the wire format is
 // byte-exact across the C++, Rust, Swift and Zig ports, the producers and the
 // collector can be any mix of languages (see the repo README).

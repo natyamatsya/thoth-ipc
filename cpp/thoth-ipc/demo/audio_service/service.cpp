@@ -66,9 +66,9 @@ static bool set_param(StreamState &st, audio::ParamType id, float val) {
     }
 }
 
-static void send_ack(ipc::proto::typed_channel<audio::ReplyMsg> &reply,
+static void send_ack(thoth::proto::typed_channel<audio::ReplyMsg> &reply,
                      uint64_t seq, uint64_t ref_seq, audio::Status status) {
-    ipc::proto::builder b;
+    thoth::proto::builder b;
     auto ack = audio::CreateAck(b.fbb(), ref_seq, status);
     auto msg = audio::CreateReplyMsg(b.fbb(), seq,
         audio::ReplyPayload_Ack, ack.Union());
@@ -76,10 +76,10 @@ static void send_ack(ipc::proto::typed_channel<audio::ReplyMsg> &reply,
     reply.send(b);
 }
 
-static void send_param_value(ipc::proto::typed_channel<audio::ReplyMsg> &reply,
+static void send_param_value(thoth::proto::typed_channel<audio::ReplyMsg> &reply,
                              uint64_t seq, uint64_t ref_seq,
                              audio::ParamType id, float val) {
-    ipc::proto::builder b;
+    thoth::proto::builder b;
     auto pv = audio::CreateParamValue(b.fbb(), ref_seq, id, val);
     auto msg = audio::CreateReplyMsg(b.fbb(), seq,
         audio::ReplyPayload_ParamValue, pv.Union());
@@ -124,12 +124,12 @@ int main(int argc, char *argv[]) {
     }
 
     // Clear stale channel storage from previous runs
-    ipc::proto::typed_channel<audio::ControlMsg>::clear_storage(cfg->ctrl_ch.c_str());
-    ipc::proto::typed_channel<audio::ReplyMsg>::clear_storage(cfg->reply_ch.c_str());
+    thoth::proto::typed_channel<audio::ControlMsg>::clear_storage(cfg->ctrl_ch.c_str());
+    thoth::proto::typed_channel<audio::ReplyMsg>::clear_storage(cfg->reply_ch.c_str());
 
-    ipc::proto::service_registry                 registry{"audio"};
-    ipc::proto::typed_channel<audio::ControlMsg> control{cfg->ctrl_ch.c_str(), ipc::receiver};
-    ipc::proto::typed_channel<audio::ReplyMsg>   reply{cfg->reply_ch.c_str(), ipc::sender};
+    thoth::proto::service_registry                 registry{"audio"};
+    thoth::proto::typed_channel<audio::ControlMsg> control{cfg->ctrl_ch.c_str(), thoth::receiver};
+    thoth::proto::typed_channel<audio::ReplyMsg>   reply{cfg->reply_ch.c_str(), thoth::sender};
 
     registry.register_service(cfg->svc_name.c_str(),
                               cfg->ctrl_ch.c_str(),

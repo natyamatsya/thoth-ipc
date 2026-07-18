@@ -406,7 +406,7 @@ fn cpp_type(t: &str) -> &str {
 fn gen_cpp(abi: &Value, target: &str) -> String {
     let mut o = String::new();
     gen_header(&mut o, "cpp", target, "//");
-    o.push_str("\n#pragma once\n#include <cstddef>\n#include <cstdint>\n\nnamespace ipc::abi {\n\n");
+    o.push_str("\n#pragma once\n#include <cstddef>\n#include <cstdint>\n\nnamespace thoth::abi {\n\n");
     o.push_str(&format!("inline constexpr const char* abi_version = \"{}\";\n\n", abi["version"].as_str().unwrap()));
 
     o.push_str("// --- constants ---\n");
@@ -444,6 +444,6 @@ fn gen_cpp(abi: &Value, target: &str) -> String {
             o.push_str(&format!("inline constexpr std::size_t {name}_{}_off = {};\n", f["name"].as_str().unwrap(), resolve_int(&f["offset"], target).unwrap()));
         }
     }
-    o.push_str("\n} // namespace ipc::abi\n");
+    o.push_str("\n} // namespace thoth::abi\n");
     o
 }

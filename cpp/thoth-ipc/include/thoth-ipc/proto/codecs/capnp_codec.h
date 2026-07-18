@@ -12,7 +12,7 @@
 
 #include "thoth-ipc/proto/codec.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 /// Minimal wire contract for Cap'n Proto-like message types.
@@ -51,13 +51,13 @@ public:
 /// Decoded Cap'n Proto message wrapper with access to the raw transport buffer.
 template <capnp_wire_message T>
 class capnp_message {
-    ipc::buff_t buf_;
+    thoth::buff_t buf_;
     std::optional<T> value_;
 
 public:
     capnp_message() = default;
 
-    explicit capnp_message(ipc::buff_t buf)
+    explicit capnp_message(thoth::buff_t buf)
         : buf_{std::move(buf)} {
         if (buf_.empty()) return;
 
@@ -97,7 +97,7 @@ struct capnp_codec {
     using message_type = capnp_message<T>;
 
     template <capnp_wire_message T>
-    static message_type<T> decode(ipc::buff_t buf) {
+    static message_type<T> decode(thoth::buff_t buf) {
         return message_type<T>{std::move(buf)};
     }
 
@@ -106,4 +106,4 @@ struct capnp_codec {
 };
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

@@ -6,11 +6,11 @@
 #include "thoth-ipc/proto/codecs/capnp_codec.h"
 #include "thoth-ipc/proto/typed_route_codec.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 template <capnp_wire_message T>
 using typed_route_capnp = typed_route_codec<T, capnp_codec>;
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

@@ -11,15 +11,15 @@
 #include "thoth-ipc/circ/elem_def.h"
 #include "thoth-ipc/platform/detail.h"
 
-namespace ipc {
+namespace thoth {
 namespace circ {
 
 template <typename Policy,
           std::size_t DataSize,
-          std::size_t AlignSize = (ipc::detail::min)(DataSize, alignof(std::max_align_t))>
-class elem_array : public ipc::circ::conn_head<Policy> {
+          std::size_t AlignSize = (thoth::detail::min)(DataSize, alignof(std::max_align_t))>
+class elem_array : public thoth::circ::conn_head<Policy> {
 public:
-    using base_t   = ipc::circ::conn_head<Policy>;
+    using base_t   = thoth::circ::conn_head<Policy>;
     using policy_t = Policy;
     using cursor_t = decltype(std::declval<policy_t>().cursor());
     using elem_t   = typename policy_t::template elem_t<DataSize, AlignSize>;
@@ -138,4 +138,4 @@ public:
 };
 
 } // namespace circ
-} // namespace ipc
+} // namespace thoth

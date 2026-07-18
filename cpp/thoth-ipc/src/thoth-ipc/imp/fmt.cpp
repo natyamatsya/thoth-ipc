@@ -12,7 +12,7 @@
 #include "thoth-ipc/imp/codecvt.h"
 #include "thoth-ipc/imp/detect_plat.h"
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \brief Format conversions helpers.
@@ -134,7 +134,7 @@ template <typename F /*a function pointer*/,
           typename A /*a fundamental or pointer type*/>
 bool sprintf(fmt_context &ctx, F fop, span<char const> const &fstr, span<char const> const &s, A a) noexcept {
   THOTH_IPC_TRY {
-    return ipc::sprintf(ctx, fop(fstr, s), a) >= 0;
+    return thoth::sprintf(ctx, fop(fstr, s), a) >= 0;
   } THOTH_IPC_CATCH(...) {
     return false;
   }
@@ -222,14 +222,14 @@ bool to_string(fmt_context &ctx, std::string const &a) noexcept {
 
 bool to_string(fmt_context &ctx, char const *a, span<char const> fstr) noexcept {
   if (a == nullptr) {
-    return ipc::sprintf(ctx, fmt_of, fstr, "s", "");
+    return thoth::sprintf(ctx, fmt_of, fstr, "s", "");
   } else {
-    return ipc::sprintf(ctx, fmt_of, fstr, "s", a);
+    return thoth::sprintf(ctx, fmt_of, fstr, "s", a);
   }
 }
 
 bool to_string(fmt_context &ctx, char a) noexcept {
-  return ipc::sprintf(ctx, fmt_of, {}, "c", a);
+  return thoth::sprintf(ctx, fmt_of, {}, "c", a);
 }
 
 bool to_string(fmt_context &ctx, wchar_t a) noexcept {
@@ -263,43 +263,43 @@ bool to_string(fmt_context &ctx, char32_t a) noexcept {
 }
 
 bool to_string(fmt_context &ctx, signed short a, span<char const> fstr) noexcept {
-  return ipc::sprintf(ctx, fmt_of_signed, fstr, "h", a);
+  return thoth::sprintf(ctx, fmt_of_signed, fstr, "h", a);
 }
 
 bool to_string(fmt_context &ctx, unsigned short a, span<char const> fstr) noexcept {
-  return ipc::sprintf(ctx, fmt_of_unsigned, fstr, "h", a);
+  return thoth::sprintf(ctx, fmt_of_unsigned, fstr, "h", a);
 }
 
 bool to_string(fmt_context &ctx, signed int a, span<char const> fstr) noexcept {
-  return ipc::sprintf(ctx, fmt_of_signed, fstr, "", a);
+  return thoth::sprintf(ctx, fmt_of_signed, fstr, "", a);
 }
 
 bool to_string(fmt_context &ctx, unsigned int a, span<char const> fstr) noexcept {
-  return ipc::sprintf(ctx, fmt_of_unsigned, fstr, "", a);
+  return thoth::sprintf(ctx, fmt_of_unsigned, fstr, "", a);
 }
 
 bool to_string(fmt_context &ctx, signed long a, span<char const> fstr) noexcept {
-  return ipc::sprintf(ctx, fmt_of_signed, fstr, "l", a);
+  return thoth::sprintf(ctx, fmt_of_signed, fstr, "l", a);
 }
 
 bool to_string(fmt_context &ctx, unsigned long a, span<char const> fstr) noexcept {
-  return ipc::sprintf(ctx, fmt_of_unsigned, fstr, "l", a);
+  return thoth::sprintf(ctx, fmt_of_unsigned, fstr, "l", a);
 }
 
 bool to_string(fmt_context &ctx, signed long long a, span<char const> fstr) noexcept {
-  return ipc::sprintf(ctx, fmt_of_signed, fstr, "ll", a);
+  return thoth::sprintf(ctx, fmt_of_signed, fstr, "ll", a);
 }
 
 bool to_string(fmt_context &ctx, unsigned long long a, span<char const> fstr) noexcept {
-  return ipc::sprintf(ctx, fmt_of_unsigned, fstr, "ll", a);
+  return thoth::sprintf(ctx, fmt_of_unsigned, fstr, "ll", a);
 }
 
 bool to_string(fmt_context &ctx, double a, span<char const> fstr) noexcept {
-  return ipc::sprintf(ctx, fmt_of_float, fstr, "", a);
+  return thoth::sprintf(ctx, fmt_of_float, fstr, "", a);
 }
 
 bool to_string(fmt_context &ctx, long double a, span<char const> fstr) noexcept {
-  return ipc::sprintf(ctx, fmt_of_float, fstr, "L", a);
+  return thoth::sprintf(ctx, fmt_of_float, fstr, "L", a);
 }
 
 bool to_string(fmt_context &ctx, std::nullptr_t) noexcept {
@@ -310,7 +310,7 @@ bool to_string(fmt_context &ctx, void const volatile *a) noexcept {
   if (a == nullptr) {
     return to_string(ctx, nullptr);
   }
-  return ipc::sprintf(ctx, fmt_of, "", "p", a);
+  return thoth::sprintf(ctx, fmt_of, "", "p", a);
 }
 
 bool to_string(fmt_context &ctx, std::tm const &a, span<char const> fstr) noexcept {
@@ -326,4 +326,4 @@ bool to_string(fmt_context &ctx, std::tm const &a, span<char const> fstr) noexce
   }
 }
 
-} // namespace ipc
+} // namespace thoth

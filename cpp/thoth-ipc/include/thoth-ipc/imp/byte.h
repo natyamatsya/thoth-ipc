@@ -20,7 +20,7 @@
 #define THOTH_IPC_CPP_LIB_BYTE_
 #endif // __cpp_lib_byte
 
-namespace ipc {
+namespace thoth {
 
 class byte;
 
@@ -167,15 +167,15 @@ auto as_bytes(span<T> s) noexcept -> span<Byte> {
 /// \brief Custom defined fmt_to method for imp::fmt
 namespace detail_tag_invoke {
 
-inline bool tag_invoke(decltype(ipc::fmt_to), fmt_context &ctx, ipc::byte b) {
-  return ipc::to_string(ctx, static_cast<std::uint8_t>(b), "02x");
+inline bool tag_invoke(decltype(thoth::fmt_to), fmt_context &ctx, thoth::byte b) {
+  return thoth::to_string(ctx, static_cast<std::uint8_t>(b), "02x");
 }
 
 template <typename T, 
-          typename = std::enable_if_t<std::is_same<std::decay_t<T>, ipc::byte>::value>>
-bool tag_invoke(decltype(ipc::fmt_to), fmt_context &ctx, fmt_ref<T> arg) noexcept {
-  return ipc::to_string(ctx, static_cast<std::uint8_t>(arg.param), arg.fstr);
+          typename = std::enable_if_t<std::is_same<std::decay_t<T>, thoth::byte>::value>>
+bool tag_invoke(decltype(thoth::fmt_to), fmt_context &ctx, fmt_ref<T> arg) noexcept {
+  return thoth::to_string(ctx, static_cast<std::uint8_t>(arg.param), arg.fstr);
 }
 
 } // namespace detail_tag_invoke
-} // namespace ipc
+} // namespace thoth

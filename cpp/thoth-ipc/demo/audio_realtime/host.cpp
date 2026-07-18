@@ -18,17 +18,17 @@
 // Per-instance connection: ring + shared state
 // ---------------------------------------------------------------------------
 struct instance_conn {
-    ipc::proto::shm_ring<audio_block, 4> ring{""};
+    thoth::proto::shm_ring<audio_block, 4> ring{""};
     shared_state_handle                  ssh;
     shared_state                        *state = nullptr;
     std::string                          ring_name;
     std::string                          state_name;
 
-    bool connect(const ipc::proto::service_entry &entry) {
+    bool connect(const thoth::proto::service_entry &entry) {
         ring_name  = entry.control_channel; // we store ring name here
         state_name = entry.reply_channel;   // and state name here
         ring.~shm_ring();
-        new (&ring) ipc::proto::shm_ring<audio_block, 4>(ring_name.c_str());
+        new (&ring) thoth::proto::shm_ring<audio_block, 4>(ring_name.c_str());
         if (!ring.open_or_create()) {
             std::printf("host: failed to open ring '%s'\n", ring_name.c_str());
             return false;
@@ -78,16 +78,16 @@ int main(int argc, char *argv[]) {
     }
     const char *service_bin = argv[1];
 
-    ipc::proto::service_registry registry("audio_rt");
+    thoth::proto::service_registry registry("audio_rt");
     registry.gc();
 
     // --- Start redundant service group ---
-    ipc::proto::service_group_config cfg;
+    thoth::proto::service_group_config cfg;
     cfg.service_name = "rt_audio";
     cfg.executable   = service_bin;
     cfg.replicas     = 2;
     cfg.auto_respawn = true;
-    ipc::proto::service_group group(registry, cfg);
+    thoth::proto::service_group group(registry, cfg);
 
     std::printf("host: starting service group (2 replicas)...\n");
     if (!group.start()) {
@@ -112,7 +112,7 @@ int main(int argc, char *argv[]) {
 
     // --- Also configure standby instances (warm standby state replication) ---
     for (auto &inst : group.instances()) {
-        if (inst.role == ipc::proto::instance_role::standby) {
+        if (inst.role == thoth::proto::instance_role::standby) {
             shared_state_handle standby_ssh;
             if (standby_ssh.open_or_create(inst.entry.reply_channel)) {
                 auto *ss = standby_ssh.get();
@@ -158,7 +158,7 @@ int main(int argc, char *argv[]) {
 
     // Replicate to standbys
     for (auto &inst : group.instances()) {
-        if (inst.role == ipc::proto::instance_role::standby) {
+        if (inst.role == thoth::proto::instance_role::standby) {
             shared_state_handle standby_ssh;
             if (standby_ssh.open_or_create(inst.entry.reply_channel))
                 standby_ssh.get()->gain.store(0.5f, std::memory_order_release);
@@ -215,7 +215,7 @@ int main(int argc, char *argv[]) {
 
     // Verify the new standby is alive and replicate state to it
     for (auto &inst : group.instances()) {
-        if (inst.role != ipc::proto::instance_role::standby || !inst.is_alive())
+        if (inst.role != thoth::proto::instance_role::standby || !inst.is_alive())
             continue;
         std::printf("host: new standby %s (pid=%d) is alive\n",
                     inst.instance_name.c_str(), inst.proc.pid);
@@ -236,8 +236,8 @@ int main(int argc, char *argv[]) {
     for (auto &inst : group.instances())
         std::printf("  [%d] %-20s  role=%-8s  pid=%d  alive=%d\n",
                     inst.id, inst.instance_name.c_str(),
-                    inst.role == ipc::proto::instance_role::primary ? "PRIMARY" :
-                    inst.role == ipc::proto::instance_role::standby ? "STANDBY" : "DEAD",
+                    inst.role == thoth::proto::instance_role::primary ? "PRIMARY" :
+                    inst.role == thoth::proto::instance_role::standby ? "STANDBY" : "DEAD",
                     inst.proc.pid, inst.is_alive());
 
     // Brief settle time for the service to start producing
@@ -268,8 +268,8 @@ int main(int argc, char *argv[]) {
     for (auto &inst : group.instances())
         std::printf("  [%d] %-20s  role=%-8s  pid=%d  alive=%d\n",
                     inst.id, inst.instance_name.c_str(),
-                    inst.role == ipc::proto::instance_role::primary ? "PRIMARY" :
-                    inst.role == ipc::proto::instance_role::standby ? "STANDBY" : "DEAD",
+                    inst.role == thoth::proto::instance_role::primary ? "PRIMARY" :
+                    inst.role == thoth::proto::instance_role::standby ? "STANDBY" : "DEAD",
                     inst.proc.pid, inst.is_alive());
 
     // --- Clean shutdown ---

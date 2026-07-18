@@ -8,16 +8,16 @@
 #include "thoth-ipc/imp/fmt.h"
 #include "thoth-ipc/mem/container_allocator.h"
 
-namespace ipc {
+namespace thoth {
 
 template <typename Key, typename T>
 using unordered_map = std::unordered_map<
-  Key, T, std::hash<Key>, std::equal_to<Key>, ipc::mem::container_allocator<std::pair<Key const, T>>
+  Key, T, std::hash<Key>, std::equal_to<Key>, thoth::mem::container_allocator<std::pair<Key const, T>>
 >;
 
 template <typename Key, typename T>
 using map = std::map<
-  Key, T, std::less<Key>, ipc::mem::container_allocator<std::pair<Key const, T>>
+  Key, T, std::less<Key>, thoth::mem::container_allocator<std::pair<Key const, T>>
 >;
 
 /// \brief Check string validity.
@@ -33,7 +33,7 @@ inline std::string make_string(char const *str) {
 /// \brief Combine prefix from a list of strings.
 template <typename A1, typename... A>
 inline std::string make_prefix(A1 &&prefix, A &&...args) {
-  return ipc::fmt(std::forward<A1>(prefix), "__IPC_SHM__", std::forward<A>(args)...);
+  return thoth::fmt(std::forward<A1>(prefix), "__IPC_SHM__", std::forward<A>(args)...);
 }
 
-} // namespace ipc
+} // namespace thoth

@@ -11,7 +11,7 @@
 #
 # thoth-ipc's C++, Rust and Swift ports share one byte-exact wire ABI
 # (context/xlang-channel-abi.md). This driver proves it by running every
-# (writer-language x reader-language) pairing over an ipc::route channel and
+# (writer-language x reader-language) pairing over an thoth::route channel and
 # checking that the reader receives exactly the messages the writer sent —
 # byte-for-byte — across a range of payload sizes that exercise the
 # single-fragment, multi-fragment and chunk-storage paths.
@@ -35,7 +35,7 @@ import subprocess
 import sys
 import time
 
-# Payload sizes (bytes) and why each matters on the ipc::route wire:
+# Payload sizes (bytes) and why each matters on the thoth::route wire:
 #   40    <= data_length (64): a single msg_t fragment.
 #   65    just over 64: C++ sender uses chunk storage; ports fragment (2 msg_t).
 #   200   chunk storage (C++ sender); multi-fragment for port senders.

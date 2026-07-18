@@ -17,7 +17,7 @@ use crate::sync_abi::SyncAbiGuard;
 /// with `PTHREAD_PROCESS_SHARED` and `PTHREAD_MUTEX_ROBUST` attributes.
 /// On Windows this is a kernel named mutex via `CreateMutex`.
 ///
-/// Binary-compatible with `ipc::sync::mutex` from the C++ thoth_ipc library.
+/// Binary-compatible with `thoth::sync::mutex` from the C++ thoth_ipc library.
 pub struct IpcMutex {
     inner: PlatformMutex,
     _abi_guard: SyncAbiGuard,
@@ -35,7 +35,7 @@ impl IpcMutex {
     }
 
     /// Whether this mutex handle is valid (always true after successful `open`).  
-    /// Mirrors C++ `ipc::sync::mutex::valid()`.
+    /// Mirrors C++ `thoth::sync::mutex::valid()`.
     pub fn valid(&self) -> bool {
         true
     }
@@ -51,7 +51,7 @@ impl IpcMutex {
     /// Lock the mutex with a timeout.
     /// Returns `Ok(true)` if the lock was acquired within `timeout_ms` milliseconds.
     /// Returns `Ok(false)` on timeout.
-    /// Mirrors C++ `ipc::sync::mutex::lock(tm)`.
+    /// Mirrors C++ `thoth::sync::mutex::lock(tm)`.
     pub fn lock_timeout(&self, timeout_ms: u64) -> io::Result<bool> {
         self.inner.lock_timeout(timeout_ms)
     }

@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
 
     // Multi-writer channel fan-in demo (see README): several producers into one
-    // collector over a single ipc::channel. Built into zig-out/bin.
+    // collector over a single thoth::channel. Built into zig-out/bin.
     const demo = b.addExecutable(.{
         .name = "demo_channel_aggregator",
         .root_module = b.createModule(.{
@@ -35,7 +35,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(demo);
 
     // Polyglot pipeline stage (see demo/pipeline/run.sh): source | stage | sink
-    // hops over ipc::route, one process per hop, mixable across languages.
+    // hops over thoth::route, one process per hop, mixable across languages.
     const pipe = b.addExecutable(.{
         .name = "demo_pipeline",
         .root_module = b.createModule(.{

@@ -6,13 +6,13 @@
 
 TEST(Waiter, broadcast) {
     for (int i = 0; i < 10; ++i) {
-        ipc::detail::waiter waiter;
+        thoth::detail::waiter waiter;
         std::thread ts[10];
 
         int k = 0;
         for (auto& t : ts) {
             t = std::thread([&k] {
-                ipc::detail::waiter waiter {"test-ipc-waiter"};
+                thoth::detail::waiter waiter {"test-ipc-waiter"};
                 EXPECT_TRUE(waiter.valid());
                 for (int i = 0; i < 9; ++i) {
                     while (!waiter.wait_if([&k, &i] { return k == i; })) ;
@@ -33,7 +33,7 @@ TEST(Waiter, broadcast) {
 }
 
 TEST(Waiter, quit_waiting) {
-    ipc::detail::waiter waiter;
+    thoth::detail::waiter waiter;
     EXPECT_TRUE(waiter.open("test-ipc-waiter"));
 
     std::thread t1 {
@@ -45,7 +45,7 @@ TEST(Waiter, quit_waiting) {
     bool quit = false;
     std::thread t2 {
         [&quit] {
-            ipc::detail::waiter waiter {"test-ipc-waiter"};
+            thoth::detail::waiter waiter {"test-ipc-waiter"};
             EXPECT_TRUE(waiter.wait_if([&quit] { return !quit; }));
         }
     };
@@ -65,7 +65,7 @@ TEST(Waiter, quit_waiting) {
 
 TEST(Waiter, clear) {
     {
-        ipc::detail::waiter w{"my-waiter"};
+        thoth::detail::waiter w{"my-waiter"};
         ASSERT_TRUE(w.valid());
         EXPECT_TRUE(ipc_ut::expect_exist("my-waiter_WAITER_COND_", true));
         EXPECT_TRUE(ipc_ut::expect_exist("my-waiter_WAITER_LOCK_", true));
@@ -75,10 +75,10 @@ TEST(Waiter, clear) {
         EXPECT_TRUE(ipc_ut::expect_exist("my-waiter_WAITER_LOCK_", false));
     }
     {
-        ipc::detail::waiter w{"my-waiter"};
+        thoth::detail::waiter w{"my-waiter"};
         EXPECT_TRUE(ipc_ut::expect_exist("my-waiter_WAITER_COND_", true));
         EXPECT_TRUE(ipc_ut::expect_exist("my-waiter_WAITER_LOCK_", true));
-        ipc::detail::waiter::clear_storage("my-waiter");
+        thoth::detail::waiter::clear_storage("my-waiter");
         EXPECT_TRUE(ipc_ut::expect_exist("my-waiter_WAITER_COND_", false));
         EXPECT_TRUE(ipc_ut::expect_exist("my-waiter_WAITER_LOCK_", false));
     }

@@ -25,7 +25,7 @@ Three assumptions in the proposal below were wrong on real hardware:
 3. **The reactor and async/coro headers were `int fd`-typed, not
    `wait_handle_t`-typed** (§3 assumed otherwise). Windows HANDLEs can't
    round-trip through `int`, so `reactor.{h,cpp}`, `async_recv.h`, `coro_recv.h`
-   were widened to `ipc::wait_handle_t` (a bigger change than §3 implied). A
+   were widened to `thoth::wait_handle_t` (a bigger change than §3 implied). A
    `windows_preamble.h` was also added so a lean `<Windows.h>` in one header can
    never strip the thread-pool wait API from the reactor's TU.
 - **Scope:** bring Windows **C++↔Rust** to the parity macOS and Linux already
@@ -46,7 +46,7 @@ What already works:
   `shm_win.cpp`; Rust uses `windows-sys` `Win32_System_Memory`). C++↔C++
   messaging builds and runs on Windows (the `build-windows` CI job exercises it).
 - **Ring/chunk `spin_lock`.** Windows has no `platform/win/spin_lock.h`, so it
-  uses C++'s **generic** `ipc::spin_lock` (`rw_lock.h`) — an `atomic<u32>`
+  uses C++'s **generic** `thoth::spin_lock` (`rw_lock.h`) — an `atomic<u32>`
   test-and-set spin, the same lock the Linux parity work just matched. The Rust
   port's non-Apple `AtomicU32` TAS at `lc_`@4 / `lock_`@36 therefore **already
   covers Windows byte-for-byte in principle** — pending the layout verification in

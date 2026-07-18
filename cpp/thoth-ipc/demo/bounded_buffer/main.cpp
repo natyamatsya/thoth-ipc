@@ -9,8 +9,8 @@
 //   bounded_buffer produce <id> <count>
 //
 // A fixed-capacity ring lives in a shared-memory segment; access is coordinated
-// by a named ipc::sync::mutex (so multiple producers can contend for `head`) and
-// two counting ipc::sync::semaphores — `empty` (free slots, starts at CAP) and
+// by a named thoth::sync::mutex (so multiple producers can contend for `head`) and
+// two counting thoth::sync::semaphores — `empty` (free slots, starts at CAP) and
 // `full` (filled slots, starts at 0). Producers and the consumer can be
 // *different languages*: the shm layout, the mutex and both semaphores are
 // byte-exact across the C++, Rust, Swift and Zig ports.
@@ -37,7 +37,7 @@ constexpr std::size_t   SLOT = 48;
 constexpr std::size_t   SHM_SIZE = 8 + CAP * SLOT;
 
 struct Ring {
-    ipc::shm::handle shm { SHM, SHM_SIZE };
+    thoth::shm::handle shm { SHM, SHM_SIZE };
     std::uint8_t *base() const { return static_cast<std::uint8_t *>(shm.get()); }
     Ring() {
         if (shm.ref() <= 1) { set_head(0); set_tail(0); } // first opener zeroes cursors
@@ -51,9 +51,9 @@ struct Ring {
 
 int produce(std::string const &id, std::size_t count) {
     Ring ring;
-    ipc::sync::mutex mtx { MUTEX };
-    ipc::sync::semaphore empty { EMPTY, CAP };
-    ipc::sync::semaphore full  { FULL, 0 };
+    thoth::sync::mutex mtx { MUTEX };
+    thoth::sync::semaphore empty { EMPTY, CAP };
+    thoth::sync::semaphore full  { FULL, 0 };
 
     for (std::size_t k = 0; k < count; ++k) {
         if (!empty.wait(10000)) {
@@ -76,9 +76,9 @@ int produce(std::string const &id, std::size_t count) {
 
 int consume(std::size_t total) {
     Ring ring;
-    ipc::sync::mutex mtx { MUTEX };
-    ipc::sync::semaphore empty { EMPTY, CAP };
-    ipc::sync::semaphore full  { FULL, 0 };
+    thoth::sync::mutex mtx { MUTEX };
+    thoth::sync::semaphore empty { EMPTY, CAP };
+    thoth::sync::semaphore full  { FULL, 0 };
     std::cout << "[consumer] ready — draining " << total << " items through a " << CAP
               << "-slot ring" << std::endl;
 

@@ -11,7 +11,7 @@
 # include "thoth-ipc/platform/win/codecvt.h"
 #endif
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \brief The transform between local-character-set(UTF-8/GBK/...) and UTF-16/32.
@@ -362,4 +362,4 @@ THOTH_IPC_DEF_CVT_CSTR_(wchar_t , char8_t)
 
 #undef THOTH_IPC_DEF_CVT_CSTR_
 
-} // namespace ipc
+} // namespace thoth

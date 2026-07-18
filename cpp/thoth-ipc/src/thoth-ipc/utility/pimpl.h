@@ -7,15 +7,15 @@
 #include "thoth-ipc/utility/concept.h"
 #include "thoth-ipc/mem/new.h"
 
-namespace ipc {
+namespace thoth {
 
 // pimpl small object optimization helpers
 
 template <typename T, typename R = T*>
-using IsImplComfortable = ipc::require<(sizeof(T) <= sizeof(T*)), R>;
+using IsImplComfortable = thoth::require<(sizeof(T) <= sizeof(T*)), R>;
 
 template <typename T, typename R = T*>
-using IsImplUncomfortable = ipc::require<(sizeof(T) > sizeof(T*)), R>;
+using IsImplUncomfortable = thoth::require<(sizeof(T) > sizeof(T*)), R>;
 
 template <typename T, typename... P>
 IPC_CONSTEXPR_ auto make_impl(P&&... params) -> IsImplComfortable<T> {
@@ -61,4 +61,4 @@ struct pimpl {
     }
 };
 
-} // namespace ipc
+} // namespace thoth

@@ -68,7 +68,7 @@ impl ServiceGroupConfig {
 
 /// Manages a group of redundant service instances with automatic failover.
 ///
-/// Port of `ipc::proto::service_group` from the C++ thoth_ipc library.
+/// Port of `thoth::proto::service_group` from the C++ thoth_ipc library.
 pub struct ServiceGroup<'a> {
     registry: &'a ServiceRegistry,
     config: ServiceGroupConfig,

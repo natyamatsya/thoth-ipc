@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Port of cpp-ipc/src/libipc/platform/posix/shm_posix.cpp
-// POSIX shared memory handle — binary-compatible with ipc::shm::handle.
+// POSIX shared memory handle — binary-compatible with thoth::shm::handle.
 
 import Darwin.POSIX
 import Atomics
@@ -11,7 +11,7 @@ import ThothIPCShim
 // MARK: - Open mode
 
 /// Open mode for shared memory segments.
-/// Mirrors `ipc::shm::create` / `ipc::shm::open` from the C++ library.
+/// Mirrors `thoth::shm::create` / `thoth::shm::open` from the C++ library.
 public enum ShmOpenMode: Sendable {
     /// Create exclusively — fail if already exists.
     case create
@@ -37,7 +37,7 @@ func calcSize(_ userSize: Int) -> Int {
 
 /// A named, inter-process shared memory region.
 ///
-/// Binary-compatible with `ipc::shm::handle` from the C++ libipc library.
+/// Binary-compatible with `thoth::shm::handle` from the C++ libipc library.
 /// The mapped region ends with a trailing `atomic<int32_t>` reference counter
 /// shared between all processes mapping the same segment.
 ///

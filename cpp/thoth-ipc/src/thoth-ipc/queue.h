@@ -21,7 +21,7 @@
 #include "thoth-ipc/mem/resource.h"
 #include "thoth-ipc/liveness.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 class queue_conn {
@@ -107,7 +107,7 @@ protected:
     elems_t * elems_ = nullptr;
     decltype(std::declval<elems_t>().cursor()) cursor_ = 0;
     bool sender_flag_ = false;
-    ipc::detail::conn_liveness *liveness_ = nullptr; // dead-connection reaper (broadcast only)
+    thoth::detail::conn_liveness *liveness_ = nullptr; // dead-connection reaper (broadcast only)
 
 public:
     using base_t::base_t;
@@ -147,7 +147,7 @@ public:
     // conn_info_head hands us the per-slot owner table so force_push can reap dead
     // readers instead of blanket-disconnecting live-but-slow ones. Null (and thus
     // inert) unless set for a broadcast channel.
-    void set_liveness(ipc::detail::conn_liveness *lv) noexcept { liveness_ = lv; }
+    void set_liveness(thoth::detail::conn_liveness *lv) noexcept { liveness_ = lv; }
 
     // Reap the DEAD receivers among `candidates` (a subset of the current
     // connections), clearing their cc_ bits. Returns the new connections mask.
@@ -156,7 +156,7 @@ public:
     circ::cc_t reap_dead(circ::cc_t candidates) noexcept {
         if (elems_ == nullptr) return 0;
         if (liveness_ != nullptr) {
-            ipc::detail::reap_dead_receivers(
+            thoth::detail::reap_dead_receivers(
                 liveness_, candidates,
                 [this](circ::cc_t bit) { elems_->disconnect_receiver(bit); },
                 [](circ::cc_t) {});
@@ -262,4 +262,4 @@ public:
     }
 };
 
-} // namespace ipc
+} // namespace thoth

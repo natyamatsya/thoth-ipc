@@ -9,7 +9,7 @@
 #include "a0/time.h"
 #include "a0/err_macro.h"
 
-namespace ipc {
+namespace thoth {
 namespace linux_ {
 namespace detail {
 
@@ -46,4 +46,4 @@ inline timespec make_timespec(std::uint64_t tm /*ms*/) noexcept(false) {
 
 } // namespace detail
 } // namespace linux_
-} // namespace ipc
+} // namespace thoth

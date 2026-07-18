@@ -10,7 +10,7 @@ import Atomics
 
 /// A simple spin lock with adaptive backoff.
 ///
-/// Port of `ipc::spin_lock` from cpp-ipc. Uses a `ManagedAtomic<UInt32>`
+/// Port of `thoth::spin_lock` from cpp-ipc. Uses a `ManagedAtomic<UInt32>`
 /// exchanged to 1 on lock, stored to 0 on unlock, with adaptive yield
 /// between retries.
 ///

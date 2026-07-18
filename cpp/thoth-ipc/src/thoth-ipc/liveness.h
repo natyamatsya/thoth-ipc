@@ -25,7 +25,7 @@
 #include <cstdint>
 
 #include "thoth-ipc/imp/detect_plat.h"
-#include "thoth-ipc/circ/elem_def.h" // ipc::circ::cc_t
+#include "thoth-ipc/circ/elem_def.h" // thoth::circ::cc_t
 
 #if defined(THOTH_IPC_OS_WIN)
 #  include <process.h>
@@ -44,7 +44,7 @@
 #  endif
 #endif
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 // One owner record per cc_ bit. **Byte-exact cross-language layout** (Phase 4 /
@@ -64,7 +64,7 @@ struct conn_liveness {
 static_assert(sizeof(conn_liveness) == 512, "conn_liveness must be 512 bytes (xlang ABI)");
 
 // Bit position (0..31) of a single-bit connection id.
-inline int slot_index(ipc::circ::cc_t bit) noexcept {
+inline int slot_index(thoth::circ::cc_t bit) noexcept {
 #if defined(_MSC_VER)
     unsigned long i = 0;
     _BitScanForward(&i, static_cast<unsigned long>(bit));
@@ -199,7 +199,7 @@ inline bool is_process_alive(std::int32_t pid) noexcept {
 
 // Record ownership of a freshly connected slot. Call *after* the cc_ bit is set,
 // so the reaper's "owner still 0 ⇒ skip" window is the only race, and it is safe.
-inline void liveness_set_owner(conn_liveness *lv, ipc::circ::cc_t bit) noexcept {
+inline void liveness_set_owner(conn_liveness *lv, thoth::circ::cc_t bit) noexcept {
     if (lv == nullptr || bit == 0) return;
     int idx = slot_index(bit);
     // Store the token first, then the pid with release: a reader that observes
@@ -209,7 +209,7 @@ inline void liveness_set_owner(conn_liveness *lv, ipc::circ::cc_t bit) noexcept 
 }
 
 // Release ownership of a slot on clean disconnect.
-inline void liveness_clear_owner(conn_liveness *lv, ipc::circ::cc_t bit) noexcept {
+inline void liveness_clear_owner(conn_liveness *lv, thoth::circ::cc_t bit) noexcept {
     if (lv == nullptr || bit == 0) return;
     int idx = slot_index(bit);
     lv->slots[idx].pid.store(0, std::memory_order_release);
@@ -221,13 +221,13 @@ inline void liveness_clear_owner(conn_liveness *lv, ipc::circ::cc_t bit) noexcep
 // clear the bit via `disconnect_bit(bit)` and reclaim its readiness FIFO via
 // `notify_clear(bit)`. Returns the reaped mask. Callable by any participant.
 template <typename DisconnectFn, typename NotifyFn>
-inline ipc::circ::cc_t reap_dead_receivers(conn_liveness *lv, ipc::circ::cc_t live,
+inline thoth::circ::cc_t reap_dead_receivers(conn_liveness *lv, thoth::circ::cc_t live,
                                            DisconnectFn &&disconnect_bit,
                                            NotifyFn &&notify_clear) noexcept {
     if (lv == nullptr) return 0;
-    ipc::circ::cc_t reaped = 0;
-    for (ipc::circ::cc_t m = live; m != 0; m &= (m - 1)) {
-        ipc::circ::cc_t bit = m & static_cast<ipc::circ::cc_t>(~m + 1); // lowest set bit
+    thoth::circ::cc_t reaped = 0;
+    for (thoth::circ::cc_t m = live; m != 0; m &= (m - 1)) {
+        thoth::circ::cc_t bit = m & static_cast<thoth::circ::cc_t>(~m + 1); // lowest set bit
         int idx = slot_index(bit);
         std::int32_t p = lv->slots[idx].pid.load(std::memory_order_acquire);
         if (p == 0) {
@@ -254,4 +254,4 @@ inline ipc::circ::cc_t reap_dead_receivers(conn_liveness *lv, ipc::circ::cc_t li
 }
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

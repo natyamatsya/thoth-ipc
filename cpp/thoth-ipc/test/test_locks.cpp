@@ -1,6 +1,6 @@
 /**
  * @file test_locks.cpp
- * @brief Comprehensive unit tests for ipc::rw_lock and ipc::spin_lock classes
+ * @brief Comprehensive unit tests for thoth::rw_lock and thoth::spin_lock classes
  * 
  * This test suite covers:
  * - spin_lock: basic lock/unlock operations
@@ -18,7 +18,7 @@
 #include <vector>
 #include "thoth-ipc/rw_lock.h"
 
-using namespace ipc;
+using namespace thoth;
 
 // ========== spin_lock Tests ==========
 

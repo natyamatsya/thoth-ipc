@@ -92,8 +92,8 @@ static auto make_config(std::string_view instance_id)
 // Open all IPC resources; returns an error string on failure.
 static auto open_resources(const service_config &cfg,
                            shared_state_handle &ssh,
-                           ipc::proto::shm_ring<audio_block, 4> &ring,
-                           ipc::proto::service_registry &registry)
+                           thoth::proto::shm_ring<audio_block, 4> &ring,
+                           thoth::proto::service_registry &registry)
     -> std::expected<void, std::string>
 {
     if (!ssh.open_or_create(cfg.state_name.c_str()))
@@ -121,8 +121,8 @@ int main(int argc, char *argv[]) {
     }
 
     shared_state_handle                  ssh;
-    ipc::proto::shm_ring<audio_block, 4> ring{cfg->ring_name.c_str()};
-    ipc::proto::service_registry         registry{"audio_rt"};
+    thoth::proto::shm_ring<audio_block, 4> ring{cfg->ring_name.c_str()};
+    thoth::proto::service_registry         registry{"audio_rt"};
 
     if (auto res = open_resources(*cfg, ssh, ring, registry); !res) {
         std::println(stderr, "rt_service[{}]: {}", cfg->svc_name, res.error());
@@ -136,8 +136,8 @@ int main(int argc, char *argv[]) {
 
     // Set real-time thread priority (best-effort, non-fatal if it fails)
     uint32_t sr = 48000, fpb = 256;
-    auto period = ipc::proto::audio_period_ns(sr, fpb);
-    if (ipc::proto::set_realtime_priority(period))
+    auto period = thoth::proto::audio_period_ns(sr, fpb);
+    if (thoth::proto::set_realtime_priority(period))
         std::println("rt_service[{}]: real-time priority set (period={} ns)",
                      cfg->svc_name, period);
     else

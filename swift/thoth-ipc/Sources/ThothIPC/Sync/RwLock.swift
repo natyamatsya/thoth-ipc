@@ -13,7 +13,7 @@ import Atomics
 
 /// A single-word atomic read-write lock.
 ///
-/// Port of `ipc::rw_lock` from cpp-ipc. Writers get exclusive access;
+/// Port of `thoth::rw_lock` from cpp-ipc. Writers get exclusive access;
 /// multiple readers can hold the lock concurrently.
 ///
 /// `RwLock` is a class so it can be used as shared mutable state without

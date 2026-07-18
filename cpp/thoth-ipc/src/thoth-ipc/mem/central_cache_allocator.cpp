@@ -9,7 +9,7 @@
 #include "thoth-ipc/mem/bytes_allocator.h"
 #include "thoth-ipc/mem/memory_resource.h"
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 
 class thread_safe_resource : public monotonic_buffer_resource {
@@ -51,4 +51,4 @@ bytes_allocator &central_cache_allocator() noexcept {
 }
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

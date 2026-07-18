@@ -259,7 +259,7 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
         }
     }
 
-    // Multi-writer ipc::channel: two concurrent senders of DIFFERENT languages
+    // Multi-writer thoth::channel: two concurrent senders of DIFFERENT languages
     // into one reader (multi-producer claim/CAS + cc_id self-filtering; the
     // reader expects 2 x count messages).
     if enabled("channel") {

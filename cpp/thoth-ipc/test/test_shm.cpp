@@ -1,6 +1,6 @@
 /**
  * @file test_shm.cpp
- * @brief Comprehensive unit tests for ipc::shm (shared memory) functionality
+ * @brief Comprehensive unit tests for thoth::shm (shared memory) functionality
  * 
  * This test suite covers:
  * - Low-level shared memory functions (acquire, get_mem, release, remove)
@@ -16,7 +16,7 @@
 #include <string>
 #include "thoth-ipc/shm.h"
 
-using namespace ipc;
+using namespace thoth;
 
 namespace {
 

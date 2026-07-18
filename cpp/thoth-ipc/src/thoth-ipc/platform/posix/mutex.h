@@ -18,18 +18,18 @@
 
 #include "get_wait_time.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
 class mutex {
-    ipc::shm::handle *shm_ = nullptr;
+    thoth::shm::handle *shm_ = nullptr;
     std::atomic<std::int32_t> *ref_ = nullptr;
     pthread_mutex_t *mutex_ = nullptr;
 
     struct curr_prog {
         struct shm_data {
-            ipc::shm::handle shm;
+            thoth::shm::handle shm;
             std::atomic<std::int32_t> ref;
 
             struct init {
@@ -43,7 +43,7 @@ class mutex {
         // node can be *moved* out of the by-name map into `orphans` (see
         // clear_storage) without being destroyed while open handles still hold
         // raw pointers into it.
-        ipc::map<std::string, shm_data *> mutex_handles;
+        thoth::map<std::string, shm_data *> mutex_handles;
         // Nodes cleared via clear_storage() while still in use in-process; each
         // keeps its intact mapping + ref counter until its last local handle
         // closes. Drained in destroy_node().
@@ -151,7 +151,7 @@ public:
             return valid();
         }
         ::pthread_mutex_destroy(mutex_);
-        auto finally = ipc::guard([this] { close(); }); // close when failed
+        auto finally = thoth::guard([this] { close(); }); // close when failed
         // init mutex
         int eno;
         pthread_mutexattr_t mutex_attr;
@@ -260,7 +260,7 @@ public:
                 }
             }
         }
-        ipc::shm::handle::clear_storage(name);
+        thoth::shm::handle::clear_storage(name);
     }
 
     bool lock(std::uint64_t tm) noexcept {
@@ -338,4 +338,4 @@ public:
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

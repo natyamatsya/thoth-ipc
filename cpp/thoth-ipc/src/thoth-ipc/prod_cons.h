@@ -12,7 +12,7 @@
 #include "thoth-ipc/imp/log.h"
 #include "thoth-ipc/utility/utility.h"
 
-namespace ipc {
+namespace thoth {
 
 ////////////////////////////////////////////////////////////////
 /// producer-consumer implementation
@@ -96,7 +96,7 @@ struct prod_cons_impl<wr<relat::single, relat::multi , trans::unicast>>
                 std::forward<R>(out)(true);
                 return true;
             }
-            ipc::yield(k);
+            thoth::yield(k);
         }
     }
 };
@@ -127,7 +127,7 @@ struct prod_cons_impl<wr<relat::multi , relat::multi, trans::unicast>>
             if (ct_.compare_exchange_weak(cur_ct, nxt_ct, std::memory_order_acq_rel)) {
                 break;
             }
-            ipc::yield(k);
+            thoth::yield(k);
         }
         auto* el = elems + circ::index_of(cur_ct);
         std::forward<F>(f)(&(el->data_));
@@ -185,7 +185,7 @@ struct prod_cons_impl<wr<relat::multi , relat::multi, trans::unicast>>
                     std::forward<R>(out)(true);
                     return true;
                 }
-                ipc::yield(k);
+                thoth::yield(k);
             }
         }
     }
@@ -232,7 +232,7 @@ struct prod_cons_impl<wr<relat::single, relat::multi, trans::broadcast>> {
                         cur_rc, epoch_ | static_cast<rc_t>(cc), std::memory_order_release)) {
                 break;
             }
-            ipc::yield(k);
+            thoth::yield(k);
         }
         std::forward<F>(f)(&(el->data_));
         wt_.fetch_add(1, std::memory_order_release);
@@ -270,7 +270,7 @@ struct prod_cons_impl<wr<relat::single, relat::multi, trans::broadcast>> {
                         cur_rc, epoch_ | static_cast<rc_t>(cc), std::memory_order_release)) {
                 break;
             }
-            ipc::yield(k);
+            thoth::yield(k);
         }
         std::forward<F>(f)(&(el->data_));
         wt_.fetch_add(1, std::memory_order_release);
@@ -293,7 +293,7 @@ struct prod_cons_impl<wr<relat::single, relat::multi, trans::broadcast>> {
                 std::forward<R>(out)((nxt_rc & ep_mask) == 0);
                 return true;
             }
-            ipc::yield(k);
+            thoth::yield(k);
         }
     }
 };
@@ -361,7 +361,7 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
                 epoch_.compare_exchange_weak(epoch, epoch, std::memory_order_acq_rel)) {
                 break;
             }
-            ipc::yield(k);
+            thoth::yield(k);
         }
         // only one thread/process would touch here at one time
         ct_.store(cur_ct + 1, std::memory_order_release);
@@ -400,7 +400,7 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
                 }
                 epoch = epoch_.fetch_add(ep_incr, std::memory_order_release) + ep_incr;
             }
-            ipc::yield(k);
+            thoth::yield(k);
         }
         // only one thread/process would touch here at one time
         ct_.store(cur_ct + 1, std::memory_order_release);
@@ -435,9 +435,9 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
                 std::forward<R>(out)(last_one);
                 return true;
             }
-            ipc::yield(k);
+            thoth::yield(k);
         }
     }
 };
 
-} // namespace ipc
+} // namespace thoth

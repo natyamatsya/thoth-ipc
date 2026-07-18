@@ -10,7 +10,7 @@
 
 #include "thoth-ipc/proto/codecs/secure_crypto_c.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 // Key provider contract for the OpenSSL EVP C ABI adapter.
@@ -108,4 +108,4 @@ struct secure_openssl_evp_cipher {
 };
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

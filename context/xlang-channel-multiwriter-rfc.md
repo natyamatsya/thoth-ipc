@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT -->
 <!-- SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors -->
 
-# RFC: Cross-language `ipc::channel` (multi-writer broadcast)
+# RFC: Cross-language `thoth::channel` (multi-writer broadcast)
 
 **Status:** ✅ Complete. **All four ports (C++, Rust, Swift, Zig) implement the
 multi-writer channel byte-exact.** The full `channel` scenario — every
@@ -11,9 +11,9 @@ the scenario's expected-fail flag has been cleared
 `zig/thoth-ipc/src/transport/channel_multi.zig`, `rust/thoth-ipc/src/channel.rs`,
 `swift/thoth-ipc/Sources/LibIPC/Transport/Channel.swift`. This document is the
 target ABI and the per-language roadmap that closed the last remaining
-cross-language gap in the matrix: multi-writer `ipc::channel`. It complements
+cross-language gap in the matrix: multi-writer `thoth::channel`. It complements
 [`xlang-channel-abi.md`](xlang-channel-abi.md), which specifies the
-single-writer `ipc::route` (already byte-exact across all four ports).
+single-writer `thoth::route` (already byte-exact across all four ports).
 
 **Canonical implementation:** C++ (`cpp/thoth-ipc`),
 `prod_cons_impl<multi, multi, broadcast>` in
@@ -24,7 +24,7 @@ Swift and Zig must match it byte- and memory-order-exact.
 
 ## 1. Why it's a gap today
 
-`ipc::route` = `chan<single, multi, broadcast>`; `ipc::channel` =
+`thoth::route` = `chan<single, multi, broadcast>`; `thoth::channel` =
 `chan<multi, multi, broadcast>` (`cpp/thoth-ipc/include/thoth-ipc/ipc.h` L258 / L267).
 They are **different producer-consumer rings**, but every port currently reuses
 the single-writer route ring for both. Two independent problems, both must land:
@@ -202,7 +202,7 @@ port), so progress is visible in the matrix pairing-by-pairing.
 
 ### 4.1 C++ — reference (no change)
 
-C++ `ipc::channel` is the target ABI. `prod_cons.h` L301-441 is the source of
+C++ `thoth::channel` is the target ABI. `prod_cons.h` L301-441 is the source of
 truth; keep it stable while the ports converge.
 
 ### 4.2 Zig — Phase 1 (next up)

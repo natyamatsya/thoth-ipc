@@ -39,7 +39,7 @@ pub const INVALID_WAIT_HANDLE: WaitHandle = 0;
 
 /// Short, service-/filesystem-safe channel identity: 16-hex FNV-1a-64 of
 /// `make_prefix(prefix, "NOTIFY__", name)` = `"{prefix}__IPC_SHM__NOTIFY__{name}"`.
-/// Byte-exact with C++ `ipc::detail::notify_hash`.
+/// Byte-exact with C++ `thoth::detail::notify_hash`.
 fn notify_hash(prefix: &str, name: &str) -> String {
     let id = format!("{prefix}__IPC_SHM__NOTIFY__{name}");
     let hash = fnv1a_64(id.as_bytes());

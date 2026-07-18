@@ -13,14 +13,14 @@
 #include "thoth-ipc/semaphore.h"
 #include "thoth-ipc/shm.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
 class condition {
-    ipc::sync::semaphore sem_;
-    ipc::sync::mutex lock_;
-    ipc::shm::handle shm_;
+    thoth::sync::semaphore sem_;
+    thoth::sync::mutex lock_;
+    thoth::shm::handle shm_;
 
     std::int32_t &counter() {
         return *static_cast<std::int32_t *>(shm_.get());
@@ -47,11 +47,11 @@ public:
         if (!sem_.open((std::string{name} + "_COND_SEM_").c_str())) {
             return false;
         }
-        auto finally_sem = ipc::guard([this] { sem_.close(); }); // close when failed
+        auto finally_sem = thoth::guard([this] { sem_.close(); }); // close when failed
         if (!lock_.open((std::string{name} + "_COND_LOCK_").c_str())) {
             return false;
         }
-        auto finally_lock = ipc::guard([this] { lock_.close(); }); // close when failed
+        auto finally_lock = thoth::guard([this] { lock_.close(); }); // close when failed
         if (!shm_.acquire((std::string{name} + "_COND_SHM_").c_str(), sizeof(std::int32_t))) {
             return false;
         }
@@ -72,16 +72,16 @@ public:
     }
 
     static void clear_storage(char const *name) noexcept {
-        ipc::shm::handle::clear_storage(name);
-        ipc::sync::mutex::clear_storage(name);
-        ipc::sync::semaphore::clear_storage(name);
+        thoth::shm::handle::clear_storage(name);
+        thoth::sync::mutex::clear_storage(name);
+        thoth::sync::semaphore::clear_storage(name);
     }
 
-    bool wait(ipc::sync::mutex &mtx, std::uint64_t tm) noexcept {
+    bool wait(thoth::sync::mutex &mtx, std::uint64_t tm) noexcept {
         if (!valid()) return false;
         auto &cnt = counter();
         {
-            THOTH_IPC_UNUSED std::lock_guard<ipc::sync::mutex> guard {lock_};
+            THOTH_IPC_UNUSED std::lock_guard<thoth::sync::mutex> guard {lock_};
             cnt = (cnt < 0) ? 1 : cnt + 1;
         }
         DWORD ms = (tm == invalid_value) ? INFINITE : static_cast<DWORD>(tm);
@@ -93,13 +93,13 @@ public:
         bool rs = ::SignalObjectAndWait(mtx.native(), sem_.native(), ms, FALSE) == WAIT_OBJECT_0;
         bool rl = mtx.lock(); // INFINITE
         if (!rs) {
-            THOTH_IPC_UNUSED std::lock_guard<ipc::sync::mutex> guard {lock_};
+            THOTH_IPC_UNUSED std::lock_guard<thoth::sync::mutex> guard {lock_};
             cnt -= 1;
         }
         return rs && rl;
     }
 
-    bool notify(ipc::sync::mutex &) noexcept {
+    bool notify(thoth::sync::mutex &) noexcept {
         if (!valid()) return false;
         auto &cnt = counter();
         if (!lock_.lock()) return false;
@@ -111,7 +111,7 @@ public:
         return lock_.unlock() && ret;
     }
 
-    bool broadcast(ipc::sync::mutex &) noexcept {
+    bool broadcast(thoth::sync::mutex &) noexcept {
         if (!valid()) return false;
         auto &cnt = counter();
         if (!lock_.lock()) return false;
@@ -126,4 +126,4 @@ public:
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

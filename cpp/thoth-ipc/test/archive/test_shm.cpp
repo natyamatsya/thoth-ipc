@@ -6,7 +6,7 @@
 
 #include "test.h"
 
-using namespace ipc::shm;
+using namespace thoth::shm;
 
 namespace {
 
@@ -102,17 +102,17 @@ TEST(SHM, mt) {
 
 TEST(SHM, remove) {
     {
-        auto id = ipc::shm::acquire("hello-remove", 111);
+        auto id = thoth::shm::acquire("hello-remove", 111);
         EXPECT_TRUE(ipc_ut::expect_exist("hello-remove", true));
-        ipc::shm::remove(id);
+        thoth::shm::remove(id);
         EXPECT_TRUE(ipc_ut::expect_exist("hello-remove", false));
     }
     {
-        auto id = ipc::shm::acquire("hello-remove", 111);
+        auto id = thoth::shm::acquire("hello-remove", 111);
         EXPECT_TRUE(ipc_ut::expect_exist("hello-remove", true));
-        ipc::shm::release(id);
+        thoth::shm::release(id);
         EXPECT_TRUE(ipc_ut::expect_exist("hello-remove", true));
-        ipc::shm::remove("hello-remove");
+        thoth::shm::remove("hello-remove");
         EXPECT_TRUE(ipc_ut::expect_exist("hello-remove", false));
     }
     {

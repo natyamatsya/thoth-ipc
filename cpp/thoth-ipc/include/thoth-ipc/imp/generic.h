@@ -14,7 +14,7 @@
 
 #include "thoth-ipc/imp/detect_plat.h"
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \brief Utility metafunction that maps a sequence of any types to the type void
@@ -301,4 +301,4 @@ constexpr auto horrible_cast(U &&in) noexcept
   return detail_horrible_cast::temp<T, std::decay_t<U>>{std::forward<U>(in)}.out;
 }
 
-} // namespace ipc
+} // namespace thoth

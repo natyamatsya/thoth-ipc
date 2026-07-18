@@ -44,32 +44,32 @@ void drain_fd(int fd) {
 
 TEST(NotifyFd, HandleValidForReceiver) {
     auto name = unique_name("recv");
-    ipc::route reader{name.c_str(), ipc::receiver};
+    thoth::route reader{name.c_str(), thoth::receiver};
     ASSERT_TRUE(reader.valid());
-    EXPECT_NE(reader.native_wait_handle(), ipc::invalid_wait_handle);
+    EXPECT_NE(reader.native_wait_handle(), thoth::invalid_wait_handle);
     reader.clear();
 }
 
 TEST(NotifyFd, SenderHasNoHandle) {
     auto name = unique_name("send");
-    ipc::route writer{name.c_str(), ipc::sender};
+    thoth::route writer{name.c_str(), thoth::sender};
     // A pure sender owns no reader slot, hence no readiness fd.
-    EXPECT_EQ(writer.native_wait_handle(), ipc::invalid_wait_handle);
+    EXPECT_EQ(writer.native_wait_handle(), thoth::invalid_wait_handle);
     writer.clear();
 }
 
 TEST(NotifyFd, EnqueueSignalsHandleAndRecvSucceeds) {
     auto name = unique_name("signal");
 
-    ipc::route reader{name.c_str(), ipc::receiver};
+    thoth::route reader{name.c_str(), thoth::receiver};
     ASSERT_TRUE(reader.valid());
     int fd = reader.native_wait_handle();
-    ASSERT_NE(fd, ipc::invalid_wait_handle);
+    ASSERT_NE(fd, thoth::invalid_wait_handle);
 
     // Nothing enqueued yet: the handle must not be spuriously readable.
     EXPECT_FALSE(readable(fd, 0));
 
-    ipc::route writer{name.c_str(), ipc::sender};
+    thoth::route writer{name.c_str(), thoth::sender};
     ASSERT_TRUE(writer.valid());
     // Wait until the sender sees the reader connected (mirrors real usage).
     ASSERT_TRUE(writer.wait_for_recv(1, 2000));
@@ -80,7 +80,7 @@ TEST(NotifyFd, EnqueueSignalsHandleAndRecvSucceeds) {
     // The enqueue must make the handle readable, no blocking recv thread needed.
     EXPECT_TRUE(readable(fd, 2000));
 
-    ipc::buff_t got = reader.recv(0);
+    thoth::buff_t got = reader.recv(0);
     ASSERT_FALSE(got.empty());
     EXPECT_STREQ(static_cast<char const *>(got.data()), payload.c_str());
 
@@ -95,17 +95,17 @@ TEST(NotifyFd, TwoChannelsMultiplexOnOnePoll) {
     auto name_a = unique_name("mux.a");
     auto name_b = unique_name("mux.b");
 
-    ipc::route reader_a{name_a.c_str(), ipc::receiver};
-    ipc::route reader_b{name_b.c_str(), ipc::receiver};
+    thoth::route reader_a{name_a.c_str(), thoth::receiver};
+    thoth::route reader_b{name_b.c_str(), thoth::receiver};
     ASSERT_TRUE(reader_a.valid());
     ASSERT_TRUE(reader_b.valid());
 
     int fd_a = reader_a.native_wait_handle();
     int fd_b = reader_b.native_wait_handle();
-    ASSERT_NE(fd_a, ipc::invalid_wait_handle);
-    ASSERT_NE(fd_b, ipc::invalid_wait_handle);
+    ASSERT_NE(fd_a, thoth::invalid_wait_handle);
+    ASSERT_NE(fd_b, thoth::invalid_wait_handle);
 
-    ipc::route writer_b{name_b.c_str(), ipc::sender};
+    thoth::route writer_b{name_b.c_str(), thoth::sender};
     ASSERT_TRUE(writer_b.wait_for_recv(1, 2000));
     ASSERT_TRUE(writer_b.send(std::string{"only-b"}));
 
@@ -117,7 +117,7 @@ TEST(NotifyFd, TwoChannelsMultiplexOnOnePoll) {
     EXPECT_FALSE(fds[0].revents & POLLIN);
     EXPECT_TRUE(fds[1].revents & POLLIN);
 
-    ipc::buff_t got = reader_b.recv(0);
+    thoth::buff_t got = reader_b.recv(0);
     ASSERT_FALSE(got.empty());
     EXPECT_STREQ(static_cast<char const *>(got.data()), "only-b");
 

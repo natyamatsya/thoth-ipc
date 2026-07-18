@@ -19,7 +19,7 @@
 #include "thoth-ipc/imp/uninitialized.h"
 #include "thoth-ipc/imp/byte.h"
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 
 /// \brief Helper trait for memory resource.
@@ -113,7 +113,7 @@ class THOTH_IPC_EXPORT bytes_allocator {
   };
 
   using void_holder_t = holder_mr<void *>;
-  alignas(void_holder_t) std::array<ipc::byte, sizeof(void_holder_t)> holder_;
+  alignas(void_holder_t) std::array<thoth::byte, sizeof(void_holder_t)> holder_;
 
   holder_mr_base &      get_holder() noexcept;
   holder_mr_base const &get_holder() const noexcept;
@@ -140,7 +140,7 @@ public:
       init_default_resource();
       return;
     }
-    std::ignore = ipc::construct<holder_mr<T>>(holder_.data(), p_mr);
+    std::ignore = thoth::construct<holder_mr<T>>(holder_.data(), p_mr);
   }
 
   void swap(bytes_allocator &other) noexcept;
@@ -152,15 +152,15 @@ public:
   /// \brief Allocates uninitialized memory and constructs an object of type T in the memory.
   template <typename T, typename... A>
   T *construct(A &&...args) const {
-    return ipc::construct<T>(allocate(sizeof(T), alignof(T)), std::forward<A>(args)...);
+    return thoth::construct<T>(allocate(sizeof(T), alignof(T)), std::forward<A>(args)...);
   }
 
   /// \brief Calls the destructor of the object pointed to by p and deallocates the memory.
   template <typename T>
   void destroy(T *p) const noexcept {
-    deallocate(ipc::destroy(p), sizeof(T), alignof(T));
+    deallocate(thoth::destroy(p), sizeof(T), alignof(T));
   }
 };
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

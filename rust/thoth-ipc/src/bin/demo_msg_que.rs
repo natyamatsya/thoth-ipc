@@ -7,7 +7,7 @@
 //   demo_msg_que s    (sender — measures throughput)
 //   demo_msg_que r    (receiver — measures throughput)
 //
-// Uses ipc::route (single-producer, multi-consumer broadcast).
+// Uses thoth::route (single-producer, multi-consumer broadcast).
 // The sender sends random-sized messages (128 B – 16 KB) as fast as
 // possible and prints throughput every second.  The receiver does the same.
 

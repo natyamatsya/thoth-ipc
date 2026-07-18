@@ -22,13 +22,13 @@
 #   error "Unsupported platform."
 #endif
 
-namespace ipc {
+namespace thoth {
 namespace sync {
 
-class condition::condition_ : public ipc::pimpl<condition_> {
+class condition::condition_ : public thoth::pimpl<condition_> {
 public:
-    ipc::detail::sync::condition cond_;
-    ipc::detail::sync_abi::guard abi_guard_;
+    thoth::detail::sync::condition cond_;
+    thoth::detail::sync_abi::guard abi_guard_;
 };
 
 condition::condition()
@@ -83,21 +83,21 @@ void condition::clear() noexcept {
 }
 
 void condition::clear_storage(char const * name) noexcept {
-    ipc::detail::sync_abi::guard::clear_condition_storage(name);
-    ipc::detail::sync::condition::clear_storage(name);
+    thoth::detail::sync_abi::guard::clear_condition_storage(name);
+    thoth::detail::sync::condition::clear_storage(name);
 }
 
-bool condition::wait(ipc::sync::mutex &mtx, std::uint64_t tm) noexcept {
+bool condition::wait(thoth::sync::mutex &mtx, std::uint64_t tm) noexcept {
     return impl(p_)->cond_.wait(mtx, tm);
 }
 
-bool condition::notify(ipc::sync::mutex &mtx) noexcept {
+bool condition::notify(thoth::sync::mutex &mtx) noexcept {
     return impl(p_)->cond_.notify(mtx);
 }
 
-bool condition::broadcast(ipc::sync::mutex &mtx) noexcept {
+bool condition::broadcast(thoth::sync::mutex &mtx) noexcept {
     return impl(p_)->cond_.broadcast(mtx);
 }
 
 } // namespace sync
-} // namespace ipc
+} // namespace thoth

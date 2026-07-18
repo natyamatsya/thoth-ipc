@@ -22,7 +22,7 @@ void *test_mr(T &&mr, std::size_t bytes, std::size_t alignment) {
 } // namespace
 
 TEST(memory_resource, new_delete_resource) {
-  ipc::mem::new_delete_resource mem_res;
+  thoth::mem::new_delete_resource mem_res;
 
   EXPECT_EQ(test_mr(mem_res, 0, 0), nullptr);
   EXPECT_EQ(test_mr(mem_res, 0, 1), nullptr);
@@ -40,21 +40,21 @@ TEST(memory_resource, new_delete_resource) {
 }
 
 TEST(memory_resource, monotonic_buffer_resource_construct) {
-  { ipc::mem::monotonic_buffer_resource tmp; }
-  ipc::mem::monotonic_buffer_resource{};
-  ipc::mem::monotonic_buffer_resource{ipc::mem::bytes_allocator{}};
-  ipc::mem::monotonic_buffer_resource{0};
-  ipc::mem::monotonic_buffer_resource{0, ipc::mem::bytes_allocator{}};
-  ipc::mem::monotonic_buffer_resource{ipc::span<ipc::byte>{}};
-  ipc::mem::monotonic_buffer_resource{ipc::span<ipc::byte>{}, ipc::mem::bytes_allocator{}};
+  { thoth::mem::monotonic_buffer_resource tmp; }
+  thoth::mem::monotonic_buffer_resource{};
+  thoth::mem::monotonic_buffer_resource{thoth::mem::bytes_allocator{}};
+  thoth::mem::monotonic_buffer_resource{0};
+  thoth::mem::monotonic_buffer_resource{0, thoth::mem::bytes_allocator{}};
+  thoth::mem::monotonic_buffer_resource{thoth::span<thoth::byte>{}};
+  thoth::mem::monotonic_buffer_resource{thoth::span<thoth::byte>{}, thoth::mem::bytes_allocator{}};
   SUCCEED();
 }
 
 TEST(memory_resource, monotonic_buffer_resource_no_copy) {
-  EXPECT_FALSE(std::is_copy_constructible<ipc::mem::monotonic_buffer_resource>::value);
-  EXPECT_FALSE(std::is_copy_assignable<ipc::mem::monotonic_buffer_resource>::value);
-  EXPECT_FALSE(std::is_move_constructible<ipc::mem::monotonic_buffer_resource>::value);
-  EXPECT_FALSE(std::is_move_assignable<ipc::mem::monotonic_buffer_resource>::value);
+  EXPECT_FALSE(std::is_copy_constructible<thoth::mem::monotonic_buffer_resource>::value);
+  EXPECT_FALSE(std::is_copy_assignable<thoth::mem::monotonic_buffer_resource>::value);
+  EXPECT_FALSE(std::is_move_constructible<thoth::mem::monotonic_buffer_resource>::value);
+  EXPECT_FALSE(std::is_move_assignable<thoth::mem::monotonic_buffer_resource>::value);
 }
 
 TEST(memory_resource, monotonic_buffer_resource_upstream_resource) {
@@ -63,7 +63,7 @@ TEST(memory_resource, monotonic_buffer_resource_upstream_resource) {
     void *allocate(std::size_t, std::size_t) noexcept { allocated = true; return nullptr; }
     void deallocate(void *, std::size_t, std::size_t) noexcept {}
   } dummy;
-  ipc::mem::monotonic_buffer_resource tmp{&dummy};
+  thoth::mem::monotonic_buffer_resource tmp{&dummy};
   ASSERT_EQ(tmp.upstream_resource().allocate(1), nullptr);
   ASSERT_TRUE(dummy.allocated);
 }
@@ -87,13 +87,13 @@ struct dummy_allocator {
 TEST(memory_resource, monotonic_buffer_resource_allocate) {
   dummy_allocator dummy;
   {
-    ipc::mem::monotonic_buffer_resource tmp{&dummy};
+    thoth::mem::monotonic_buffer_resource tmp{&dummy};
     ASSERT_EQ(tmp.allocate(0), nullptr);
     ASSERT_EQ(dummy.allocated, 0);
   }
   ASSERT_EQ(dummy.allocated, 0);
   {
-    ipc::mem::monotonic_buffer_resource tmp{&dummy};
+    thoth::mem::monotonic_buffer_resource tmp{&dummy};
     std::size_t sz = 0;
     for (std::size_t i = 1; i < 1024; ++i) {
       ASSERT_NE(tmp.allocate(i), nullptr);
@@ -110,9 +110,9 @@ TEST(memory_resource, monotonic_buffer_resource_allocate) {
 
 TEST(memory_resource, monotonic_buffer_resource_allocate_by_buffer) {
   dummy_allocator dummy;
-  std::array<ipc::byte, 4096> buffer;
+  std::array<thoth::byte, 4096> buffer;
   {
-    ipc::mem::monotonic_buffer_resource tmp{buffer, &dummy};
+    thoth::mem::monotonic_buffer_resource tmp{buffer, &dummy};
     for (std::size_t i = 1; i < 64; ++i) {
       ASSERT_NE(tmp.allocate(i), nullptr);
     }
@@ -130,7 +130,7 @@ TEST(memory_resource, monotonic_buffer_resource_allocate_by_buffer) {
 TEST(memory_resource, monotonic_buffer_resource_release) {
   dummy_allocator dummy;
   {
-    ipc::mem::monotonic_buffer_resource tmp{&dummy};
+    thoth::mem::monotonic_buffer_resource tmp{&dummy};
     tmp.release();
     ASSERT_EQ(dummy.allocated, 0);
     ASSERT_NE(tmp.allocate(1024), nullptr);
@@ -143,9 +143,9 @@ TEST(memory_resource, monotonic_buffer_resource_release) {
     ASSERT_LE(dummy.allocated, 1024u * 1.5);
   }
   ASSERT_EQ(dummy.allocated, 0);
-  std::array<ipc::byte, 4096> buffer;
+  std::array<thoth::byte, 4096> buffer;
   {
-    ipc::mem::monotonic_buffer_resource tmp{buffer, &dummy};
+    thoth::mem::monotonic_buffer_resource tmp{buffer, &dummy};
     auto *p = tmp.allocate(1024);
     ASSERT_EQ(p, buffer.data());
     ASSERT_EQ(dummy.allocated, 0);

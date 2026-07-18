@@ -4,7 +4,7 @@
 #define private public
 #include "thoth-ipc/concur/intrusive_stack.h"
 
-using namespace ipc;
+using namespace thoth;
 
 TEST(intrusive_stack, construct) {
   concur::intrusive_stack<int> s;

@@ -8,7 +8,7 @@
 #include "thoth-ipc/imp/export.h"
 #include "thoth-ipc/def.h"
 
-namespace ipc {
+namespace thoth {
 
 class THOTH_IPC_EXPORT buffer {
 public:
@@ -67,4 +67,4 @@ private:
     buffer_* p_;
 };
 
-} // namespace ipc
+} // namespace thoth

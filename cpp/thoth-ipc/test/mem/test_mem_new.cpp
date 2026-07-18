@@ -10,18 +10,18 @@
 #include "thoth-ipc/mem/new.h"
 
 TEST(new, new) {
-  auto p = ipc::mem::$new<int>();
+  auto p = thoth::mem::$new<int>();
   ASSERT_NE(p, nullptr);
   *p = -1;
   ASSERT_EQ(*p, -1);
-  ipc::mem::$delete(p);
+  thoth::mem::$delete(p);
 }
 
 TEST(new, new_value) {
-  auto p = ipc::mem::$new<int>((std::numeric_limits<int>::max)());
+  auto p = thoth::mem::$new<int>((std::numeric_limits<int>::max)());
   ASSERT_NE(p, nullptr);
   ASSERT_EQ(*p, (std::numeric_limits<int>::max)());
-  ipc::mem::$delete(p);
+  thoth::mem::$delete(p);
 }
 
 namespace {
@@ -31,7 +31,7 @@ void test_new$array() {
   std::array<void *, Pts> pts;
   using T = std::array<char, N>;
   for (int i = 0; i < (int)pts.size(); ++i) {
-    auto p = ipc::mem::$new<T>();
+    auto p = thoth::mem::$new<T>();
     pts[i] = p;
     std::memset(p, i, sizeof(T));
   }
@@ -39,7 +39,7 @@ void test_new$array() {
     T tmp;
     std::memset(&tmp, i, sizeof(T));
     ASSERT_EQ(std::memcmp(pts[i], &tmp, sizeof(T)), 0);
-    ipc::mem::$delete(static_cast<T *>(pts[i]));
+    thoth::mem::$delete(static_cast<T *>(pts[i]));
   }
 }
 
@@ -91,54 +91,54 @@ private:
 } // namespace
 
 TEST(new, delete_poly) {
-  Base *p = ipc::mem::$new<Derived>(-1);
+  Base *p = thoth::mem::$new<Derived>(-1);
   ASSERT_NE(p, nullptr);
   ASSERT_EQ(p->get(), -1);
   ASSERT_EQ(construct_count__, -1);
-  ipc::mem::$delete(p);
+  thoth::mem::$delete(p);
   ASSERT_EQ(construct_count__, 0);
 
-  ASSERT_EQ(p, ipc::mem::$new<Derived>((std::numeric_limits<int>::max)()));
+  ASSERT_EQ(p, thoth::mem::$new<Derived>((std::numeric_limits<int>::max)()));
   ASSERT_EQ(p->get(), (std::numeric_limits<int>::max)());
   ASSERT_EQ(construct_count__, (std::numeric_limits<int>::max)());
-  ipc::mem::$delete(p);
+  thoth::mem::$delete(p);
   ASSERT_EQ(construct_count__, 0);
 }
 
 TEST(new, delete_poly64k) {
-  Base *p = ipc::mem::$new<Derived64K>(-1);
+  Base *p = thoth::mem::$new<Derived64K>(-1);
   ASSERT_NE(p, nullptr);
   ASSERT_EQ(p->get(), -1);
   ASSERT_EQ(construct_count__, -1);
-  ipc::mem::$delete(p);
+  thoth::mem::$delete(p);
   ASSERT_EQ(construct_count__, 0);
 
-  Base *q = ipc::mem::$new<Derived64K>((std::numeric_limits<int>::max)());
+  Base *q = thoth::mem::$new<Derived64K>((std::numeric_limits<int>::max)());
   ASSERT_EQ(q->get(), (std::numeric_limits<int>::max)());
   ASSERT_EQ(construct_count__, (std::numeric_limits<int>::max)());
-  ipc::mem::$delete(q);
+  thoth::mem::$delete(q);
   ASSERT_EQ(construct_count__, 0);
 }
 
 TEST(new, delete_null) {
   Base *p = nullptr;
-  ipc::mem::$delete(p);
+  thoth::mem::$delete(p);
   SUCCEED();
 }
 
 TEST(new, malloc) {
-  void *p = ipc::mem::$new<void>(0);
+  void *p = thoth::mem::$new<void>(0);
   ASSERT_EQ(p, nullptr);
-  ipc::mem::$delete(p);
-  p = ipc::mem::$new<void>(1024);
+  thoth::mem::$delete(p);
+  p = thoth::mem::$new<void>(1024);
   ASSERT_NE(p, nullptr);
-  ipc::mem::$delete(p);
+  thoth::mem::$delete(p);
 
-  p = ipc::mem::$new<Derived>(-1);
+  p = thoth::mem::$new<Derived>(-1);
   ASSERT_NE(p, nullptr);
   ASSERT_EQ(((Derived *)p)->get(), -1);
   ASSERT_EQ(construct_count__, -1);
-  ipc::mem::$delete(p);
+  thoth::mem::$delete(p);
   ASSERT_EQ(construct_count__, 0);
 }
 
@@ -147,13 +147,13 @@ TEST(new, multi_thread) {
   for (auto &t : threads) {
     t = std::thread([] {
       for (int i = 0; i < 10000; ++i) {
-        auto p = ipc::mem::$new<int>();
+        auto p = thoth::mem::$new<int>();
         *p = i;
-        ipc::mem::$delete(p);
+        thoth::mem::$delete(p);
       }
       std::array<void *, 10000> pts;
       for (int i = 0; i < 10000; ++i) {
-        auto p = ipc::mem::$new<std::array<char, 10>>();
+        auto p = thoth::mem::$new<std::array<char, 10>>();
         pts[i] = p;
         std::memset(p, i, sizeof(std::array<char, 10>));
       }
@@ -161,7 +161,7 @@ TEST(new, multi_thread) {
         std::array<char, 10> tmp;
         std::memset(&tmp, i, sizeof(std::array<char, 10>));
         ASSERT_EQ(std::memcmp(pts[i], &tmp, sizeof(std::array<char, 10>)), 0);
-        ipc::mem::$delete(static_cast<std::array<char, 10> *>(pts[i]));
+        thoth::mem::$delete(static_cast<std::array<char, 10> *>(pts[i]));
       }
     });
   }

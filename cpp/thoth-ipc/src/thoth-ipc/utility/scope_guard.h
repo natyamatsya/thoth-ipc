@@ -4,7 +4,7 @@
 #include <algorithm>    // std::swap
 #include <type_traits>  // std::decay
 
-namespace ipc {
+namespace thoth {
 
 ////////////////////////////////////////////////////////////////
 /// Execute guard function when the enclosing scope exits
@@ -61,4 +61,4 @@ constexpr auto guard(D && destructor) noexcept {
     };
 }
 
-} // namespace ipc
+} // namespace thoth

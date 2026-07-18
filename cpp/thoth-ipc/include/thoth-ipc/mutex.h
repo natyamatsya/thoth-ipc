@@ -6,7 +6,7 @@
 #include "thoth-ipc/imp/export.h"
 #include "thoth-ipc/def.h"
 
-namespace ipc {
+namespace thoth {
 namespace sync {
 
 class THOTH_IPC_EXPORT mutex {
@@ -29,7 +29,7 @@ public:
     void clear() noexcept;
     static void clear_storage(char const * name) noexcept;
 
-    bool lock(std::uint64_t tm = ipc::invalid_value) noexcept;
+    bool lock(std::uint64_t tm = thoth::invalid_value) noexcept;
     bool try_lock() noexcept(false); // std::system_error
     bool unlock() noexcept;
 
@@ -39,4 +39,4 @@ private:
 };
 
 } // namespace sync
-} // namespace ipc
+} // namespace thoth

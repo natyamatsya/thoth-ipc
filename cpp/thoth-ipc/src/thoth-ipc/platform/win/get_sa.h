@@ -2,7 +2,7 @@
 
 #include <securitybaseapi.h>
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 struct sa_initiator {
@@ -34,4 +34,4 @@ inline LPSECURITY_ATTRIBUTES get_sa() {
 }
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

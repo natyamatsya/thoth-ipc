@@ -79,10 +79,10 @@ struct fake_capnp_message {
 };
 
 struct fake_message {
-    ipc::buff_t buf_;
+    thoth::buff_t buf_;
 
     fake_message() = default;
-    explicit fake_message(ipc::buff_t buf)
+    explicit fake_message(thoth::buff_t buf)
         : buf_{std::move(buf)} {}
 
     bool empty() const noexcept { return buf_.empty(); }
@@ -97,14 +97,14 @@ struct fake_message {
 };
 
 struct fake_inner_codec {
-    static constexpr ipc::proto::codec_id id = ipc::proto::codec_id::protobuf;
+    static constexpr thoth::proto::codec_id id = thoth::proto::codec_id::protobuf;
     using builder_type = fake_builder;
 
     template <typename T>
     using message_type = fake_message;
 
     template <typename T>
-    static message_type<T> decode(ipc::buff_t buf) {
+    static message_type<T> decode(thoth::buff_t buf) {
         return message_type<T>{std::move(buf)};
     }
 
@@ -226,20 +226,20 @@ struct aead_xor_cipher_key_mismatch : aead_xor_cipher {
     }
 };
 
-using secure_test_codec = ipc::proto::secure_codec<fake_inner_codec, aead_xor_cipher>;
-using secure_protobuf_codec = ipc::proto::secure_codec<ipc::proto::protobuf_codec, aead_xor_cipher>;
+using secure_test_codec = thoth::proto::secure_codec<fake_inner_codec, aead_xor_cipher>;
+using secure_protobuf_codec = thoth::proto::secure_codec<thoth::proto::protobuf_codec, aead_xor_cipher>;
 using secure_aead_test_codec = secure_test_codec;
 using secure_protobuf_channel =
-    ipc::proto::typed_channel_secure<fake_proto_message, ipc::proto::protobuf_codec, aead_xor_cipher>;
+    thoth::proto::typed_channel_secure<fake_proto_message, thoth::proto::protobuf_codec, aead_xor_cipher>;
 using secure_protobuf_route =
-    ipc::proto::typed_route_secure<fake_proto_message, ipc::proto::protobuf_codec, aead_xor_cipher>;
-using secure_capnp_codec = ipc::proto::secure_codec<ipc::proto::capnp_codec, aead_xor_cipher>;
+    thoth::proto::typed_route_secure<fake_proto_message, thoth::proto::protobuf_codec, aead_xor_cipher>;
+using secure_capnp_codec = thoth::proto::secure_codec<thoth::proto::capnp_codec, aead_xor_cipher>;
 using secure_capnp_channel =
-    ipc::proto::typed_channel_secure<fake_capnp_message, ipc::proto::capnp_codec, aead_xor_cipher>;
+    thoth::proto::typed_channel_secure<fake_capnp_message, thoth::proto::capnp_codec, aead_xor_cipher>;
 using secure_capnp_route =
-    ipc::proto::typed_route_secure<fake_capnp_message, ipc::proto::capnp_codec, aead_xor_cipher>;
-using secure_capnp_builder = ipc::proto::secure_builder<ipc::proto::capnp_codec, aead_xor_cipher>;
-using secure_fail_open_codec = ipc::proto::secure_codec<fake_inner_codec, aead_xor_cipher_open_failure>;
+    thoth::proto::typed_route_secure<fake_capnp_message, thoth::proto::capnp_codec, aead_xor_cipher>;
+using secure_capnp_builder = thoth::proto::secure_builder<thoth::proto::capnp_codec, aead_xor_cipher>;
+using secure_fail_open_codec = thoth::proto::secure_codec<fake_inner_codec, aead_xor_cipher_open_failure>;
 
 #ifdef THOTH_IPC_SECURE_OPENSSL
 struct openssl_test_key_provider {
@@ -297,19 +297,19 @@ struct openssl_mismatched_key_id_provider {
 };
 
 using secure_openssl_cipher =
-    ipc::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, openssl_test_key_provider>;
-using secure_openssl_codec = ipc::proto::secure_codec<ipc::proto::protobuf_codec, secure_openssl_cipher>;
+    thoth::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, openssl_test_key_provider>;
+using secure_openssl_codec = thoth::proto::secure_codec<thoth::proto::protobuf_codec, secure_openssl_cipher>;
 using secure_openssl_wrong_key_cipher =
-    ipc::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, openssl_wrong_key_provider>;
+    thoth::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, openssl_wrong_key_provider>;
 using secure_openssl_wrong_key_codec =
-    ipc::proto::secure_codec<ipc::proto::protobuf_codec, secure_openssl_wrong_key_cipher>;
+    thoth::proto::secure_codec<thoth::proto::protobuf_codec, secure_openssl_wrong_key_cipher>;
 using secure_openssl_mismatched_key_id_cipher =
-    ipc::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, openssl_mismatched_key_id_provider>;
+    thoth::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, openssl_mismatched_key_id_provider>;
 using secure_openssl_mismatched_key_id_codec =
-    ipc::proto::secure_codec<ipc::proto::protobuf_codec, secure_openssl_mismatched_key_id_cipher>;
+    thoth::proto::secure_codec<thoth::proto::protobuf_codec, secure_openssl_mismatched_key_id_cipher>;
 #endif
 
-ipc::buff_t owning_buffer_from_bytes(const std::vector<std::uint8_t> &bytes) {
+thoth::buff_t owning_buffer_from_bytes(const std::vector<std::uint8_t> &bytes) {
     auto *data = new std::uint8_t[bytes.size()];
     std::memcpy(data, bytes.data(), bytes.size());
     return {data, bytes.size(), [](void *p, std::size_t) {
@@ -323,15 +323,15 @@ std::string make_unique_name(const char *prefix) {
     return std::string(prefix) + "_" + std::to_string(id);
 }
 
-static_assert(ipc::proto::secure_cipher<aead_xor_cipher>);
-static_assert(ipc::proto::secure_cipher_aead<aead_xor_cipher>);
-static_assert(ipc::proto::proto_codec<secure_test_codec, int>);
+static_assert(thoth::proto::secure_cipher<aead_xor_cipher>);
+static_assert(thoth::proto::secure_cipher_aead<aead_xor_cipher>);
+static_assert(thoth::proto::proto_codec<secure_test_codec, int>);
 static_assert(std::is_default_constructible_v<secure_protobuf_channel>);
 static_assert(std::is_default_constructible_v<secure_protobuf_route>);
 static_assert(std::is_default_constructible_v<secure_capnp_channel>);
 static_assert(std::is_default_constructible_v<secure_capnp_route>);
 #ifdef THOTH_IPC_SECURE_OPENSSL
-static_assert(ipc::proto::secure_cipher_aead<secure_openssl_cipher>);
+static_assert(thoth::proto::secure_cipher_aead<secure_openssl_cipher>);
 #endif
 
 } // namespace
@@ -340,7 +340,7 @@ TEST(SecureCodec, BuilderSealsInnerPayload) {
     fake_builder plain_builder;
     plain_builder.bytes_ = {1, 2, 3, 4};
 
-    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
+    thoth::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
 
     ASSERT_GT(secure_builder.size(), plain_builder.bytes_.size());
     EXPECT_NE(secure_builder.bytes(), plain_builder.bytes_);
@@ -354,7 +354,7 @@ TEST(SecureCodec, DecodeOpensPayloadBeforeInnerDecode) {
     fake_builder plain_builder;
     plain_builder.bytes_ = plain_bytes;
 
-    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
+    thoth::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
     ASSERT_GT(secure_builder.size(), plain_builder.bytes_.size());
 
     auto buf = owning_buffer_from_bytes(secure_builder.bytes());
@@ -368,7 +368,7 @@ TEST(SecureCodec, DecodeFailsClosedWhenOpenFails) {
     fake_builder plain_builder;
     plain_builder.bytes_ = {0xAA, 0xBB, 0xCC, 0xDD};
 
-    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher_open_failure> secure_builder{plain_builder};
+    thoth::proto::secure_builder<fake_inner_codec, aead_xor_cipher_open_failure> secure_builder{plain_builder};
     auto buf = owning_buffer_from_bytes(secure_builder.bytes());
 
     auto decoded = secure_fail_open_codec::decode<int>(std::move(buf));
@@ -384,7 +384,7 @@ TEST(SecureCodec, AeadCipherRoundTrip) {
     fake_builder plain_builder;
     plain_builder.bytes_ = plain_bytes;
 
-    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
+    thoth::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
     ASSERT_GT(secure_builder.size(), plain_builder.bytes_.size());
 
     auto buf = owning_buffer_from_bytes(secure_builder.bytes());
@@ -398,7 +398,7 @@ TEST(SecureCodec, DecodeFailsClosedWhenAeadAlgorithmIdMismatches) {
     fake_builder plain_builder;
     plain_builder.bytes_ = {1, 2, 3, 4};
 
-    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher_algorithm_mismatch> secure_builder{plain_builder};
+    thoth::proto::secure_builder<fake_inner_codec, aead_xor_cipher_algorithm_mismatch> secure_builder{plain_builder};
     auto buf = owning_buffer_from_bytes(secure_builder.bytes());
 
     auto decoded = secure_aead_test_codec::decode<int>(std::move(buf));
@@ -410,7 +410,7 @@ TEST(SecureCodec, DecodeFailsClosedWhenAeadKeyIdMismatches) {
     fake_builder plain_builder;
     plain_builder.bytes_ = {1, 2, 3, 4};
 
-    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher_key_mismatch> secure_builder{plain_builder};
+    thoth::proto::secure_builder<fake_inner_codec, aead_xor_cipher_key_mismatch> secure_builder{plain_builder};
     auto buf = owning_buffer_from_bytes(secure_builder.bytes());
 
     auto decoded = secure_aead_test_codec::decode<int>(std::move(buf));
@@ -422,7 +422,7 @@ TEST(SecureCodec, DecodeFailsClosedWhenAeadTagTampered) {
     fake_builder plain_builder;
     plain_builder.bytes_ = {0x21, 0x22, 0x23, 0x24};
 
-    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
+    thoth::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
     auto bytes = secure_builder.bytes();
     ASSERT_FALSE(bytes.empty());
     bytes.back() = static_cast<std::uint8_t>(bytes.back() ^ 0x7Fu);
@@ -437,7 +437,7 @@ TEST(SecureCodec, DecodeFailsClosedWhenAeadEnvelopeTruncated) {
     fake_builder plain_builder;
     plain_builder.bytes_ = {0x31, 0x32, 0x33, 0x34};
 
-    ipc::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
+    thoth::proto::secure_builder<fake_inner_codec, aead_xor_cipher> secure_builder{plain_builder};
     auto bytes = secure_builder.bytes();
     ASSERT_GT(bytes.size(), 1u);
     bytes.pop_back();
@@ -461,10 +461,10 @@ TEST(SecureCodec, ComposesWithProtobufCodec) {
     fake_proto_message plain_message;
     plain_message.value_ = 0x44332211u;
 
-    auto plain_builder = ipc::proto::protobuf_builder::from_message(plain_message);
+    auto plain_builder = thoth::proto::protobuf_builder::from_message(plain_message);
     ASSERT_EQ(plain_builder.size(), sizeof(std::uint32_t));
 
-    ipc::proto::secure_builder<ipc::proto::protobuf_codec, aead_xor_cipher> secure_builder{plain_builder};
+    thoth::proto::secure_builder<thoth::proto::protobuf_codec, aead_xor_cipher> secure_builder{plain_builder};
     ASSERT_GT(secure_builder.size(), plain_builder.size());
     ASSERT_NE(std::memcmp(secure_builder.data(), plain_builder.data(), plain_builder.size()), 0);
 
@@ -481,10 +481,10 @@ TEST(SecureCodec, OpenSslEvpAes256GcmRoundTrip) {
     fake_proto_message plain_message;
     plain_message.value_ = 0x10203040u;
 
-    auto plain_builder = ipc::proto::protobuf_builder::from_message(plain_message);
+    auto plain_builder = thoth::proto::protobuf_builder::from_message(plain_message);
     ASSERT_EQ(plain_builder.size(), sizeof(std::uint32_t));
 
-    ipc::proto::secure_builder<ipc::proto::protobuf_codec, secure_openssl_cipher> secure_builder{plain_builder};
+    thoth::proto::secure_builder<thoth::proto::protobuf_codec, secure_openssl_cipher> secure_builder{plain_builder};
     ASSERT_GT(secure_builder.size(), plain_builder.size());
 
     auto sealed_buf = owning_buffer_from_bytes(secure_builder.bytes());
@@ -499,8 +499,8 @@ TEST(SecureCodec, OpenSslEvpFailsClosedWhenKeyIdMismatches) {
     fake_proto_message plain_message;
     plain_message.value_ = 0x55667788u;
 
-    auto plain_builder = ipc::proto::protobuf_builder::from_message(plain_message);
-    ipc::proto::secure_builder<ipc::proto::protobuf_codec, secure_openssl_cipher> secure_builder{plain_builder};
+    auto plain_builder = thoth::proto::protobuf_builder::from_message(plain_message);
+    thoth::proto::secure_builder<thoth::proto::protobuf_codec, secure_openssl_cipher> secure_builder{plain_builder};
 
     auto sealed_buf = owning_buffer_from_bytes(secure_builder.bytes());
     auto decoded = secure_openssl_mismatched_key_id_codec::decode<fake_proto_message>(
@@ -514,8 +514,8 @@ TEST(SecureCodec, OpenSslEvpFailsClosedWhenWrongKeyMaterial) {
     fake_proto_message plain_message;
     plain_message.value_ = 0x66778899u;
 
-    auto plain_builder = ipc::proto::protobuf_builder::from_message(plain_message);
-    ipc::proto::secure_builder<ipc::proto::protobuf_codec, secure_openssl_cipher> secure_builder{plain_builder};
+    auto plain_builder = thoth::proto::protobuf_builder::from_message(plain_message);
+    thoth::proto::secure_builder<thoth::proto::protobuf_codec, secure_openssl_cipher> secure_builder{plain_builder};
 
     auto sealed_buf = owning_buffer_from_bytes(secure_builder.bytes());
     auto decoded = secure_openssl_wrong_key_codec::decode<fake_proto_message>(
@@ -529,8 +529,8 @@ TEST(SecureCodec, OpenSslEvpFailsClosedWhenTagTampered) {
     fake_proto_message plain_message;
     plain_message.value_ = 0xABCDEF12u;
 
-    auto plain_builder = ipc::proto::protobuf_builder::from_message(plain_message);
-    ipc::proto::secure_builder<ipc::proto::protobuf_codec, secure_openssl_cipher> secure_builder{plain_builder};
+    auto plain_builder = thoth::proto::protobuf_builder::from_message(plain_message);
+    thoth::proto::secure_builder<thoth::proto::protobuf_codec, secure_openssl_cipher> secure_builder{plain_builder};
 
     auto bytes = secure_builder.bytes();
     ASSERT_FALSE(bytes.empty());
@@ -548,8 +548,8 @@ TEST(SecureCodec, TypedRouteCapnpRoundTrip) {
     const auto name = make_unique_name("secure_capnp_route");
     secure_capnp_route::clear_storage(name.c_str());
 
-    secure_capnp_route sender{name.c_str(), ipc::sender};
-    secure_capnp_route receiver{name.c_str(), ipc::receiver};
+    secure_capnp_route sender{name.c_str(), thoth::sender};
+    secure_capnp_route receiver{name.c_str(), thoth::receiver};
 
     ASSERT_TRUE(sender.valid());
     ASSERT_TRUE(receiver.valid());
@@ -558,7 +558,7 @@ TEST(SecureCodec, TypedRouteCapnpRoundTrip) {
     fake_capnp_message plain_message;
     plain_message.value_ = 0xA1B2C3D4u;
 
-    const auto inner_builder = ipc::proto::capnp_builder::from_message(plain_message);
+    const auto inner_builder = thoth::proto::capnp_builder::from_message(plain_message);
     const secure_capnp_builder secure_builder{inner_builder};
 
     ASSERT_GT(secure_builder.size(), inner_builder.size());
@@ -578,8 +578,8 @@ TEST(SecureCodec, TypedChannelCapnpRoundTrip) {
     const auto name = make_unique_name("secure_capnp_channel");
     secure_capnp_channel::clear_storage(name.c_str());
 
-    secure_capnp_channel sender{name.c_str(), ipc::sender};
-    secure_capnp_channel receiver{name.c_str(), ipc::receiver};
+    secure_capnp_channel sender{name.c_str(), thoth::sender};
+    secure_capnp_channel receiver{name.c_str(), thoth::receiver};
 
     ASSERT_TRUE(sender.valid());
     ASSERT_TRUE(receiver.valid());
@@ -588,7 +588,7 @@ TEST(SecureCodec, TypedChannelCapnpRoundTrip) {
     fake_capnp_message plain_message;
     plain_message.value_ = 0x0C0FFEE0u;
 
-    const auto inner_builder = ipc::proto::capnp_builder::from_message(plain_message);
+    const auto inner_builder = thoth::proto::capnp_builder::from_message(plain_message);
     const secure_capnp_builder secure_builder{inner_builder};
 
     ASSERT_GT(secure_builder.size(), inner_builder.size());
@@ -608,10 +608,10 @@ TEST(SecureCodec, ComposesWithCapnpCodec) {
     fake_capnp_message plain_message;
     plain_message.value_ = 0x89ABCDEFu;
 
-    auto plain_builder = ipc::proto::capnp_builder::from_message(plain_message);
+    auto plain_builder = thoth::proto::capnp_builder::from_message(plain_message);
     ASSERT_EQ(plain_builder.size(), sizeof(std::uint32_t));
 
-    ipc::proto::secure_builder<ipc::proto::capnp_codec, aead_xor_cipher> secure_builder{plain_builder};
+    thoth::proto::secure_builder<thoth::proto::capnp_codec, aead_xor_cipher> secure_builder{plain_builder};
     ASSERT_GT(secure_builder.size(), plain_builder.size());
     ASSERT_NE(std::memcmp(secure_builder.data(), plain_builder.data(), plain_builder.size()), 0);
 

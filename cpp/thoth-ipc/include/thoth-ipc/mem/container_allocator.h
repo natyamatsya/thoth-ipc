@@ -15,7 +15,7 @@
 #include "thoth-ipc/imp/uninitialized.h"
 #include "thoth-ipc/mem/new.h"
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 
 /**
@@ -82,11 +82,11 @@ public:
 
   template <typename... P>
   static void construct(pointer p, P && ... params) {
-    std::ignore = ipc::construct<T>(p, std::forward<P>(params)...);
+    std::ignore = thoth::construct<T>(p, std::forward<P>(params)...);
   }
 
   static void destroy(pointer p) {
-    std::ignore = ipc::destroy(p);
+    std::ignore = thoth::destroy(p);
   }
 };
 
@@ -101,4 +101,4 @@ constexpr bool operator!=(container_allocator<T> const &, container_allocator<U>
 }
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

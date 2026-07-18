@@ -6,23 +6,23 @@
 #include "thoth-ipc/proto/codecs/flatbuffers_codec.h"
 #include "thoth-ipc/proto/typed_channel_codec.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
-// A typed wrapper around ipc::channel for FlatBuffer messages, implemented
+// A typed wrapper around thoth::channel for FlatBuffer messages, implemented
 // through the generic codec-based typed_channel_codec.
 // T is the FlatBuffers-generated root table type.
 //
 // Usage:
 //   // Sender
-//   ipc::proto::typed_channel<MyMsg> ch("my_channel", ipc::sender);
-//   ipc::proto::builder b;
+//   thoth::proto::typed_channel<MyMsg> ch("my_channel", thoth::sender);
+//   thoth::proto::builder b;
 //   auto off = CreateMyMsg(b.fbb(), ...);
 //   b.finish(off);
 //   ch.send(b);
 //
 //   // Receiver
-//   ipc::proto::typed_channel<MyMsg> ch("my_channel", ipc::receiver);
+//   thoth::proto::typed_channel<MyMsg> ch("my_channel", thoth::receiver);
 //   auto msg = ch.recv();
 //   if (msg) { auto *root = msg.root(); ... }
 //
@@ -30,4 +30,4 @@ template <typename T>
 using typed_channel = typed_channel_codec<T, flatbuffers_codec>;
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

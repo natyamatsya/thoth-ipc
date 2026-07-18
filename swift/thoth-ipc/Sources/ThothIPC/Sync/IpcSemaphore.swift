@@ -13,7 +13,7 @@ import Atomics
 /// A named, inter-process counting semaphore.
 ///
 /// On Darwin this is an Apple ulock-based counting semaphore in shared memory,
-/// binary-compatible with `ipc::sync::semaphore` (the `ulock_sem_t`) from the
+/// binary-compatible with `thoth::sync::semaphore` (the `ulock_sem_t`) from the
 /// C++ libipc library. A POSIX `sem_open` object is a different kernel object
 /// and does NOT interoperate with the C++ shm-ulock semaphore; this one does.
 ///

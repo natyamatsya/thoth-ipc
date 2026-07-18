@@ -20,7 +20,7 @@ use crate::buffer::IpcBuffer;
 /// `T` must be a FlatBuffers-generated table type (e.g. `MyProtocol::ControlMsg`).
 /// The buffer is owned; access to the root is a zero-copy pointer cast.
 ///
-/// Port of `ipc::proto::message<T>` from the C++ thoth_ipc library.
+/// Port of `thoth::proto::message<T>` from the C++ thoth_ipc library.
 pub struct Message<T> {
     buf: IpcBuffer,
     _marker: std::marker::PhantomData<T>,
@@ -94,7 +94,7 @@ where
 /// ch.send(b.data(), b.size(), 1000)?;
 /// ```
 ///
-/// Port of `ipc::proto::builder` from the C++ thoth_ipc library.
+/// Port of `thoth::proto::builder` from the C++ thoth_ipc library.
 pub struct Builder {
     fbb: FlatBufferBuilder<'static>,
     finished: bool,

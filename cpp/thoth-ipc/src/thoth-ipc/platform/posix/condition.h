@@ -12,12 +12,12 @@
 
 #include "get_wait_time.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
 class condition {
-    ipc::shm::handle shm_;
+    thoth::shm::handle shm_;
     pthread_cond_t *cond_ = nullptr;
 
     pthread_cond_t *acquire_cond(char const *name) {
@@ -57,7 +57,7 @@ public:
             return valid();
         }
         ::pthread_cond_destroy(cond_);
-        auto finally = ipc::guard([this] { close(); }); // close when failed
+        auto finally = thoth::guard([this] { close(); }); // close when failed
         // init condition
         int eno;
         pthread_condattr_t cond_attr;
@@ -104,10 +104,10 @@ public:
     }
 
     static void clear_storage(char const *name) noexcept {
-        ipc::shm::handle::clear_storage(name);
+        thoth::shm::handle::clear_storage(name);
     }
 
-    bool wait(ipc::sync::mutex &mtx, std::uint64_t tm) noexcept {
+    bool wait(thoth::sync::mutex &mtx, std::uint64_t tm) noexcept {
         THOTH_IPC_LOG();
         if (!valid()) return false;
         switch (tm) {
@@ -134,7 +134,7 @@ public:
         return true;
     }
 
-    bool notify(ipc::sync::mutex &) noexcept {
+    bool notify(thoth::sync::mutex &) noexcept {
         THOTH_IPC_LOG();
         if (!valid()) return false;
         int eno;
@@ -145,7 +145,7 @@ public:
         return true;
     }
 
-    bool broadcast(ipc::sync::mutex &) noexcept {
+    bool broadcast(thoth::sync::mutex &) noexcept {
         THOTH_IPC_LOG();
         if (!valid()) return false;
         int eno;
@@ -159,4 +159,4 @@ public:
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

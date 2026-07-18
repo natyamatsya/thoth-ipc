@@ -15,16 +15,16 @@
 #include "thoth-ipc/imp/export.h"
 #include "thoth-ipc/imp/fmt_cpo.h"
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \brief Custom defined fmt_to method for imp::fmt
  */
 namespace detail_tag_invoke {
 
-inline bool tag_invoke(decltype(ipc::fmt_to), fmt_context &ctx, std::error_code const &ec) noexcept {
+inline bool tag_invoke(decltype(thoth::fmt_to), fmt_context &ctx, std::error_code const &ec) noexcept {
   return fmt_to(ctx, '[', ec.value(), ": ", ec.message(), ']');
 }
 
 } // namespace detail_tag_invoke
-} // namespace ipc
+} // namespace thoth

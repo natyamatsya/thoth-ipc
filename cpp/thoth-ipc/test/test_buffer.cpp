@@ -1,6 +1,6 @@
 /**
  * @file test_buffer.cpp
- * @brief Comprehensive unit tests for ipc::buffer class
+ * @brief Comprehensive unit tests for thoth::buffer class
  * 
  * This test suite covers all public interfaces of the buffer class including:
  * - Constructors (default, with pointer and destructor, from array, from char)
@@ -16,7 +16,7 @@
 #include <vector>
 #include "thoth-ipc/buffer.h"
 
-using namespace ipc;
+using namespace thoth;
 
 namespace {
 

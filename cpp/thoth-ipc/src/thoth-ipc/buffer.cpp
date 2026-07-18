@@ -3,7 +3,7 @@
 
 #include <cstring>
 
-namespace ipc {
+namespace thoth {
 
 bool operator==(buffer const & b1, buffer const & b2) {
     return (b1.size() == b2.size()) && (std::memcmp(b1.data(), b2.data(), b1.size()) == 0);
@@ -51,7 +51,7 @@ buffer::buffer(char & c)
 }
 
 // Steal the pimpl and leave rhs empty (p_ == nullptr). This makes the move
-// non-allocating and therefore noexcept — required so ipc::buffer can flow
+// non-allocating and therefore noexcept — required so thoth::buffer can flow
 // through senders/receivers value completions (which must be noexcept) and
 // noexcept-move std containers. The moved-from buffer is valid: it destroys
 // cleanly and queries as empty (guards below).
@@ -89,4 +89,4 @@ std::size_t buffer::size() const noexcept {
     return (p_ == nullptr) ? 0 : impl(p_)->s_;
 }
 
-} // namespace ipc
+} // namespace thoth

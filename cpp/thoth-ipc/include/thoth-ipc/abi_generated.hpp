@@ -9,7 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace ipc::abi {
+namespace thoth::abi {
 
 inline constexpr const char* abi_version = "1.0.0";
 
@@ -98,4 +98,4 @@ inline constexpr std::size_t syncabi_stamp_backend_id_off = 12;
 inline constexpr std::size_t syncabi_stamp_primitive_id_off = 16;
 inline constexpr std::size_t syncabi_stamp_payload_size_off = 20;
 
-} // namespace ipc::abi
+} // namespace thoth::abi

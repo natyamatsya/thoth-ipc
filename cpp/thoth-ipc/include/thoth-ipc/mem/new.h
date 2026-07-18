@@ -22,7 +22,7 @@
 #include "thoth-ipc/mem/memory_resource.h"
 #include "thoth-ipc/mem/block_pool.h"
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 
 /// \brief Defines the memory block collector interface.
@@ -117,4 +117,4 @@ struct deleter {
 };
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

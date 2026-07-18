@@ -27,7 +27,7 @@
 #define THOTH_IPC_CPP_LIB_SPAN_
 #endif // __cpp_lib_span
 
-namespace ipc {
+namespace thoth {
 namespace detail_span {
 
 /// \brief Helper trait for span.
@@ -281,4 +281,4 @@ inline auto make_span(std::string const &str) noexcept -> span<char const> {
   return {str.data(), str.size()};
 }
 
-} // namespace ipc
+} // namespace thoth

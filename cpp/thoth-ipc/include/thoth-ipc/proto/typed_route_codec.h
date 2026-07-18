@@ -9,13 +9,13 @@
 #include "thoth-ipc/ipc.h"
 #include "thoth-ipc/proto/codec.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 template <typename T, typename Codec>
     requires proto_codec<Codec, T>
 class typed_route_codec {
-    ipc::route rt_;
+    thoth::route rt_;
 
 public:
     using codec_type = Codec;
@@ -28,7 +28,7 @@ public:
         : rt_{name, mode} {}
 
     void connect(char const *name, unsigned mode) {
-        rt_ = ipc::route{name, mode};
+        rt_ = thoth::route{name, mode};
     }
 
     void disconnect() { rt_.disconnect(); }
@@ -42,7 +42,7 @@ public:
         return rt_.send(data, size);
     }
 
-    message_type recv(std::uint64_t tm = ipc::invalid_value) {
+    message_type recv(std::uint64_t tm = thoth::invalid_value) {
         return codec_type::template decode<T>(rt_.recv(tm));
     }
 
@@ -50,13 +50,13 @@ public:
         return codec_type::template decode<T>(rt_.try_recv());
     }
 
-    ipc::route &raw() noexcept { return rt_; }
-    const ipc::route &raw() const noexcept { return rt_; }
+    thoth::route &raw() noexcept { return rt_; }
+    const thoth::route &raw() const noexcept { return rt_; }
 
     static void clear_storage(char const *name) {
-        ipc::route::clear_storage(name);
+        thoth::route::clear_storage(name);
     }
 };
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

@@ -12,7 +12,7 @@
 #include "thoth-ipc/imp/codecvt.h"
 #include "thoth-ipc/imp/detect_plat.h"
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \see https://docs.microsoft.com/en-us/windows/win32/api/stringapiset/nf-stringapiset-multibytetowidechar
@@ -95,4 +95,4 @@ std::size_t cvt_cstr(wchar_t const *src, std::size_t slen, char8_t *des, std::si
 }
 #endif // defined(LIBIMP_CPP_20)
 
-} // namespace ipc
+} // namespace thoth

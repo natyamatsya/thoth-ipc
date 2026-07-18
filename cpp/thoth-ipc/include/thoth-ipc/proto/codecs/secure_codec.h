@@ -12,9 +12,9 @@
 #include <vector>
 
 #include "thoth-ipc/proto/codec.h"
-#include "thoth-ipc/abi_generated.hpp"    // generated ipc::abi (abi/abi.json)
+#include "thoth-ipc/abi_generated.hpp"    // generated thoth::abi (abi/abi.json)
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 // AEAD cipher policy contract for envelope v1 (algorithm/key/nonce/tag aware).
@@ -78,34 +78,34 @@ inline constexpr std::size_t secure_envelope_fixed_header_size {
 
 // -----------------------------------------------------------------------------
 // ABI conformance — the SIPC secure-envelope v1 header must match the generated
-// ipc::abi (from abi/abi.json). The C++ envelope is built from manual byte
+// thoth::abi (from abi/abi.json). The C++ envelope is built from manual byte
 // offsets (no struct), so C++ keeps *deriving* each offset from field sizes
 // above; these compile-time asserts make C++ a *checked* peer of the generated
 // Rust/Swift/Zig secure modules. The magic occupies bytes [0,4) — asserted per
-// byte against ipc::abi::sipc_magic ("SIPC"); its offset (0) is implicit.
+// byte against thoth::abi::sipc_magic ("SIPC"); its offset (0) is implicit.
 // -----------------------------------------------------------------------------
-static_assert(secure_envelope_version == ipc::abi::sipc_version,
+static_assert(secure_envelope_version == thoth::abi::sipc_version,
               "abi drift: sipc_version");
-static_assert(sizeof(secure_envelope_magic) == ipc::abi::sipc_header_version_off,
+static_assert(sizeof(secure_envelope_magic) == thoth::abi::sipc_header_version_off,
               "abi drift: sipc_header.magic_size");
-static_assert(secure_envelope_magic[0] == ipc::abi::sipc_magic[0]
-           && secure_envelope_magic[1] == ipc::abi::sipc_magic[1]
-           && secure_envelope_magic[2] == ipc::abi::sipc_magic[2]
-           && secure_envelope_magic[3] == ipc::abi::sipc_magic[3],
+static_assert(secure_envelope_magic[0] == thoth::abi::sipc_magic[0]
+           && secure_envelope_magic[1] == thoth::abi::sipc_magic[1]
+           && secure_envelope_magic[2] == thoth::abi::sipc_magic[2]
+           && secure_envelope_magic[3] == thoth::abi::sipc_magic[3],
               "abi drift: sipc_magic");
-static_assert(secure_envelope_offset_version         == ipc::abi::sipc_header_version_off,
+static_assert(secure_envelope_offset_version         == thoth::abi::sipc_header_version_off,
               "abi drift: sipc_header.version_off");
-static_assert(secure_envelope_offset_algorithm_id    == ipc::abi::sipc_header_alg_id_off,
+static_assert(secure_envelope_offset_algorithm_id    == thoth::abi::sipc_header_alg_id_off,
               "abi drift: sipc_header.alg_id_off");
-static_assert(secure_envelope_offset_key_id          == ipc::abi::sipc_header_key_id_off,
+static_assert(secure_envelope_offset_key_id          == thoth::abi::sipc_header_key_id_off,
               "abi drift: sipc_header.key_id_off");
-static_assert(secure_envelope_offset_nonce_size      == ipc::abi::sipc_header_nonce_size_off,
+static_assert(secure_envelope_offset_nonce_size      == thoth::abi::sipc_header_nonce_size_off,
               "abi drift: sipc_header.nonce_size_off");
-static_assert(secure_envelope_offset_tag_size        == ipc::abi::sipc_header_tag_size_off,
+static_assert(secure_envelope_offset_tag_size        == thoth::abi::sipc_header_tag_size_off,
               "abi drift: sipc_header.tag_size_off");
-static_assert(secure_envelope_offset_ciphertext_size == ipc::abi::sipc_header_ct_size_off,
+static_assert(secure_envelope_offset_ciphertext_size == thoth::abi::sipc_header_ct_size_off,
               "abi drift: sipc_header.ct_size_off");
-static_assert(secure_envelope_fixed_header_size      == ipc::abi::sipc_header_size,
+static_assert(secure_envelope_fixed_header_size      == thoth::abi::sipc_header_size,
               "abi drift: sipc_header.size");
 
 struct secure_envelope_view {
@@ -235,7 +235,7 @@ inline bool parse_secure_envelope(const std::uint8_t *data,
     return true;
 }
 
-inline ipc::buff_t owning_buffer_from_bytes(std::vector<std::uint8_t> bytes) {
+inline thoth::buff_t owning_buffer_from_bytes(std::vector<std::uint8_t> bytes) {
     if (bytes.empty()) return {};
 
     auto *storage = new std::uint8_t[bytes.size()];
@@ -300,7 +300,7 @@ struct secure_codec {
     using message_type = typename InnerCodec::template message_type<T>;
 
     template <typename T>
-    static message_type<T> decode(ipc::buff_t buf) {
+    static message_type<T> decode(thoth::buff_t buf) {
         if (buf.empty()) return {};
 
         auto *data = static_cast<const std::uint8_t *>(buf.data());
@@ -331,4 +331,4 @@ struct secure_codec {
 };
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

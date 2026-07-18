@@ -9,7 +9,7 @@
 #include "a0/err_macro.h"
 #include "a0/mtx.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
@@ -18,7 +18,7 @@ public:
     condition() = default;
     ~condition() = default;
 
-    bool wait(ipc::sync::mutex &mtx, std::uint64_t tm) noexcept {
+    bool wait(thoth::sync::mutex &mtx, std::uint64_t tm) noexcept {
         THOTH_IPC_LOG();
         if (!valid()) return false;
         if (tm == invalid_value) {
@@ -40,7 +40,7 @@ public:
         return true;
     }
 
-    bool notify(ipc::sync::mutex &mtx) noexcept {
+    bool notify(thoth::sync::mutex &mtx) noexcept {
         THOTH_IPC_LOG();
         if (!valid()) return false;
         int eno = A0_SYSERR(a0_cnd_signal(native(), static_cast<a0_mtx_t *>(mtx.native())));
@@ -51,7 +51,7 @@ public:
         return true;
     }
 
-    bool broadcast(ipc::sync::mutex &mtx) noexcept {
+    bool broadcast(thoth::sync::mutex &mtx) noexcept {
         THOTH_IPC_LOG();
         if (!valid()) return false;
         int eno = A0_SYSERR(a0_cnd_broadcast(native(), static_cast<a0_mtx_t *>(mtx.native())));
@@ -65,4 +65,4 @@ public:
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

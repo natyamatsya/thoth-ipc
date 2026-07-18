@@ -12,7 +12,7 @@
 
 #include "thoth-ipc/mem/central_cache_pool.h"
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 
 /**
@@ -121,4 +121,4 @@ private:
 };
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

@@ -13,7 +13,7 @@ on the send hot path, and the notify objects are never created.
   kernel object, signalled on enqueue, exposed as `native_wait_handle()`.
   Usable directly from any reactor (`epoll` / `kqueue` / `poll` / Qt
   `QSocketNotifier` / `WaitForMultipleObjects`).
-- **Layer 2 — stdexec sender** (`THOTH_IPC_STDEXEC`, C++23): `ipc::async_recv()`,
+- **Layer 2 — stdexec sender** (`THOTH_IPC_STDEXEC`, C++23): `thoth::async_recv()`,
   a P2300 senders/receivers receive API driven by one process-global reactor
   thread. Built on Layer 1.
 
@@ -21,7 +21,7 @@ Motivation and design rationale: [`context/stdexec-async-recv-rfc.md`](../../../
 
 ## Why
 
-`ipc::route::recv(timeout)` blocks on the sync primitive (macOS `__ulock_wait`,
+`thoth::route::recv(timeout)` blocks on the sync primitive (macOS `__ulock_wait`,
 Linux futex, Windows event). To *react* to messages a consumer must dedicate a
 thread to a blocking `recv` loop, and those primitives have **no file
 descriptor**, so a channel cannot be registered with an event loop and multiple
@@ -35,7 +35,7 @@ receives into a senders/receivers pipeline with structured cancellation.
 |---|---|---|
 | `THOTH_IPC_NOTIFY_FD` | `OFF` | Layer 1: enable `native_wait_handle()`. POSIX only for now. |
 | `THOTH_IPC_NOTIFY_FIFO` | `OFF` | Force the portable FIFO backend even on macOS (default there is libnotify). No effect off Apple. |
-| `THOTH_IPC_STDEXEC` | `OFF` | Layer 2: `ipc::async_recv()` + reactor. Requires C++23; **implies `THOTH_IPC_NOTIFY_FD`**. |
+| `THOTH_IPC_STDEXEC` | `OFF` | Layer 2: `thoth::async_recv()` + reactor. Requires C++23; **implies `THOTH_IPC_NOTIFY_FD`**. |
 
 When `THOTH_IPC_STDEXEC` is on, the stdexec dependency is **injectable**:
 `find_package(stdexec CONFIG)` is used if it resolves (e.g. from vcpkg/Conan or a
@@ -48,11 +48,11 @@ NVIDIA/stdexec ref. `THOTH_IPC_NOTIFY_FD` and `THOTH_IPC_STDEXEC` are compiled a
 
 `native_wait_handle()` returns a native handle (an `int` fd on POSIX, a `HANDLE`
 on Windows) that becomes readable/signalled whenever a message is enqueued for
-that receiver, or `ipc::invalid_wait_handle` if the library was built without
+that receiver, or `thoth::invalid_wait_handle` if the library was built without
 `THOTH_IPC_NOTIFY_FD` or the channel is not connected as a receiver.
 
 ```cpp
-ipc::route ch{"my.channel", ipc::receiver};
+thoth::route ch{"my.channel", thoth::receiver};
 int fd = ch.native_wait_handle();          // register with your own reactor
 // ... when the reactor reports fd readable:
 //   1. drain fd (read until EAGAIN)
@@ -87,13 +87,13 @@ poking every connected slot on enqueue. libnotify is natively multicast, so it
 needs only one name per channel. FIFO paths default to `/tmp`, overridable with
 the `THOTH_IPC_NOTIFY_DIR` environment variable.
 
-## Layer 2 — `ipc::async_recv()`
+## Layer 2 — `thoth::async_recv()`
 
 ```cpp
 #include "thoth-ipc/async_recv.h"
 
 template <stdexec::scheduler Scheduler>
-stdexec::sender auto async_recv(ipc::route& channel, Scheduler on);
+stdexec::sender auto async_recv(thoth::route& channel, Scheduler on);
 ```
 
 Returns a sender whose **error channel is pruned** (never `set_error`): failures
@@ -101,17 +101,17 @@ travel as data on the value channel (the consuming project's ADR-0001 —
 domain/exceptional errors as `std::expected`), so a downstream exception-free
 pipeline stays exception-free. It completes:
 
-- `set_value(ipc::recv_result)` — where `recv_result = std::expected<ipc::buff_t,
-  ipc::recv_errc>` — with the message, or an `ipc::recv_errc`; **hopped onto the
+- `set_value(thoth::recv_result)` — where `recv_result = std::expected<thoth::buff_t,
+  thoth::recv_errc>` — with the message, or an `thoth::recv_errc`; **hopped onto the
   `on` scheduler** (via `continues_on`);
 - `set_stopped()` when the receiver's `stop_token` is triggered.
 
-`ipc::recv_errc` is a small enum: `no_readiness_handle` (channel lacks a
+`thoth::recv_errc` is a small enum: `no_readiness_handle` (channel lacks a
 readiness fd — built without `THOTH_IPC_NOTIFY_FD`, or not a receiver),
 `out_of_memory`, and `unknown`. Exceptions from the receive (e.g. `bad_alloc`)
 are caught and mapped to a `recv_errc`, so nothing escapes as an exception.
 
-A single **process-global reactor thread** (`ipc::detail::reactor`, one
+A single **process-global reactor thread** (`thoth::detail::reactor`, one
 `kqueue`/`epoll` for *all* async channels) drives completions, so N channels
 cost one thread instead of N. Cancellation unregisters the channel from the
 reactor and completes `set_stopped` — there is no thread to join.
@@ -120,21 +120,21 @@ reactor and completes `set_stopped` — there is no thread to join.
 
 ```cpp
 exec::repeat_effect_until(
-    ipc::async_recv(cmd_channel, schedulers.io())
-      | stdexec::then([&](ipc::buff_t b){ on_command(std::move(b)); }),
+    thoth::async_recv(cmd_channel, schedulers.io())
+      | stdexec::then([&](thoth::buff_t b){ on_command(std::move(b)); }),
     [&]{ return stop.stop_requested(); });
 ```
 
 ### Dependency injection (concept, not vtable)
 
 The reactor is injectable through a **C++23 concept**,
-`ipc::detail::reactor_like`, rather than an abstract base — idiomatic for this
+`thoth::detail::reactor_like`, rather than an abstract base — idiomatic for this
 template-heavy library and free of virtual dispatch on the hot path. An
 overload accepts any type modelling it:
 
 ```cpp
 template <stdexec::scheduler Scheduler, detail::reactor_like R>
-stdexec::sender auto async_recv(ipc::route& channel, Scheduler on, R& reactor);
+stdexec::sender auto async_recv(thoth::route& channel, Scheduler on, R& reactor);
 ```
 
 A test can substitute a fake reactor that captures the registered waiter and
@@ -142,9 +142,9 @@ drives `on_ready()` deterministically — no real `kqueue`/`epoll` thread:
 
 ```cpp
 struct fake_reactor {                              // models reactor_like
-    ipc::detail::reactor_waiter* w = nullptr;
-    void add(int, ipc::detail::reactor_waiter* x)    { w = x; }
-    void remove(int, ipc::detail::reactor_waiter* x) { if (w == x) w = nullptr; }
+    thoth::detail::reactor_waiter* w = nullptr;
+    void add(int, thoth::detail::reactor_waiter* x)    { w = x; }
+    void remove(int, thoth::detail::reactor_waiter* x) { if (w == x) w = nullptr; }
 };
 // ... start(connect(async_recv(reader, sched, fake), rcvr));
 // send a message, then: fake.w->on_ready();  // completion fires deterministically
@@ -164,10 +164,10 @@ sender-aware coroutine (P2300 `as_awaitable`), e.g. `exec::task`:
 
 ```cpp
 #include <exec/task.hpp>
-exec::task<void> pump(ipc::route& r) {
+exec::task<void> pump(thoth::route& r) {
     auto sched = co_await stdexec::read_env(stdexec::get_scheduler);
     for (;;) {
-        ipc::recv_result msg = co_await ipc::async_recv(r, sched);  // same reactor
+        thoth::recv_result msg = co_await thoth::async_recv(r, sched);  // same reactor
         if (!msg) break;
         dispatch(msg->data(), msg->size());
     }
@@ -183,9 +183,9 @@ independent of stdexec) — no P2300 dependency:
 
 ```cpp
 #include "thoth-ipc/execution/coro_recv.h"
-ipc::coro::task<int> pump(ipc::route& r) {
+thoth::coro::task<int> pump(thoth::route& r) {
     for (;;) {
-        ipc::recv_result msg = co_await ipc::coro::async_recv_co(r);
+        thoth::recv_result msg = co_await thoth::coro::async_recv_co(r);
         if (!msg) co_return 1;
         dispatch(msg->data(), msg->size());
     }
@@ -202,7 +202,7 @@ unregisters synchronously in its destructor). Verified cross-process by the
 ## Semantics & caveats
 
 - **Error channel:** pruned (ADR-0001). All outcomes ride the value channel as
-  `std::expected<ipc::buff_t, ipc::recv_errc>`; cancellation is `set_stopped`.
+  `std::expected<thoth::buff_t, thoth::recv_errc>`; cancellation is `set_stopped`.
   Because the channel is pruned and completions are `noexcept`, a genuinely
   exceptional failure that we do *not* map (nothing today — `try_recv`'s
   `bad_alloc` becomes `recv_errc::out_of_memory`) would hit the `noexcept`
@@ -215,7 +215,7 @@ unregisters synchronously in its destructor). Verified cross-process by the
   cleanly at static destruction. `remove()` is synchronous — once it returns,
   `on_ready()` for that waiter neither runs nor starts again, so the operation
   state is safe to destroy.
-- **`ipc::buffer` move is `noexcept`**, as required for values to flow through
+- **`thoth::buffer` move is `noexcept`**, as required for values to flow through
   P2300 completions (and for noexcept-move std containers).
 
 ## Non-goals

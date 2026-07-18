@@ -10,12 +10,12 @@
 #include "thoth-ipc/condition.h"
 #include "thoth-ipc/platform/detail.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 class waiter {
-    ipc::sync::condition  cond_;
-    ipc::sync::mutex      lock_;
+    thoth::sync::condition  cond_;
+    thoth::sync::mutex      lock_;
     std::atomic<bool>     quit_ {false};
 
 public:
@@ -57,18 +57,18 @@ public:
     }
 
     static void clear_storage(char const *name) noexcept {
-        ipc::sync::condition::clear_storage((std::string{name} + "_WAITER_COND_").c_str());
-        ipc::sync::mutex::clear_storage((std::string{name} + "_WAITER_LOCK_").c_str());
+        thoth::sync::condition::clear_storage((std::string{name} + "_WAITER_COND_").c_str());
+        thoth::sync::mutex::clear_storage((std::string{name} + "_WAITER_LOCK_").c_str());
     }
 
     template <typename F>
-    bool wait_if(F &&pred, std::uint64_t tm = ipc::invalid_value) noexcept {
+    bool wait_if(F &&pred, std::uint64_t tm = thoth::invalid_value) noexcept {
         // Fast path: if the predicate is already false, skip the lock entirely.
         // Safe because the ulock condvar prevents lost wakeups via seq counter:
         // if notify() fires after this check but before __ulock_wait, the kernel
         // sees seq != expected and returns immediately without sleeping.
         if (quit_.load(std::memory_order_relaxed) || !pred()) return true;
-        THOTH_IPC_UNUSED std::lock_guard<ipc::sync::mutex> guard {lock_};
+        THOTH_IPC_UNUSED std::lock_guard<thoth::sync::mutex> guard {lock_};
         while ([this, &pred] {
                     return !quit_.load(std::memory_order_relaxed)
                         && std::forward<F>(pred)();
@@ -93,4 +93,4 @@ public:
 };
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

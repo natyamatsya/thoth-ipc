@@ -7,7 +7,7 @@
 
 /// An owning byte buffer for IPC message data.
 ///
-/// This is the Rust equivalent of `ipc::buffer`. Messages sent through
+/// This is the Rust equivalent of `thoth::buffer`. Messages sent through
 /// `Route` or `Channel` are serialised into `IpcBuffer` for transmission
 /// and deserialised back on the receiver side.
 #[derive(Clone)]

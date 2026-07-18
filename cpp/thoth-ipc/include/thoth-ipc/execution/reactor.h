@@ -11,11 +11,11 @@
 // (pimpl), so it can sit in the public include tree.
 
 #include "thoth-ipc/imp/detect_plat.h"
-#include "thoth-ipc/ipc.h" // ipc::wait_handle_t (int fd on POSIX, HANDLE/void* on Windows)
+#include "thoth-ipc/ipc.h" // thoth::wait_handle_t (int fd on POSIX, HANDLE/void* on Windows)
 
 #if defined(THOTH_IPC_NOTIFY_FD)
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 // Interest registered with the reactor for one fd. on_ready() runs on the
@@ -47,7 +47,7 @@ protected:
 //                   `w` is guaranteed neither running nor about to start, so the
 //                   caller may destroy `w`. Never call it from within on_ready().
 //
-// `h` is an ipc::wait_handle_t: a readiness fd on POSIX (int), a waitable Event
+// `h` is an thoth::wait_handle_t: a readiness fd on POSIX (int), a waitable Event
 // HANDLE on Windows (void*). On POSIX the value is used directly as the epoll/
 // kqueue fd; on Windows it is registered with the thread-pool wait.
 template <class R>
@@ -77,6 +77,6 @@ private:
 };
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth
 
 #endif // THOTH_IPC_NOTIFY_FD

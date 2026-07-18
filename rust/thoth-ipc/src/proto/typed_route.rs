@@ -11,5 +11,5 @@ use super::typed_route_codec::TypedRouteCodec;
 ///
 /// `T` is the FlatBuffers-generated root table type.
 ///
-/// Port of `ipc::proto::typed_route<T>` from the C++ thoth_ipc library.
+/// Port of `thoth::proto::typed_route<T>` from the C++ thoth_ipc library.
 pub type TypedRoute<T> = TypedRouteCodec<T, FlatBuffersCodec>;

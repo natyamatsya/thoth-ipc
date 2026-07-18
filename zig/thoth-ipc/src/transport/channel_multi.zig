@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
-// Multi-writer `ipc::channel` (N writers, N readers, broadcast) — the Zig side
+// Multi-writer `thoth::channel` (N writers, N readers, broadcast) — the Zig side
 // of context/xlang-channel-multiwriter-rfc.md. Byte-exact with the C++
 // prod_cons_impl<multi,multi,broadcast> (cpp/thoth-ipc/src/thoth-ipc/prod_cons.h
 // L301-441): 96-byte slots with a per-slot `f_ct_` commit flag, a commit-index

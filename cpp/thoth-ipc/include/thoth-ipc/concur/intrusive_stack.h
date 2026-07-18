@@ -10,7 +10,7 @@
 
 #include <atomic>
 
-namespace ipc {
+namespace thoth {
 namespace concur {
 
 /// \brief Intrusive stack node.
@@ -66,4 +66,4 @@ public:
 };
 
 } // namespace concur
-} // namespace ipc
+} // namespace thoth

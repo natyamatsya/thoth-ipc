@@ -24,7 +24,7 @@
 
 #include "thoth-ipc/shm.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 // Maximum number of concurrently registered services.
@@ -88,7 +88,7 @@ struct registry_lock_guard {
 // Any process that creates a service_registry with the same domain
 // sees the same set of registered services.
 class service_registry {
-    ipc::shm::handle shm_;
+    thoth::shm::handle shm_;
     registry_data   *data_ = nullptr;
 
     static std::string make_shm_name(const char *domain) {
@@ -102,7 +102,7 @@ public:
     // Open or create the registry for the given domain.
     explicit service_registry(const char *domain = "default") {
         auto name = make_shm_name(domain);
-        shm_ = ipc::shm::handle{name.c_str(), sizeof(registry_data)};
+        shm_ = thoth::shm::handle{name.c_str(), sizeof(registry_data)};
         auto *mem = shm_.get();
         if (!mem) return;
         data_ = static_cast<registry_data *>(mem);
@@ -270,4 +270,4 @@ private:
 };
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

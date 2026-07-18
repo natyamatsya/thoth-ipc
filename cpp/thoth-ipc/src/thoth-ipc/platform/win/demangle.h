@@ -9,10 +9,10 @@
 
 #include "thoth-ipc/imp/nameof.h"
 
-namespace ipc {
+namespace thoth {
 
 std::string demangle(std::string name) noexcept {
   return std::move(name);
 }
 
-} // namespace ipc
+} // namespace thoth

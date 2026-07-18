@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Port of cpp-ipc/src/libipc/platform/posix/shm_posix.cpp — a named,
-// inter-process shared memory handle binary-compatible with ipc::shm::handle.
+// inter-process shared memory handle binary-compatible with thoth::shm::handle.
 // The mapped region ends with a trailing atomic<int32> reference counter shared
 // between all processes mapping the same segment (C++ calc_size/get_mem).
 //

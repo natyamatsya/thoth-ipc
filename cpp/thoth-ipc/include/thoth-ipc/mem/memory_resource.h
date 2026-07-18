@@ -4,7 +4,7 @@
 /**
  * \file thoth-ipc/memory_resource.h
  * \author mutouyun (orz@orzz.org)
- * \brief Implement memory allocation strategies that can be used by ipc::mem::bytes_allocator.
+ * \brief Implement memory allocation strategies that can be used by thoth::mem::bytes_allocator.
  */
 #pragma once
 
@@ -16,7 +16,7 @@
 #include "thoth-ipc/imp/byte.h"
 #include "thoth-ipc/mem/bytes_allocator.h"
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 
 /**
@@ -55,11 +55,11 @@ class THOTH_IPC_EXPORT monotonic_buffer_resource {
     std::size_t size;
   } *free_list_;
 
-  ipc::byte * head_;
-  ipc::byte * tail_;
+  thoth::byte * head_;
+  thoth::byte * tail_;
   std::size_t next_size_;
 
-  ipc::byte * const initial_buffer_;
+  thoth::byte * const initial_buffer_;
   std::size_t const initial_size_;
 
 public:
@@ -67,8 +67,8 @@ public:
   explicit monotonic_buffer_resource(bytes_allocator upstream) noexcept;
   explicit monotonic_buffer_resource(std::size_t initial_size) noexcept;
   monotonic_buffer_resource(std::size_t initial_size, bytes_allocator upstream) noexcept;
-  monotonic_buffer_resource(ipc::span<ipc::byte> buffer) noexcept;
-  monotonic_buffer_resource(ipc::span<ipc::byte> buffer, bytes_allocator upstream) noexcept;
+  monotonic_buffer_resource(thoth::span<thoth::byte> buffer) noexcept;
+  monotonic_buffer_resource(thoth::span<thoth::byte> buffer, bytes_allocator upstream) noexcept;
 
   ~monotonic_buffer_resource() noexcept;
 
@@ -83,4 +83,4 @@ public:
 };
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

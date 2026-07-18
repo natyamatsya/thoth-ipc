@@ -5,7 +5,7 @@
 
 #include "thoth-ipc/sync/sync_abi.h"
 
-namespace sync_abi = ipc::detail::sync_abi;
+namespace sync_abi = thoth::detail::sync_abi;
 
 namespace {
 

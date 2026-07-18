@@ -10,7 +10,7 @@
 
 #include "thoth-ipc/ipc.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 enum class codec_id : std::uint8_t {
@@ -20,7 +20,7 @@ enum class codec_id : std::uint8_t {
 };
 
 template <typename Codec, typename T>
-concept proto_codec = requires(const typename Codec::builder_type &b, ipc::buff_t buf) {
+concept proto_codec = requires(const typename Codec::builder_type &b, thoth::buff_t buf) {
     typename Codec::builder_type;
     typename Codec::template message_type<T>;
     { Codec::id } -> std::convertible_to<codec_id>;
@@ -30,4 +30,4 @@ concept proto_codec = requires(const typename Codec::builder_type &b, ipc::buff_
 };
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

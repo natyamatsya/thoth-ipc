@@ -72,12 +72,12 @@ constexpr std::size_t calc_size(std::size_t size) {
 }
 
 inline auto& acc_of(void* mem, std::size_t size) {
-    return reinterpret_cast<info_t*>(static_cast<ipc::byte_t*>(mem) + size - sizeof(info_t))->acc_;
+    return reinterpret_cast<info_t*>(static_cast<thoth::byte_t*>(mem) + size - sizeof(info_t))->acc_;
 }
 
 } // internal-linkage
 
-namespace ipc {
+namespace thoth {
 namespace shm {
 
 id_t acquire(char const * name, std::size_t size, unsigned mode) {
@@ -89,7 +89,7 @@ id_t acquire(char const * name, std::size_t size, unsigned mode) {
 #if defined(THOTH_IPC_USE_FILE_SHM)
     std::string op_name = make_file_path(name);
 #else
-    std::string op_name = ipc::posix_::detail::make_shm_name(name);
+    std::string op_name = thoth::posix_::detail::make_shm_name(name);
 #endif
     // Open the object for read-write access.
     int flag = O_RDWR;
@@ -310,7 +310,7 @@ void remove(char const * name) noexcept {
     std::string op_name = make_file_path(name);
     int unlink_ret = file_shm_unlink(op_name.c_str());
 #else
-    std::string op_name = ipc::posix_::detail::make_shm_name(name);
+    std::string op_name = thoth::posix_::detail::make_shm_name(name);
     int unlink_ret = ::shm_unlink(op_name.c_str());
 #endif
     if (unlink_ret == -1 && errno != ENOENT) {
@@ -319,4 +319,4 @@ void remove(char const * name) noexcept {
 }
 
 } // namespace shm
-} // namespace ipc
+} // namespace thoth

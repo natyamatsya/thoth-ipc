@@ -1,6 +1,6 @@
 /**
  * @file test_semaphore.cpp
- * @brief Comprehensive unit tests for ipc::sync::semaphore class
+ * @brief Comprehensive unit tests for thoth::sync::semaphore class
  * 
  * This test suite covers:
  * - Semaphore construction (default and named with count)
@@ -20,8 +20,8 @@
 #include "thoth-ipc/semaphore.h"
 #include "thoth-ipc/def.h"
 
-using namespace ipc;
-using namespace ipc::sync;
+using namespace thoth;
+using namespace thoth::sync;
 
 namespace {
 

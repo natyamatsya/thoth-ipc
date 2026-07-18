@@ -10,5 +10,5 @@ import FlatBuffers
 ///
 /// `T` is the FlatBuffers-generated root table type.
 ///
-/// Port of `ipc::proto::typed_route<T>`.
+/// Port of `thoth::proto::typed_route<T>`.
 public typealias TypedRoute<T: FlatBufferTable & Verifiable> = TypedRouteCodec<T, FlatBuffersCodec<T>>

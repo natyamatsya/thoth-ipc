@@ -11,18 +11,18 @@
 
 #include "thoth-ipc/buffer.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 // A received FlatBuffer message with typed access.
 // T must be a FlatBuffers-generated table type (e.g. MyProtocol::ControlMsg).
 template <typename T>
 class message {
-    ipc::buff_t buf_;
+    thoth::buff_t buf_;
 
 public:
     message() = default;
-    explicit message(ipc::buff_t buf) : buf_{std::move(buf)} {}
+    explicit message(thoth::buff_t buf) : buf_{std::move(buf)} {}
 
     explicit operator bool() const noexcept { return !buf_.empty(); }
     bool empty() const noexcept { return buf_.empty(); }
@@ -51,7 +51,7 @@ public:
 
 // Helper: build a FlatBuffer message and return the raw bytes for sending.
 // Usage:
-//   auto [buf, size] = ipc::proto::build([](auto &fbb) {
+//   auto [buf, size] = thoth::proto::build([](auto &fbb) {
 //       auto name = fbb.CreateString("hello");
 //       return MyTable::Pack(fbb, name);
 //   });
@@ -83,4 +83,4 @@ public:
 };
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

@@ -92,12 +92,12 @@ $ cargo run --manifest-path tools/abi/Cargo.toml
 
 Plus a compile-time gate: **C++ is a checked peer.** `ipc.cpp` keeps *deriving*
 its layout from its own templates and `static_assert`s the result against the
-generated `ipc::abi`, so the derivations stay independent of the spec (that is
+generated `thoth::abi`, so the derivations stay independent of the spec (that is
 why the `dump_abi.cpp` gate above is non-vacuous):
 
 ```cpp
-static_assert(ipc::data_length == ipc::abi::data_length, "abi drift: data_length");
-static_assert(sizeof(AbiRouteP::elem_t<80, 8>) == ipc::abi::route_elem_size, "abi drift: route_elem.size");
+static_assert(thoth::data_length == thoth::abi::data_length, "abi drift: data_length");
+static_assert(sizeof(AbiRouteP::elem_t<80, 8>) == thoth::abi::route_elem_size, "abi drift: route_elem.size");
 ```
 
 ---

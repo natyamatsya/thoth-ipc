@@ -15,7 +15,7 @@
 
 #include "capo/random.hpp"
 
-using namespace ipc;
+using namespace thoth;
 
 namespace {
 
@@ -76,7 +76,7 @@ void test_basic(char const * name) {
     EXPECT_FALSE(que1.send(test1));
     EXPECT_FALSE(que1.try_send(test2));
 
-    que_t que2 { que1.name(), ipc::receiver };
+    que_t que2 { que1.name(), thoth::receiver };
     ASSERT_TRUE(que1.send(test1));
     ASSERT_TRUE(que1.try_send(test2));
 
@@ -123,7 +123,7 @@ void test_sr(char const * name, int s_cnt, int r_cnt) {
 
     for (int k = 0; k < s_cnt; ++k) {
         ipc_ut::sender() << [name, &sw, r_cnt, k] {
-            Que que { name, ipc::sender };
+            Que que { name, thoth::sender };
             ASSERT_TRUE(que.wait_for_recv(r_cnt));
             sw.start();
             for (int i = 0; i < LoopCount; ++i) {
@@ -134,7 +134,7 @@ void test_sr(char const * name, int s_cnt, int r_cnt) {
 
     for (int k = 0; k < r_cnt; ++k) {
         ipc_ut::reader() << [name] {
-            Que que { name, ipc::receiver };
+            Que que { name, thoth::receiver };
             for (;;) {
                 rand_buf got { que.recv() };
                 ASSERT_FALSE(got.empty());

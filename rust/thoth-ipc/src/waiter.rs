@@ -13,7 +13,7 @@ use crate::{IpcCondition, IpcMutex};
 /// A named waiter combining a condition variable, a mutex, and a quit flag.
 ///
 /// Used internally by IPC channels to implement blocking send/recv with
-/// timeout support. Mirrors `ipc::detail::waiter` from the C++ library.
+/// timeout support. Mirrors `thoth::detail::waiter` from the C++ library.
 pub struct Waiter {
     cond: IpcCondition,
     lock: IpcMutex,

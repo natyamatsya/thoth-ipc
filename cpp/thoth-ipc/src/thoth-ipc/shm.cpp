@@ -8,7 +8,7 @@
 #include "thoth-ipc/imp/log.h"
 #include "thoth-ipc/mem/resource.h"
 
-namespace ipc {
+namespace thoth {
 namespace shm {
 
 class handle::handle_ : public pimpl<handle_> {
@@ -161,4 +161,4 @@ id_t handle::detach() {
 }
 
 } // namespace shm
-} // namespace ipc
+} // namespace thoth

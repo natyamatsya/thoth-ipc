@@ -17,7 +17,7 @@
 #include "a0/err_macro.h"
 #include "a0/mtx.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
@@ -116,7 +116,7 @@ class mutex {
         // node can be *moved* out of the by-name map into `orphans` (see
         // clear_storage) without being destroyed while open handles still hold
         // raw pointers into it.
-        ipc::map<std::string, shm_data *> mutex_handles;
+        thoth::map<std::string, shm_data *> mutex_handles;
         // Nodes cleared via clear_storage() while still in use in-process; each
         // keeps its intact mapping + ref counter until its last local handle
         // closes. Drained in destroy_node().
@@ -293,4 +293,4 @@ public:
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

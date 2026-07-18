@@ -22,13 +22,13 @@
 #   error "Unsupported platform."
 #endif
 
-namespace ipc {
+namespace thoth {
 namespace sync {
 
-class mutex::mutex_ : public ipc::pimpl<mutex_> {
+class mutex::mutex_ : public thoth::pimpl<mutex_> {
 public:
-    ipc::detail::sync::mutex lock_;
-    ipc::detail::sync_abi::guard abi_guard_;
+    thoth::detail::sync::mutex lock_;
+    thoth::detail::sync_abi::guard abi_guard_;
 };
 
 mutex::mutex()
@@ -83,8 +83,8 @@ void mutex::clear() noexcept {
 }
 
 void mutex::clear_storage(char const * name) noexcept {
-    ipc::detail::sync_abi::guard::clear_mutex_storage(name);
-    ipc::detail::sync::mutex::clear_storage(name);
+    thoth::detail::sync_abi::guard::clear_mutex_storage(name);
+    thoth::detail::sync::mutex::clear_storage(name);
 }
 
 bool mutex::lock(std::uint64_t tm) noexcept {
@@ -100,4 +100,4 @@ bool mutex::unlock() noexcept {
 }
 
 } // namespace sync
-} // namespace ipc
+} // namespace thoth

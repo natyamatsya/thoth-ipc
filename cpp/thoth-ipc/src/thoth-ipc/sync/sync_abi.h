@@ -11,7 +11,7 @@
 #include "thoth-ipc/imp/log.h"
 #include "thoth-ipc/mem/resource.h"
 #include "thoth-ipc/shm.h"
-#include "thoth-ipc/abi_generated.hpp"    // generated ipc::abi (abi/abi.json)
+#include "thoth-ipc/abi_generated.hpp"    // generated thoth::abi (abi/abi.json)
 
 #if defined(THOTH_IPC_OS_LINUX)
 #include "a0/mtx.h"
@@ -19,7 +19,7 @@
 #include <pthread.h>
 #endif
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync_abi {
 
@@ -55,7 +55,7 @@ struct expected_t {
 
 // -----------------------------------------------------------------------------
 // ABI conformance — the C++ SyncAbi stamp layout must match the generated
-// ipc::abi (from abi/abi.json). C++ keeps *deriving* stamp_t / sync_abi_magic
+// thoth::abi (from abi/abi.json). C++ keeps *deriving* stamp_t / sync_abi_magic
 // from its own definitions here (dump_abi.cpp stays the independent ground
 // truth); these compile-time asserts make C++ a *checked* peer of the generated
 // Rust/Swift/Zig sync modules. stamp_t is standard-layout (six same-typed atomic
@@ -63,22 +63,22 @@ struct expected_t {
 // (syncabi_backend_ulock == 2 is not asserted: the C++ backend id is an inline
 //  platform literal in backend_id(), not an independently-named constant.)
 // -----------------------------------------------------------------------------
-static_assert(static_cast<std::uint32_t>(sync_abi_magic) == ipc::abi::syncabi_magic,
+static_assert(static_cast<std::uint32_t>(sync_abi_magic) == thoth::abi::syncabi_magic,
               "abi drift: syncabi_magic");
 
-static_assert(sizeof(stamp_t) == ipc::abi::syncabi_stamp_size,
+static_assert(sizeof(stamp_t) == thoth::abi::syncabi_stamp_size,
               "abi drift: syncabi_stamp.size");
-static_assert(offsetof(stamp_t, magic)             == ipc::abi::syncabi_stamp_magic_off,
+static_assert(offsetof(stamp_t, magic)             == thoth::abi::syncabi_stamp_magic_off,
               "abi drift: syncabi_stamp.magic_off");
-static_assert(offsetof(stamp_t, abi_version_major) == ipc::abi::syncabi_stamp_ver_major_off,
+static_assert(offsetof(stamp_t, abi_version_major) == thoth::abi::syncabi_stamp_ver_major_off,
               "abi drift: syncabi_stamp.ver_major_off");
-static_assert(offsetof(stamp_t, abi_version_minor) == ipc::abi::syncabi_stamp_ver_minor_off,
+static_assert(offsetof(stamp_t, abi_version_minor) == thoth::abi::syncabi_stamp_ver_minor_off,
               "abi drift: syncabi_stamp.ver_minor_off");
-static_assert(offsetof(stamp_t, backend_id)        == ipc::abi::syncabi_stamp_backend_id_off,
+static_assert(offsetof(stamp_t, backend_id)        == thoth::abi::syncabi_stamp_backend_id_off,
               "abi drift: syncabi_stamp.backend_id_off");
-static_assert(offsetof(stamp_t, primitive_id)      == ipc::abi::syncabi_stamp_primitive_id_off,
+static_assert(offsetof(stamp_t, primitive_id)      == thoth::abi::syncabi_stamp_primitive_id_off,
               "abi drift: syncabi_stamp.primitive_id_off");
-static_assert(offsetof(stamp_t, payload_size)      == ipc::abi::syncabi_stamp_payload_size_off,
+static_assert(offsetof(stamp_t, payload_size)      == thoth::abi::syncabi_stamp_payload_size_off,
               "abi drift: syncabi_stamp.payload_size_off");
 
 inline char const *kind_name(primitive_kind const kind) noexcept {
@@ -256,7 +256,7 @@ inline bool init_or_validate(stamp_t *stamp, expected_t const &expected, primiti
 }
 
 class guard {
-    ipc::shm::handle shm_;
+    thoth::shm::handle shm_;
 
     bool ensure(char const *name, primitive_kind const kind) noexcept {
         THOTH_IPC_LOG();
@@ -289,7 +289,7 @@ class guard {
     static void clear_storage(char const *name, primitive_kind const kind) noexcept {
         if (!is_valid_string(name)) return;
         auto const meta_name = sidecar_name(name, kind);
-        ipc::shm::handle::clear_storage(meta_name.c_str());
+        thoth::shm::handle::clear_storage(meta_name.c_str());
     }
 
 public:
@@ -320,4 +320,4 @@ public:
 
 } // namespace sync_abi
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

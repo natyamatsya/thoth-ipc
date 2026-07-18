@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 # SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 #
-# Polyglot pipeline launcher: one ipc::route hop per stage, one process per
+# Polyglot pipeline launcher: one thoth::route hop per stage, one process per
 # stage, a DIFFERENT language each. A single item flows
 #
 #     Zig source → [ppl_A] → Rust stage → [ppl_B] → Swift stage → [ppl_C] → C++ sink

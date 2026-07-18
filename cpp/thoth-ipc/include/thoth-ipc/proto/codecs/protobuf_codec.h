@@ -12,7 +12,7 @@
 
 #include "thoth-ipc/proto/codec.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 class protobuf_builder {
@@ -42,14 +42,14 @@ public:
 
 template <typename T>
 class protobuf_message {
-    ipc::buff_t buf_;
+    thoth::buff_t buf_;
     T value_ {};
     bool valid_ {false};
 
 public:
     protobuf_message() = default;
 
-    explicit protobuf_message(ipc::buff_t buf)
+    explicit protobuf_message(thoth::buff_t buf)
         : buf_{std::move(buf)} {
         if (buf_.empty()) return;
         if (buf_.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)())) return;
@@ -86,7 +86,7 @@ struct protobuf_codec {
     using message_type = protobuf_message<T>;
 
     template <typename T>
-    static message_type<T> decode(ipc::buff_t buf) {
+    static message_type<T> decode(thoth::buff_t buf) {
         return message_type<T>{std::move(buf)};
     }
 
@@ -95,4 +95,4 @@ struct protobuf_codec {
 };
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

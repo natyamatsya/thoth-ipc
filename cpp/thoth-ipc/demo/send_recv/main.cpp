@@ -12,10 +12,10 @@
 namespace {
 
 std::atomic<bool> is_quit__ {false};
-ipc::channel *ipc__ = nullptr;
+thoth::channel *ipc__ = nullptr;
 
 void do_send(int size, int interval) {
-    ipc::channel ipc {"ipc", ipc::sender};
+    thoth::channel ipc {"ipc", thoth::sender};
     ipc__ = &ipc;
     std::string buffer(size, 'A');
     while (!is_quit__.load(std::memory_order_acquire)) {
@@ -26,10 +26,10 @@ void do_send(int size, int interval) {
 }
 
 void do_recv(int interval) {
-    ipc::channel ipc {"ipc", ipc::receiver};
+    thoth::channel ipc {"ipc", thoth::receiver};
     ipc__ = &ipc;
     while (!is_quit__.load(std::memory_order_acquire)) {
-        ipc::buff_t recv;
+        thoth::buff_t recv;
         for (int k = 1; recv.empty(); ++k) {
             std::cout << "recv waiting... " << k << "\n";
             recv = ipc.recv(interval);

@@ -13,7 +13,7 @@
 
 #include "thoth-ipc/imp/byte.h"
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \brief The type suitable for use as uninitialized storage for types of given type.
@@ -25,7 +25,7 @@ namespace ipc {
  */
 template <typename T, std::size_t AlignT = alignof(T)>
 class aligned {
-  alignas(AlignT) std::array<ipc::byte, sizeof(T)> storage_;
+  alignas(AlignT) std::array<thoth::byte, sizeof(T)> storage_;
 
 public:
   /**
@@ -74,4 +74,4 @@ constexpr T round_up(T value, T alignment) noexcept {
   return (value + alignment - 1) & ~(alignment - 1);
 }
 
-} // namespace ipc
+} // namespace thoth

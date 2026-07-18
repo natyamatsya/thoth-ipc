@@ -136,12 +136,12 @@ struct card_event {
 };
 
 template <typename Key>
-using sealed_codec = ipc::proto::secure_codec<
-    ipc::proto::protobuf_codec,
-    ipc::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, Key>>;
+using sealed_codec = thoth::proto::secure_codec<
+    thoth::proto::protobuf_codec,
+    thoth::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, Key>>;
 
 template <typename Key>
-using sealed_bus = ipc::proto::typed_route_codec<card_event, sealed_codec<Key>>;
+using sealed_bus = thoth::proto::typed_route_codec<card_event, sealed_codec<Key>>;
 
 std::string mask(const std::string &pan) {
     if (pan.size() < 4) return "****";
@@ -150,7 +150,7 @@ std::string mask(const std::string &pan) {
 
 // Card reader: seals every event at the point of capture, then broadcasts.
 int pinpad(int count) {
-    sealed_bus<processor_key> bus {bus_name, ipc::sender};
+    sealed_bus<processor_key> bus {bus_name, thoth::sender};
     std::printf("[pinpad] waiting for POS + gateway to subscribe...\n");
     if (!bus.raw().wait_for_recv(2, 30000)) return 1;
     for (int seq = 0; seq < count; ++seq) {
@@ -160,7 +160,7 @@ int pinpad(int count) {
         ev.seq_ = static_cast<std::uint32_t>(seq);
         // Seal per event: fresh nonce, AEAD tag, envelope v1 framing.
         typename sealed_bus<processor_key>::builder_type sealed {
-            ipc::proto::protobuf_builder::from_message(ev)};
+            thoth::proto::protobuf_builder::from_message(ev)};
         if (sealed.size() == 0) { std::fprintf(stderr, "[pinpad] seal failed\n"); return 1; }
         if (!bus.send(sealed)) { std::fprintf(stderr, "[pinpad] send failed\n"); return 1; }
         std::printf("[pinpad] captured %s for %lluc -> sealed event #%d (%zuB on the bus)\n",
@@ -174,7 +174,7 @@ int pinpad(int count) {
 
 // Payment gateway: the only key holder — opens and processes each event.
 int gateway(int count) {
-    sealed_bus<processor_key> bus {bus_name, ipc::receiver};
+    sealed_bus<processor_key> bus {bus_name, thoth::receiver};
     std::printf("[gateway] subscribed (holds the processor key).\n");
     for (int i = 0; i < count; ++i) {
         auto msg = bus.recv(30000);
@@ -195,7 +195,7 @@ int gateway(int count) {
 // AEAD must fail closed on every event. It can meter/route the opaque
 // envelopes, which is exactly what keeps it out of PCI scope.
 int pos(int count) {
-    sealed_bus<merchant_no_key> bus {bus_name, ipc::receiver};
+    sealed_bus<merchant_no_key> bus {bus_name, thoth::receiver};
     std::printf("[pos] subscribed (no processor key).\n");
     for (int i = 0; i < count; ++i) {
         auto msg = bus.recv(30000);

@@ -24,7 +24,7 @@ impl Stats {
 }
 
 // ---------------------------------------------------------------------------
-// ipc::route  —  1 sender, N receivers  (random msg_lo–msg_hi bytes × count)
+// thoth::route  —  1 sender, N receivers  (random msg_lo–msg_hi bytes × count)
 // ---------------------------------------------------------------------------
 
 fn bench_route(n_receivers: usize, count: usize, msg_lo: usize, msg_hi: usize) -> Stats {
@@ -88,7 +88,7 @@ fn bench_route(n_receivers: usize, count: usize, msg_lo: usize, msg_hi: usize) -
 }
 
 // ---------------------------------------------------------------------------
-// ipc::channel  —  pattern  (random msg_lo–msg_hi bytes × count)
+// thoth::channel  —  pattern  (random msg_lo–msg_hi bytes × count)
 //   pattern: "1-N"  = 1 sender,  N receivers
 //            "N-1"  = N senders, 1 receiver
 //            "N-N"  = N senders, N receivers
@@ -196,7 +196,7 @@ fn main() {
     println!("Platform: {}, {} hardware threads\n", os, std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1));
 
     // -----------------------------------------------------------------------
-    print_header("ipc::route — 1 sender, N receivers (random 2-256 bytes x 100000)");
+    print_header("thoth::route — 1 sender, N receivers (random 2-256 bytes x 100000)");
     println!("{:>10}  {:>12}  {:>12}", "Receivers", "RTT (ms)", "us/datum");
     println!("{:>10}  {:>12}  {:>12}", "----------", "----------", "----------");
 
@@ -208,7 +208,7 @@ fn main() {
     }
 
     // -----------------------------------------------------------------------
-    print_header("ipc::channel — 1-N (random 2-256 bytes x 100000)");
+    print_header("thoth::channel — 1-N (random 2-256 bytes x 100000)");
     println!("{:>10}  {:>12}  {:>12}", "Receivers", "RTT (ms)", "us/datum");
     println!("{:>10}  {:>12}  {:>12}", "----------", "----------", "----------");
 
@@ -220,7 +220,7 @@ fn main() {
     }
 
     // -----------------------------------------------------------------------
-    print_header("ipc::channel — N-1 (random 2-256 bytes x 100000)");
+    print_header("thoth::channel — N-1 (random 2-256 bytes x 100000)");
     println!("{:>10}  {:>12}  {:>12}", "Senders", "RTT (ms)", "us/datum");
     println!("{:>10}  {:>12}  {:>12}", "----------", "----------", "----------");
 
@@ -232,7 +232,7 @@ fn main() {
     }
 
     // -----------------------------------------------------------------------
-    print_header("ipc::channel — N-N (random 2-256 bytes x 100000)");
+    print_header("thoth::channel — N-N (random 2-256 bytes x 100000)");
     println!("{:>10}  {:>12}  {:>12}", "Threads", "RTT (ms)", "us/datum");
     println!("{:>10}  {:>12}  {:>12}", "----------", "----------", "----------");
 

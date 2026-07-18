@@ -14,7 +14,7 @@ private let kMutexSpinCount = 40
 /// A named, inter-process mutex.
 ///
 /// On Darwin this is an Apple ulock-based word mutex in shared memory,
-/// binary-compatible with `ipc::sync::mutex` from the C++ libipc library.
+/// binary-compatible with `thoth::sync::mutex` from the C++ libipc library.
 ///
 /// Shared-memory layout (8 bytes):
 ///   offset 0: atomic<u32>  state   — 0=UNLOCKED, 1=LOCKED, 2=LOCKED+waiters

@@ -16,7 +16,7 @@
 #include "thoth-ipc/platform/apple/ulock.h"
 #include "thoth-ipc/platform/apple/mutex.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
@@ -52,7 +52,7 @@ struct ulock_cond_t {
 };
 
 class condition {
-    ipc::shm::handle shm_;
+    thoth::shm::handle shm_;
     ulock_cond_t *cond_ = nullptr;
 
     ulock_cond_t *acquire_cond(char const *name) {
@@ -112,13 +112,13 @@ public:
     }
 
     static void clear_storage(char const *name) noexcept {
-        ipc::shm::handle::clear_storage(name);
+        thoth::shm::handle::clear_storage(name);
     }
 
     // Wait for a notification, with optional timeout (ms).
     // The caller must hold mtx. mtx is released for the duration of the wait
     // and reacquired before returning.
-    bool wait(ipc::sync::mutex &mtx, std::uint64_t tm) noexcept {
+    bool wait(thoth::sync::mutex &mtx, std::uint64_t tm) noexcept {
         THOTH_IPC_LOG();
         if (!valid()) return false;
 
@@ -178,11 +178,11 @@ public:
         // Reacquire the mutex before returning.
         // Always use infinite wait here: the caller (e.g. lock_guard) will
         // unconditionally call unlock(), so we must hold the lock on return.
-        mtx.lock(ipc::invalid_value);
+        mtx.lock(thoth::invalid_value);
         return notified;
     }
 
-    bool notify(ipc::sync::mutex &) noexcept {
+    bool notify(thoth::sync::mutex &) noexcept {
         THOTH_IPC_LOG();
         if (!valid()) return false;
         cond_->seq.fetch_add(1, std::memory_order_acq_rel);
@@ -191,7 +191,7 @@ public:
         return true;
     }
 
-    bool broadcast(ipc::sync::mutex &) noexcept {
+    bool broadcast(thoth::sync::mutex &) noexcept {
         THOTH_IPC_LOG();
         if (!valid()) return false;
         cond_->seq.fetch_add(1, std::memory_order_acq_rel);
@@ -203,4 +203,4 @@ public:
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

@@ -8,5 +8,5 @@
 TEST(error, error_code) {
   std::error_code ecode;
   EXPECT_FALSE(ecode);
-  std::cout << ipc::fmt(ecode, '\n');
+  std::cout << thoth::fmt(ecode, '\n');
 }

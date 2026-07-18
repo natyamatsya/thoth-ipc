@@ -25,7 +25,7 @@
 #include "thoth-ipc/platform/apple/spin_lock.h"
 #include "thoth-ipc/platform/apple/ulock.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
@@ -47,13 +47,13 @@ struct ulock_mutex_t {
 static constexpr int kMutexSpinCount = 40;
 
 class mutex {
-    ipc::shm::handle *shm_ = nullptr;
+    thoth::shm::handle *shm_ = nullptr;
     std::atomic<std::int32_t> *ref_ = nullptr;
     ulock_mutex_t *data_ = nullptr;
 
     struct curr_prog {
         struct shm_data {
-            ipc::shm::handle shm;
+            thoth::shm::handle shm;
             std::atomic<std::int32_t> ref;
 
             struct init {
@@ -68,7 +68,7 @@ class mutex {
         // clear_storage) without being destroyed while open handles still hold
         // raw pointers into it. std::map is node-based, but the value here is a
         // shm_data*, so orphaning is a pointer move + erase, not a copy.
-        ipc::map<std::string, shm_data *> mutex_handles;
+        thoth::map<std::string, shm_data *> mutex_handles;
         // Nodes cleared via clear_storage() while still in use in-process.
         // Each keeps its intact mapping + ref counter until its last local
         // handle closes; drained in destroy_node().
@@ -307,7 +307,7 @@ public:
                 }
             }
         }
-        ipc::shm::handle::clear_storage(name);
+        thoth::shm::handle::clear_storage(name);
     }
 
     // Lock with optional timeout (ms). Pass invalid_value for infinite wait.
@@ -432,4 +432,4 @@ public:
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

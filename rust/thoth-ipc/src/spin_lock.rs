@@ -6,7 +6,7 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-/// Adaptive backoff matching the C++ `ipc::yield(k)` function.
+/// Adaptive backoff matching the C++ `thoth::yield(k)` function.
 ///
 /// - k < 4:  busy spin (do nothing)
 /// - k < 16: CPU pause hint
@@ -35,7 +35,7 @@ pub(crate) fn adaptive_yield_pub(k: &mut u32) {
 
 /// A simple spin lock with adaptive backoff.
 ///
-/// Port of `ipc::spin_lock` from cpp-ipc. Uses an `AtomicU32` exchanged
+/// Port of `thoth::spin_lock` from cpp-ipc. Uses an `AtomicU32` exchanged
 /// to 1 on lock, stored to 0 on unlock, with adaptive yield between retries.
 pub struct SpinLock {
     lc: AtomicU32,

@@ -10,11 +10,11 @@
 
 #include "thoth-ipc/platform/detail.h"
 
-namespace ipc {
+namespace thoth {
 namespace circ {
 
-using u1_t = ipc::uint_t<8>;
-using u2_t = ipc::uint_t<32>;
+using u1_t = thoth::uint_t<8>;
+using u2_t = thoth::uint_t<32>;
 
 /** only supports max 32 connections in broadcast mode */
 using cc_t = u2_t;
@@ -26,14 +26,14 @@ constexpr u1_t index_of(u2_t c) noexcept {
 class conn_head_base {
 protected:
     std::atomic<cc_t> cc_{0}; // connections
-    ipc::spin_lock lc_;
+    thoth::spin_lock lc_;
     std::atomic<bool> constructed_{false};
 
 public:
     void init() {
         /* DCLP */
         if (!constructed_.load(std::memory_order_acquire)) {
-            THOTH_IPC_UNUSED auto guard = ipc::detail::unique_lock(lc_);
+            THOTH_IPC_UNUSED auto guard = thoth::detail::unique_lock(lc_);
             if (!constructed_.load(std::memory_order_relaxed)) {
                 ::new (this) conn_head_base;
                 constructed_.store(true, std::memory_order_release);
@@ -57,7 +57,7 @@ template <typename P>
 class conn_head<P, true> : public conn_head_base {
 public:
     cc_t connect() noexcept {
-        for (unsigned k = 0;; ipc::yield(k)) {
+        for (unsigned k = 0;; thoth::yield(k)) {
             cc_t curr = this->cc_.load(std::memory_order_acquire);
             cc_t next = curr | (curr + 1); // find the first 0, and set it to 1.
             if (next == curr) {
@@ -115,4 +115,4 @@ public:
 };
 
 } // namespace circ
-} // namespace ipc
+} // namespace thoth

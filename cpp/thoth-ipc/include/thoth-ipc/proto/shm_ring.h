@@ -11,7 +11,7 @@
 
 #include "thoth-ipc/shm.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 // Lock-free single-producer single-consumer ring buffer over shared memory.
@@ -49,7 +49,7 @@ class shm_ring {
         T      slots[N];
     };
 
-    ipc::shm::handle shm_;
+    thoth::shm::handle shm_;
     layout *data_ = nullptr;
     std::string name_;
 
@@ -66,7 +66,7 @@ public:
     shm_ring &operator=(const shm_ring &) = delete;
 
     bool open_or_create() {
-        if (!shm_.acquire(name_.c_str(), sizeof(layout), ipc::shm::create | ipc::shm::open))
+        if (!shm_.acquire(name_.c_str(), sizeof(layout), thoth::shm::create | thoth::shm::open))
             return false;
         data_ = static_cast<layout *>(shm_.get());
         if (!data_->hdr.constructed.load(std::memory_order_acquire)) {
@@ -79,7 +79,7 @@ public:
     }
 
     bool open_existing() {
-        if (!shm_.acquire(name_.c_str(), sizeof(layout), ipc::shm::open))
+        if (!shm_.acquire(name_.c_str(), sizeof(layout), thoth::shm::open))
             return false;
         data_ = static_cast<layout *>(shm_.get());
         return data_->hdr.constructed.load(std::memory_order_acquire);
@@ -93,7 +93,7 @@ public:
 
     void destroy() {
         close();
-        ipc::shm::handle::clear_storage(name_.c_str());
+        thoth::shm::handle::clear_storage(name_.c_str());
     }
 
     bool valid() const noexcept { return data_ != nullptr; }
@@ -172,4 +172,4 @@ public:
 };
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

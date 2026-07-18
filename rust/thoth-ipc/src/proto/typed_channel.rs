@@ -11,5 +11,5 @@ use super::typed_channel_codec::TypedChannelCodec;
 ///
 /// `T` is the FlatBuffers-generated root table type.
 ///
-/// Port of `ipc::proto::typed_channel<T>` from the C++ thoth_ipc library.
+/// Port of `thoth::proto::typed_channel<T>` from the C++ thoth_ipc library.
 pub type TypedChannel<T> = TypedChannelCodec<T, FlatBuffersCodec>;

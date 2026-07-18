@@ -5,7 +5,7 @@
 
 #include <os/lock.h>
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
@@ -37,4 +37,4 @@ public:
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

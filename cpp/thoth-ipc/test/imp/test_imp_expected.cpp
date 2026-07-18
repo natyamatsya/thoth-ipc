@@ -90,52 +90,52 @@ public:
 } // namespace
 
 TEST(expected, in_place) {
-  ipc::expected<test_val, test_err> e1;
+  thoth::expected<test_val, test_err> e1;
   EXPECT_TRUE(e1);
   EXPECT_EQ(e1.value().dc_, 1);
   EXPECT_EQ(e1.value().val, 0);
 
-  ipc::expected<test_val, test_err> e2 {ipc::in_place, 123};
+  thoth::expected<test_val, test_err> e2 {thoth::in_place, 123};
   EXPECT_TRUE(e2);
   EXPECT_EQ(e2.value().dc_, 0);
   EXPECT_EQ(e2.value().val, 123);
 }
 
 TEST(expected, unexpected) {
-  ipc::expected<test_val, test_err> e1 {ipc::unexpected};
+  thoth::expected<test_val, test_err> e1 {thoth::unexpected};
   EXPECT_FALSE(e1);
   EXPECT_EQ(e1.error().dc_, 1);
   EXPECT_EQ(e1.error().val, 0);
 
-  ipc::expected<test_val, test_err> e2 {ipc::unexpected, 321};
+  thoth::expected<test_val, test_err> e2 {thoth::unexpected, 321};
   EXPECT_FALSE(e2);
   EXPECT_EQ(e2.error().dc_, 0);
   EXPECT_EQ(e2.error().val, 321);
 }
 
 TEST(expected, copy_and_move) {
-  ipc::expected<test_val, test_err> e1 {ipc::in_place, 123};
-  ipc::expected<test_val, test_err> e2 {e1};
+  thoth::expected<test_val, test_err> e1 {thoth::in_place, 123};
+  thoth::expected<test_val, test_err> e2 {e1};
   EXPECT_TRUE(e1);
   EXPECT_TRUE(e2);
   EXPECT_EQ(e1, e2);
   EXPECT_EQ(e2.value().cc_, 1);
   EXPECT_EQ(e2.value().val, 123);
 
-  ipc::expected<test_val, test_err> e3 {ipc::unexpected, 333};
-  ipc::expected<test_val, test_err> e4 {e3};
+  thoth::expected<test_val, test_err> e3 {thoth::unexpected, 333};
+  thoth::expected<test_val, test_err> e4 {e3};
   EXPECT_FALSE(e3);
   EXPECT_FALSE(e4);
   EXPECT_EQ(e3, e4);
   EXPECT_EQ(e4.error().cc_, 1);
   EXPECT_EQ(e4.error().val, 333);
 
-  ipc::expected<test_val, test_err> e5;
+  thoth::expected<test_val, test_err> e5;
   e5 = e1;
   EXPECT_EQ(e1, e5);
   EXPECT_EQ(e5.value().val, 123);
 
-  ipc::expected<test_val, test_err> e6;
+  thoth::expected<test_val, test_err> e6;
   e6 = std::move(e5);
   EXPECT_EQ(e1, e6);
   EXPECT_EQ(e5.value().val, 0);

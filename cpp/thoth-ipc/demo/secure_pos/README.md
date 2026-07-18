@@ -7,7 +7,7 @@ envelope v1) is not just nice to have but **mandated**:
   capture, and intermediary software (the merchant's POS app) must be
   *cryptographically unable* to read it — that is precisely what keeps the
   POS out of PCI audit scope.
-- **Broadcast privilege separation**: `ipc::route` is 1→N broadcast — every
+- **Broadcast privilege separation**: `thoth::route` is 1→N broadcast — every
   subscriber sees every message's bytes. Transport-level permissions cannot
   restrict who can *read* on a shared bus; application-layer AEAD is the only
   mechanism. The same pattern applies to any mixed-privilege bus: audit

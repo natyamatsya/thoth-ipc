@@ -33,7 +33,7 @@ the next waiter if it finds the lock still contested (hand-off / "barging" patte
 
 ---
 
-## Phase 2 — Raise the spin threshold in `ipc::sleep`
+## Phase 2 — Raise the spin threshold in `thoth::sleep`
 
 **Root cause:** Code inspection confirms C++ `wait_for` and Rust `wait_for` use
 **identical** `SPIN_COUNT=32` and both reset `k=0` after each wakeup. The gap is the
@@ -47,7 +47,7 @@ exponential CPU-relax backoff: `1, 2, 4, 8` `spin_loop()` calls for iterations 1
 then `thread_yield()` for iterations 4–10, then signals "go to sleep". This keeps the
 CPU busy longer on the fast path without a tight spin.
 
-**Fix:** Replace the flat `yield_now()` loop in `ipc::sleep` with exponential
+**Fix:** Replace the flat `yield_now()` loop in `thoth::sleep` with exponential
 `IPC_LOCK_PAUSE_()` backoff for the first ~8 iterations then `yield()` for the next
 ~24, matching `parking_lot`'s `SpinWait` shape. Also raise `N` from 32 to 64.
 
@@ -56,7 +56,7 @@ CPU busy longer on the fast path without a tight spin.
 * `include/libipc/rw_lock.h` — `yield()` and `sleep<N>` functions
 * `src/libipc/ipc.cpp` — `wait_for` call sites (verify they use the default `N`)
 
-**Acceptance:** `ipc::route` 1-receiver latency drops below 1 µs/datum.
+**Acceptance:** `thoth::route` 1-receiver latency drops below 1 µs/datum.
 
 ---
 
@@ -90,7 +90,7 @@ thread was actually sleeping.
 * `src/libipc/platform/apple/condition.h` — `ulock_cond_t`, `notify()`, `broadcast()`
 * `src/libipc/waiter.h` — `wait_if()`, `notify()`, `broadcast()`
 
-**Acceptance:** `ipc::channel` N-N benchmark at N=2 drops below 1 µs/datum.
+**Acceptance:** `thoth::channel` N-N benchmark at N=2 drops below 1 µs/datum.
 
 ---
 
@@ -111,5 +111,5 @@ Phase 1 (1–2h)  →  benchmark  →  Phase 2 (1h)  →  benchmark  →  Phase 
 ## Status
 
 * [x] Phase 1 — Fix thundering herd: `unlock()` already used `ulock_wake_one()` (single wake). `ULF_WAKE_ALL` only in dead-holder recovery and close/clear paths — correct.
-* [x] Phase 2 — Exponential pause backoff implemented in `ipc::sleep` (`N=64`, `IPC_LOCK_PAUSE_()` for k<8). **No measurable effect on benchmark** — the 100k-message workload saturates the ring buffer so `wait_for` is always genuinely blocking, not spinning. The change is kept as it improves the uncontended case.
-* [x] Phase 3 — Unconditional `__ulock_wake` eliminated. Added `waiters` counter to `ulock_cond_t`; `broadcast()`/`notify()` skip the syscall when `waiters == 0`. Removed redundant barrier lock from `waiter::broadcast()`. Added fast-path predicate check in `wait_if()`. **Result: `ipc::channel` N-1/N-N dropped from ~3 µs to 0.5–1 µs/datum (3–6× improvement). `ipc::route` unchanged at ~3 µs — receiver is always sleeping so `waiters > 0` on every push.**
+* [x] Phase 2 — Exponential pause backoff implemented in `thoth::sleep` (`N=64`, `IPC_LOCK_PAUSE_()` for k<8). **No measurable effect on benchmark** — the 100k-message workload saturates the ring buffer so `wait_for` is always genuinely blocking, not spinning. The change is kept as it improves the uncontended case.
+* [x] Phase 3 — Unconditional `__ulock_wake` eliminated. Added `waiters` counter to `ulock_cond_t`; `broadcast()`/`notify()` skip the syscall when `waiters == 0`. Removed redundant barrier lock from `waiter::broadcast()`. Added fast-path predicate check in `wait_if()`. **Result: `thoth::channel` N-1/N-N dropped from ~3 µs to 0.5–1 µs/datum (3–6× improvement). `thoth::route` unchanged at ~3 µs — receiver is always sleeping so `waiters > 0` on every push.**

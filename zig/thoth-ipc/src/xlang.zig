@@ -4,7 +4,7 @@
 // Cross-language round-trip harness (Zig endpoint). Shares the CLI contract of
 // the C++ (xlang_ipc), Rust (xlang) and Swift (xlang-harness) harnesses so the
 // matrix driver (tools/xlang-runner) can pair Zig with any other language on the
-// ipc::route wire. See tools/xlang-runner/README.md.
+// thoth::route wire. See tools/xlang-runner/README.md.
 //
 // v1 verbs: write / read (route), clear, caps. `caps` reports an empty set, so
 // the runner joins only the sync and fanout scenarios and plans around the rest.
@@ -565,7 +565,7 @@ fn doRead(name: []const u8, count: usize, size: usize) u8 {
 }
 
 // --- Multi-writer channel verbs (scenario: channel) ------------------------
-// ipc::channel (N writers, N readers). Same msg framing as route over a
+// thoth::channel (N writers, N readers). Same msg framing as route over a
 // multi-producer commit ring; the runner pairs two writers of (possibly
 // different) languages into one reader, which expects 2*count messages.
 

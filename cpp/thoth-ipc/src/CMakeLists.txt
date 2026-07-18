@@ -79,7 +79,7 @@ endif()
 # Opt-in Layer 1 readiness handle (see notify.h). The public ABI
 # (native_wait_handle) is stable regardless; the macro is PUBLIC so downstream
 # TUs can feature-test it (#if defined(THOTH_IPC_NOTIFY_FD)) before relying on a
-# functional handle. When OFF, native_wait_handle returns ipc::invalid_wait_handle.
+# functional handle. When OFF, native_wait_handle returns thoth::invalid_wait_handle.
 if(THOTH_IPC_NOTIFY_FD)
   # Windows uses the named-Event backend (notify.h THOTH_IPC_NOTIFY_BACKEND_WINEVENT);
   # POSIX uses libnotify (Apple) or the FIFO backend. All are wired below.
@@ -91,7 +91,7 @@ if(THOTH_IPC_NOTIFY_FD)
   endif()
 endif()
 
-# Opt-in Layer 2: ipc::async_recv() + reactor. PUBLIC (the templated sender API
+# Opt-in Layer 2: thoth::async_recv() + reactor. PUBLIC (the templated sender API
 # lives in the public header async_recv.h, so consumers compile against stdexec
 # and the THOTH_IPC_STDEXEC switch).
 if(THOTH_IPC_STDEXEC)

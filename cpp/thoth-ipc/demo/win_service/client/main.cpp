@@ -12,10 +12,10 @@
 
 int _tmain (int argc, TCHAR *argv[]) {
     _tprintf(_T("My Sample Client: Entry\n"));
-    ipc::channel ipc_r{ipc::prefix{"Global\\"}, "service ipc r", ipc::receiver};
-    ipc::channel ipc_w{ipc::prefix{"Global\\"}, "service ipc w", ipc::sender};
+    thoth::channel ipc_r{thoth::prefix{"Global\\"}, "service ipc r", thoth::receiver};
+    thoth::channel ipc_w{thoth::prefix{"Global\\"}, "service ipc w", thoth::sender};
     while (1) {
-        if (!ipc_r.reconnect(ipc::receiver)) {
+        if (!ipc_r.reconnect(thoth::receiver)) {
             Sleep(1000);
             continue;
         }
@@ -27,7 +27,7 @@ int _tmain (int argc, TCHAR *argv[]) {
         }
         printf("My Sample Client: message recv: [%s]\n", (char const *)msg.data());
         for (;;) {
-            if (!ipc_w.reconnect(ipc::sender)) {
+            if (!ipc_w.reconnect(thoth::sender)) {
                 Sleep(1000);
                 continue;
             }

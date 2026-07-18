@@ -20,7 +20,7 @@
 #include "thoth-ipc/imp/fmt.h"
 #include "thoth-ipc/imp/generic.h"
 
-namespace ipc {
+namespace thoth {
 namespace log {
 
 enum class level : std::int32_t {
@@ -191,8 +191,8 @@ inline auto make_logger(char const * /*ignore*/, char const *name, level level_l
 #define THOTH_IPC_LOG(...) \
   auto log \
     = [](auto &&...args) noexcept { \
-        return ::ipc::log::make_logger(__func__, std::forward<decltype(args)>(args)...); \
+        return ::thoth::log::make_logger(__func__, std::forward<decltype(args)>(args)...); \
       }(__VA_ARGS__)
 
 } // namespace log
-} // namespace ipc
+} // namespace thoth

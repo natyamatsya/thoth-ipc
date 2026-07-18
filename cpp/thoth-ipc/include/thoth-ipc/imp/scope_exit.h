@@ -14,7 +14,7 @@
 
 #include "thoth-ipc/imp/detect_plat.h"
 
-namespace ipc {
+namespace thoth {
 
 template <typename F = std::function<void()>>
 class scope_exit {
@@ -75,6 +75,6 @@ struct scope_exit_helper {
 } // namespace detail_scope_exit
 
 #define THOTH_IPC_SCOPE_EXIT($VAL) \
-  THOTH_IPC_UNUSED auto $VAL = ::ipc::detail_scope_exit::scope_exit_helper{}
+  THOTH_IPC_UNUSED auto $VAL = ::thoth::detail_scope_exit::scope_exit_helper{}
 
-} // namespace ipc
+} // namespace thoth

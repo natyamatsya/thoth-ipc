@@ -62,10 +62,10 @@ TEST(PThread, Robust) {
 #include "thoth-ipc/mutex.h"
 
 TEST(Sync, Mutex) {
-    ipc::sync::mutex lock;
+    thoth::sync::mutex lock;
     EXPECT_TRUE(lock.open("test-mutex-robust"));
     std::thread{[] {
-        ipc::sync::mutex lock {"test-mutex-robust"};
+        thoth::sync::mutex lock {"test-mutex-robust"};
         EXPECT_TRUE(lock.valid());
         EXPECT_TRUE(lock.lock());
     }}.join();
@@ -76,7 +76,7 @@ TEST(Sync, Mutex) {
     // EXPECT_TRUE(lock.lock());
     // i = 100;
     // auto t2 = std::thread{[&i] {
-    //     ipc::sync::mutex lock {"test-mutex-robust"};
+    //     thoth::sync::mutex lock {"test-mutex-robust"};
     //     EXPECT_TRUE(lock.valid());
     //     EXPECT_FALSE(lock.try_lock());
     //     EXPECT_TRUE(lock.lock());
@@ -93,10 +93,10 @@ TEST(Sync, Mutex) {
 #include "thoth-ipc/semaphore.h"
 
 TEST(Sync, Semaphore) {
-    ipc::sync::semaphore sem;
+    thoth::sync::semaphore sem;
     EXPECT_TRUE(sem.open("test-sem"));
     std::thread{[] {
-        ipc::sync::semaphore sem {"test-sem"};
+        thoth::sync::semaphore sem {"test-sem"};
         EXPECT_TRUE(sem.post(1000));
     }}.join();
 
@@ -109,19 +109,19 @@ TEST(Sync, Semaphore) {
 #include "thoth-ipc/condition.h"
 
 TEST(Sync, Condition) {
-    ipc::sync::condition cond;
+    thoth::sync::condition cond;
     EXPECT_TRUE(cond.open("test-cond"));
-    ipc::sync::mutex lock;
+    thoth::sync::mutex lock;
     EXPECT_TRUE(lock.open("test-mutex"));
     std::deque<int> que;
 
     auto job = [&que](int num) {
-        ipc::sync::condition cond {"test-cond"};
-        ipc::sync::mutex lock {"test-mutex"};
+        thoth::sync::condition cond {"test-cond"};
+        thoth::sync::mutex lock {"test-mutex"};
         for (int i = 0; i < 10; ++i) {
             int val = 0;
             {
-                std::lock_guard<ipc::sync::mutex> guard {lock};
+                std::lock_guard<thoth::sync::mutex> guard {lock};
                 while (que.empty()) {
                     ASSERT_TRUE(cond.wait(lock));
                 }
@@ -134,7 +134,7 @@ TEST(Sync, Condition) {
         for (;;) {
             int val = 0;
             {
-                std::lock_guard<ipc::sync::mutex> guard {lock};
+                std::lock_guard<thoth::sync::mutex> guard {lock};
                 while (que.empty()) {
                     ASSERT_TRUE(cond.wait(lock, 1000));
                 }
@@ -155,7 +155,7 @@ TEST(Sync, Condition) {
 
     for (int i = 1; i < 100; ++i) {
         {
-            std::lock_guard<ipc::sync::mutex> guard {lock};
+            std::lock_guard<thoth::sync::mutex> guard {lock};
             que.push_back(i);
             ASSERT_TRUE(cond.notify(lock));
         }
@@ -163,14 +163,14 @@ TEST(Sync, Condition) {
     }
     for (int i = 1; i < 100; ++i) {
         {
-            std::lock_guard<ipc::sync::mutex> guard {lock};
+            std::lock_guard<thoth::sync::mutex> guard {lock};
             que.push_back(i);
             ASSERT_TRUE(cond.broadcast(lock));
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     {
-        std::lock_guard<ipc::sync::mutex> guard {lock};
+        std::lock_guard<thoth::sync::mutex> guard {lock};
         for (int i = 0; i < (int)test_conds.size(); ++i) {
             que.push_back(0);
         }
@@ -185,19 +185,19 @@ TEST(Sync, Condition) {
 */
 TEST(Sync, ConditionRobust) {
     printf("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 1\n");
-    ipc::sync::condition cond {"test-cond"};
+    thoth::sync::condition cond {"test-cond"};
     printf("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 2\n");
-    ipc::sync::mutex lock {"test-mutex"};
+    thoth::sync::mutex lock {"test-mutex"};
     printf("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 3\n");
     ASSERT_TRUE(lock.lock());
     std::thread unlock {[] {
         printf("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW 1\n");
-        ipc::sync::condition cond {"test-cond"};
+        thoth::sync::condition cond {"test-cond"};
         printf("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW 2\n");
-        ipc::sync::mutex lock {"test-mutex"};
+        thoth::sync::mutex lock {"test-mutex"};
         printf("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW 3\n");
         {
-            std::lock_guard<ipc::sync::mutex> guard {lock};
+            std::lock_guard<thoth::sync::mutex> guard {lock};
         }
         std::this_thread::sleep_for(std::chrono::seconds(1));
         printf("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW 4\n");

@@ -5,17 +5,17 @@
 // receive API.
 //
 //   template <stdexec::scheduler Scheduler>
-//   sender-of<ipc::recv_result> async_recv(ipc::route& channel, Scheduler on);
+//   sender-of<thoth::recv_result> async_recv(thoth::route& channel, Scheduler on);
 //
 // Following ADR-0001 (domain/exceptional errors travel as std::expected on the
 // value channel), the sender's error channel is PRUNED — it never completes
 // set_error. The returned sender completes:
-//   * set_value(ipc::recv_result)  a message, or a recv_errc, hopped onto `on`;
+//   * set_value(thoth::recv_result)  a message, or a recv_errc, hopped onto `on`;
 //   * set_stopped()                when the receiver's stop_token is triggered.
 // Exceptions from the receive (e.g. bad_alloc) are caught and mapped to a
 // recv_errc, so a downstream ExpectedPipeline stays exception-free.
 //
-// A single process-global reactor thread (ipc::detail::reactor) multiplexes
+// A single process-global reactor thread (thoth::detail::reactor) multiplexes
 // every async channel's Layer-1 fd, so N channels cost one thread instead of N.
 // Only available when libipc is built with THOTH_IPC_STDEXEC (which also enables
 // THOTH_IPC_NOTIFY_FD).
@@ -35,9 +35,9 @@
 #include "thoth-ipc/ipc.h"
 #include "thoth-ipc/execution/reactor.h"
 #include "thoth-ipc/execution/wait_drain.h"  // detail::drain_wait_handle (no <unistd.h> here)
-#include "thoth-ipc/execution/recv_result.h" // ipc::recv_errc / recv_result / recv_message
+#include "thoth-ipc/execution/recv_result.h" // thoth::recv_errc / recv_result / recv_message
 
-namespace ipc {
+namespace thoth {
 
 namespace detail {
 
@@ -46,10 +46,10 @@ namespace detail {
 // `this`), so non-movable.
 template <class Receiver, reactor_like R>
 struct recv_op : reactor_waiter {
-    ipc::route       *ch_;
+    thoth::route       *ch_;
     R                *reactor_; // injected multiplexer (never null after ctor)
     Receiver          rcvr_;
-    ipc::wait_handle_t fd_   = ipc::invalid_wait_handle;
+    thoth::wait_handle_t fd_   = thoth::invalid_wait_handle;
     bool              armed_ = false;
     std::atomic<bool> fired_{false}; // exactly one completion wins
 
@@ -60,7 +60,7 @@ struct recv_op : reactor_waiter {
     using token_t = stdexec::stop_token_of_t<stdexec::env_of_t<Receiver>>;
     std::optional<stdexec::stop_callback_for_t<token_t, on_stop>> stop_cb_;
 
-    recv_op(ipc::route *ch, R *r, Receiver rcvr)
+    recv_op(thoth::route *ch, R *r, Receiver rcvr)
         : ch_(ch), reactor_(r), rcvr_(std::move(rcvr)) {}
     recv_op(recv_op &&) = delete;
 
@@ -71,7 +71,7 @@ struct recv_op : reactor_waiter {
             return;
         }
         fd_ = ch_->native_wait_handle();
-        if (fd_ == ipc::invalid_wait_handle) {
+        if (fd_ == thoth::invalid_wait_handle) {
             // Pruned error channel: surface the misconfiguration as data.
             stdexec::set_value(std::move(rcvr_),
                                recv_result{std::unexpected(recv_errc::no_readiness_handle)});
@@ -104,7 +104,7 @@ struct recv_op : reactor_waiter {
     bool deliver_if_ready() noexcept {
         recv_result result{std::unexpected(recv_errc::unknown)};
         try {
-            ipc::buff_t buff = ch_->try_recv();
+            thoth::buff_t buff = ch_->try_recv();
             if (buff.empty()) return false; // no message yet — keep waiting
             result = std::move(buff);
         } catch (std::bad_alloc const &) {
@@ -127,13 +127,13 @@ struct recv_op : reactor_waiter {
 template <reactor_like R>
 struct read_sender {
     using sender_concept = stdexec::sender_t;
-    // Pruned error channel: value carries ipc::recv_result (message or recv_errc),
+    // Pruned error channel: value carries thoth::recv_result (message or recv_errc),
     // cancellation is set_stopped. No set_error — stays exception-free.
     using completion_signatures = stdexec::completion_signatures<
-        stdexec::set_value_t(ipc::recv_result),
+        stdexec::set_value_t(thoth::recv_result),
         stdexec::set_stopped_t()>;
 
-    ipc::route *ch_;
+    thoth::route *ch_;
     R          *reactor_;
 
     template <class Receiver>
@@ -148,17 +148,17 @@ struct read_sender {
  * \brief Asynchronously receive one message from `channel`, without a dedicated
  *        blocking thread.
  *
- * \param channel  A receiver-mode ipc::route/ipc::channel exposing a readiness
+ * \param channel  A receiver-mode thoth::route/thoth::channel exposing a readiness
  *                 handle (libipc built with THOTH_IPC_NOTIFY_FD).
  * \param on       Scheduler the completion is delivered on.
- * \returns A sender completing set_value(ipc::recv_result) / set_stopped(). The
+ * \returns A sender completing set_value(thoth::recv_result) / set_stopped(). The
  *          error channel is pruned; failures arrive as recv_errc in the value.
  *
  * Compose it into a reader loop, e.g. with exec::repeat_effect_until, in place
  * of a std::jthread + blocking recv().
  */
 template <stdexec::scheduler Scheduler>
-stdexec::sender auto async_recv(ipc::route &channel, Scheduler on) {
+stdexec::sender auto async_recv(thoth::route &channel, Scheduler on) {
     return stdexec::continues_on(
         detail::read_sender<detail::reactor>{&channel, &detail::reactor::instance()},
         std::move(on));
@@ -168,15 +168,15 @@ stdexec::sender auto async_recv(ipc::route &channel, Scheduler on) {
  * \brief As above, but multiplexed on a caller-supplied reactor.
  *
  * Lets a consumer run its own reactor instance, or a test inject a fake (any
- * type modelling ipc::detail::reactor_like) to drive on_ready() deterministically
+ * type modelling thoth::detail::reactor_like) to drive on_ready() deterministically
  * without the real kqueue/epoll thread.
  */
 template <stdexec::scheduler Scheduler, detail::reactor_like R>
-stdexec::sender auto async_recv(ipc::route &channel, Scheduler on, R &reactor) {
+stdexec::sender auto async_recv(thoth::route &channel, Scheduler on, R &reactor) {
     return stdexec::continues_on(
         detail::read_sender<R>{&channel, &reactor}, std::move(on));
 }
 
-} // namespace ipc
+} // namespace thoth
 
 #endif // THOTH_IPC_STDEXEC

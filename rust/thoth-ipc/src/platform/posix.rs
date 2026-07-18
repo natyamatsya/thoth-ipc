@@ -185,7 +185,7 @@ unsafe impl Sync for PlatformShm {}
 /// generous liveness backstop, not a hot-path cost.
 const SHM_SIZE_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Open mode flags — mirrors C++ `ipc::shm::create` / `ipc::shm::open`.
+/// Open mode flags — mirrors C++ `thoth::shm::create` / `thoth::shm::open`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShmMode {
     Create,
@@ -194,8 +194,8 @@ pub enum ShmMode {
 }
 
 impl PlatformShm {
-    /// Acquire a named shared memory region, binary-compatible with C++ `ipc::shm::acquire`
-    /// + `ipc::shm::get_mem`.
+    /// Acquire a named shared memory region, binary-compatible with C++ `thoth::shm::acquire`
+    /// + `thoth::shm::get_mem`.
     pub fn acquire(name: &str, user_size: usize, mode: ShmMode) -> io::Result<Self> {
         if name.is_empty() {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "name is empty"));

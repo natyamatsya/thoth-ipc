@@ -24,7 +24,7 @@ namespace {
 // A live sender is the least intrusive way to read recv_count() — senders do not
 // claim a receiver slot and (unlike receivers) never trigger reap-on-connect.
 std::size_t observed_recv_count(char const *name) {
-    ipc::route probe{name, ipc::sender};
+    thoth::route probe{name, thoth::sender};
     return probe.recv_count();
 }
 
@@ -32,21 +32,21 @@ std::size_t observed_recv_count(char const *name) {
 
 TEST(Liveness, ReapsDeadReceiverOnConnect) {
     char const *name = "st.liveness.reap";
-    ipc::route::clear_storage(name);
+    thoth::route::clear_storage(name);
 
     pid_t pid = ::fork();
     ASSERT_GE(pid, 0);
     if (pid == 0) {
         // Child: claim a receiver slot, then block until SIGKILLed — so its
         // destructor never runs and the cc_ bit is never cleared cleanly.
-        ipc::route r{name, ipc::receiver};
+        thoth::route r{name, thoth::receiver};
         ::pause();
         ::_exit(0);
     }
 
     // Parent: wait for the child to occupy its slot.
     {
-        ipc::route probe{name, ipc::sender};
+        thoth::route probe{name, thoth::sender};
         ASSERT_TRUE(probe.wait_for_recv(1, 3000)) << "child never connected";
     }
     EXPECT_EQ(observed_recv_count(name), 1u);
@@ -62,16 +62,16 @@ TEST(Liveness, ReapsDeadReceiverOnConnect) {
     // A fresh receiver reaps the dead slot before claiming its own, so the count
     // is 1 (just us) — NOT 2 (phantom + us), which is what happens without the reaper.
     {
-        ipc::route fresh{name, ipc::receiver};
+        thoth::route fresh{name, thoth::receiver};
         EXPECT_EQ(fresh.recv_count(), 1u) << "dead receiver was not reaped on connect";
 
         // A second live receiver must still count normally (reaping is targeted,
         // not a blanket disconnect).
-        ipc::route fresh2{name, ipc::receiver};
+        thoth::route fresh2{name, thoth::receiver};
         EXPECT_EQ(fresh2.recv_count(), 2u);
     }
 
-    ipc::route::clear_storage(name);
+    thoth::route::clear_storage(name);
 }
 
 // Phase 2: when a dead receiver blocks ring reclamation, force_push must reap the
@@ -79,24 +79,24 @@ TEST(Liveness, ReapsDeadReceiverOnConnect) {
 // blanket disconnect that dropped live readers too.
 TEST(Liveness, ForcePushReapsDeadKeepsLive) {
     char const *name = "st.liveness.forcepush";
-    ipc::route::clear_storage(name);
+    thoth::route::clear_storage(name);
 
     // Dead receiver: connects, never reads, gets SIGKILLed — it will block the
     // ring because it never consumes.
     pid_t pid = ::fork();
     ASSERT_GE(pid, 0);
     if (pid == 0) {
-        ipc::route dead{name, ipc::receiver};
+        thoth::route dead{name, thoth::receiver};
         ::pause();
         ::_exit(0);
     }
     {
-        ipc::route probe{name, ipc::sender};
+        thoth::route probe{name, thoth::sender};
         ASSERT_TRUE(probe.wait_for_recv(1, 3000)) << "dead receiver never connected";
     }
 
     // Live receiver in this process, draining in a thread.
-    ipc::route live{name, ipc::receiver};
+    thoth::route live{name, thoth::receiver};
     ASSERT_EQ(observed_recv_count(name), 2u); // dead (phantom-to-be) + live
 
     ::kill(pid, SIGKILL);
@@ -107,7 +107,7 @@ TEST(Liveness, ForcePushReapsDeadKeepsLive) {
     std::atomic<bool> stop{false};
     std::thread reader([&] {
         while (!stop.load(std::memory_order_acquire)) {
-            ipc::buff_t b = live.recv(200);
+            thoth::buff_t b = live.recv(200);
             if (!b.empty()) received.fetch_add(1, std::memory_order_relaxed);
         }
     });
@@ -115,7 +115,7 @@ TEST(Liveness, ForcePushReapsDeadKeepsLive) {
     // Sender storm: the dead receiver blocks reclamation, so the writer hits
     // force_push, which reaps the dead slot and keeps the live (draining) reader.
     {
-        ipc::route s{name, ipc::sender};
+        thoth::route s{name, thoth::sender};
         ASSERT_TRUE(s.wait_for_recv(1, 3000));
         char msg[8] = "phase2";
         for (int i = 0; i < 1000; ++i) {
@@ -134,14 +134,14 @@ TEST(Liveness, ForcePushReapsDeadKeepsLive) {
     EXPECT_EQ(live.recv_count(), 1u) << "live reader was dropped by force_push";
     EXPECT_GT(received.load(), 0) << "live reader received nothing";
 
-    ipc::route::clear_storage(name);
+    thoth::route::clear_storage(name);
 }
 
 // Phase 3: a start token disambiguates PID reuse — a live PID whose recorded
 // token no longer matches (the PID was recycled for a different process) must be
 // treated as gone, while the same process with the same token stays alive.
 TEST(Liveness, StartTokenDetectsPidReuse) {
-    using namespace ipc::detail;
+    using namespace thoth::detail;
     std::int32_t me = self_pid();
     std::uint64_t tok = start_token(me);
 

@@ -14,7 +14,7 @@
 #include "thoth-ipc/proto/typed_channel_codec.h"
 #include "thoth-ipc/proto/typed_route_codec.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 template <typename T>
@@ -32,6 +32,6 @@ protobuf_builder protobuf_builder_from_message_lite(const T &message) {
 }
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth
 
 #endif // __has_include(<google/protobuf/message_lite.h>)

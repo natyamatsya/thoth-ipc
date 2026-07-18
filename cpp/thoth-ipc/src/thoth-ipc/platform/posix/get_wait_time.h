@@ -9,7 +9,7 @@
 
 #include "thoth-ipc/imp/log.h"
 
-namespace ipc {
+namespace thoth {
 namespace posix_ {
 namespace detail {
 
@@ -39,4 +39,4 @@ inline timespec make_timespec(std::uint64_t tm /*ms*/) noexcept(false) {
 
 } // namespace detail
 } // namespace posix_
-} // namespace ipc
+} // namespace thoth

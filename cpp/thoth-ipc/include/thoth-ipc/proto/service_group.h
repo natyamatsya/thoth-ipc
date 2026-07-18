@@ -15,7 +15,7 @@
 #include "thoth-ipc/proto/service_registry.h"
 #include "thoth-ipc/proto/process_manager.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 // Instance role within a service group.
@@ -137,7 +137,7 @@ public:
     void stop(std::chrono::milliseconds grace = std::chrono::milliseconds{3000}) {
         for (auto &inst : instances_) {
             if (inst.is_alive())
-                ipc::proto::shutdown(inst.proc, grace);
+                thoth::proto::shutdown(inst.proc, grace);
             inst.role = instance_role::dead;
         }
         primary_idx_ = -1;
@@ -173,7 +173,7 @@ private:
         registry_.gc();
 
         // Pass instance ID as argument so the service can register with a unique name
-        auto h = ipc::proto::spawn(
+        auto h = thoth::proto::spawn(
             inst.instance_name.c_str(),
             config_.executable,
             {std::to_string(inst.id)});
@@ -221,4 +221,4 @@ private:
 };
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

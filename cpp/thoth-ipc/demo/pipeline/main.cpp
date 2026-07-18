@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
-// Polyglot pipeline stage — one hop of a multi-language ipc::route pipeline.
+// Polyglot pipeline stage — one hop of a multi-language thoth::route pipeline.
 //
 // Usage:
 //   pipeline source <out> <count> <tag>
 //   pipeline stage  <in> <out> <count> <tag>
 //   pipeline sink   <in> <count> <tag>
 //
-// A pipeline is a chain of single-writer->single-reader ipc::route hops, each
+// A pipeline is a chain of single-writer->single-reader thoth::route hops, each
 // hop a separate process — and, because the wire format is byte-exact across
 // the C++, Rust, Swift and Zig ports, each stage can be a *different language*.
 // The source seeds items, every stage appends its tag, and the sink prints the
@@ -23,14 +23,14 @@
 
 namespace {
 
-std::string decode(ipc::buff_t const &buf) {
+std::string decode(thoth::buff_t const &buf) {
     std::string s(buf.get<char const *>(), buf.size());
     if (!s.empty() && s.back() == '\0') s.pop_back();
     return s;
 }
 
 int source(char const *out, std::size_t count, std::string const &tag) {
-    ipc::route tx { out, ipc::sender };
+    thoth::route tx { out, thoth::sender };
     if (!tx.wait_for_recv(1, 5000)) {
         std::cerr << "[source " << tag << "] no downstream on '" << out << "' within 5s" << std::endl;
         return 2;
@@ -44,14 +44,14 @@ int source(char const *out, std::size_t count, std::string const &tag) {
 }
 
 int stage(char const *in, char const *out, std::size_t count, std::string const &tag) {
-    ipc::route rx { in,  ipc::receiver };
-    ipc::route tx { out, ipc::sender };
+    thoth::route rx { in,  thoth::receiver };
+    thoth::route tx { out, thoth::sender };
     if (!tx.wait_for_recv(1, 5000)) {
         std::cerr << "[stage " << tag << "] no downstream on '" << out << "' within 5s" << std::endl;
         return 2;
     }
     for (std::size_t i = 0; i < count; ++i) {
-        ipc::buff_t buf = rx.recv(10000);
+        thoth::buff_t buf = rx.recv(10000);
         if (buf.empty()) { std::cerr << "[stage " << tag << "] upstream stalled" << std::endl; return 5; }
         std::string msg = decode(buf) + " -> " + tag;
         while (!tx.send(msg, 2000)) {}
@@ -61,10 +61,10 @@ int stage(char const *in, char const *out, std::size_t count, std::string const 
 }
 
 int sink(char const *in, std::size_t count, std::string const &tag) {
-    ipc::route rx { in, ipc::receiver };
+    thoth::route rx { in, thoth::receiver };
     std::cerr << "[sink " << tag << "] ready on '" << in << "', expecting " << count << " items" << std::endl;
     for (std::size_t i = 0; i < count; ++i) {
-        ipc::buff_t buf = rx.recv(10000);
+        thoth::buff_t buf = rx.recv(10000);
         if (buf.empty()) { std::cerr << "[sink " << tag << "] upstream stalled after " << i << "/" << count << std::endl; break; }
         std::cout << decode(buf) << " -> [" << tag << " sink]" << std::endl;
     }

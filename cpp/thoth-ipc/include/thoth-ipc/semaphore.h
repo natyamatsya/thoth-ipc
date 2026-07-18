@@ -5,7 +5,7 @@
 #include "thoth-ipc/imp/export.h"
 #include "thoth-ipc/def.h"
 
-namespace ipc {
+namespace thoth {
 namespace sync {
 
 class THOTH_IPC_EXPORT semaphore {
@@ -28,7 +28,7 @@ public:
     void clear() noexcept;
     static void clear_storage(char const * name) noexcept;
 
-    bool wait(std::uint64_t tm = ipc::invalid_value) noexcept;
+    bool wait(std::uint64_t tm = thoth::invalid_value) noexcept;
     bool post(std::uint32_t count = 1) noexcept;
 
 private:
@@ -37,4 +37,4 @@ private:
 };
 
 } // namespace sync
-} // namespace ipc
+} // namespace thoth

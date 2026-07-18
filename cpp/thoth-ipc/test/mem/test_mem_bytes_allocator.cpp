@@ -12,12 +12,12 @@
 #include "thoth-ipc/mem/memory_resource.h"
 
 TEST(bytes_allocator, ctor) {
-  ipc::mem::bytes_allocator alc;
+  thoth::mem::bytes_allocator alc;
   SUCCEED();
 }
 
 TEST(bytes_allocator, ctor_value_initialization) {
-  ipc::mem::bytes_allocator alc{};
+  thoth::mem::bytes_allocator alc{};
   auto p = alc.allocate(128);
   EXPECT_NE(p, nullptr);
   EXPECT_NO_THROW(alc.deallocate(p, 128));
@@ -38,35 +38,35 @@ public:
 } // namespace
 
 TEST(bytes_allocator, memory_resource_traits) {
-  EXPECT_FALSE(ipc::mem::has_allocate<void>::value);
-  EXPECT_FALSE(ipc::mem::has_allocate<int>::value);
-  EXPECT_FALSE(ipc::mem::has_allocate<std::vector<int>>::value);
-  EXPECT_FALSE(ipc::mem::has_allocate<std::allocator<int>>::value);
+  EXPECT_FALSE(thoth::mem::has_allocate<void>::value);
+  EXPECT_FALSE(thoth::mem::has_allocate<int>::value);
+  EXPECT_FALSE(thoth::mem::has_allocate<std::vector<int>>::value);
+  EXPECT_FALSE(thoth::mem::has_allocate<std::allocator<int>>::value);
 #if defined(LIBIMP_CPP_17) && defined(__cpp_lib_memory_resource)
-  EXPECT_TRUE (ipc::mem::has_allocate<std::ipc::mem::memory_resource>::value);
-  EXPECT_TRUE (ipc::mem::has_allocate<std::ipc::mem::container_allocator<int>>::value);
+  EXPECT_TRUE (thoth::mem::has_allocate<std::thoth::mem::memory_resource>::value);
+  EXPECT_TRUE (thoth::mem::has_allocate<std::thoth::mem::container_allocator<int>>::value);
 #endif
 
-  EXPECT_FALSE(ipc::mem::has_deallocate<void>::value);
-  EXPECT_FALSE(ipc::mem::has_deallocate<int>::value);
-  EXPECT_FALSE(ipc::mem::has_deallocate<std::vector<int>>::value);
-  EXPECT_FALSE(ipc::mem::has_deallocate<std::allocator<int>>::value);
+  EXPECT_FALSE(thoth::mem::has_deallocate<void>::value);
+  EXPECT_FALSE(thoth::mem::has_deallocate<int>::value);
+  EXPECT_FALSE(thoth::mem::has_deallocate<std::vector<int>>::value);
+  EXPECT_FALSE(thoth::mem::has_deallocate<std::allocator<int>>::value);
 #if defined(LIBIMP_CPP_17) && defined(__cpp_lib_memory_resource)
-  EXPECT_TRUE (ipc::mem::has_deallocate<std::ipc::mem::memory_resource>::value);
-  EXPECT_FALSE(ipc::mem::has_deallocate<std::ipc::mem::container_allocator<int>>::value);
+  EXPECT_TRUE (thoth::mem::has_deallocate<std::thoth::mem::memory_resource>::value);
+  EXPECT_FALSE(thoth::mem::has_deallocate<std::thoth::mem::container_allocator<int>>::value);
 #endif
 }
 
 TEST(bytes_allocator, ctor_copy_move) {
-  ipc::mem::new_delete_resource mem_res;
+  thoth::mem::new_delete_resource mem_res;
   dummy_resource dummy_res;
-  ipc::mem::bytes_allocator alc1{&mem_res}, alc2{&dummy_res};
+  thoth::mem::bytes_allocator alc1{&mem_res}, alc2{&dummy_res};
   auto p = alc1.allocate(128);
   ASSERT_NE(p, nullptr);
   ASSERT_NO_THROW(alc1.deallocate(p, 128));
   ASSERT_EQ(alc2.allocate(128), nullptr);
 
-  ipc::mem::bytes_allocator alc3{alc1}, alc4{alc2}, alc5{std::move(alc1)};
+  thoth::mem::bytes_allocator alc3{alc1}, alc4{alc2}, alc5{std::move(alc1)};
 
   p = alc3.allocate(128);
   ASSERT_NE(p, nullptr);
@@ -80,9 +80,9 @@ TEST(bytes_allocator, ctor_copy_move) {
 }
 
 TEST(bytes_allocator, swap) {
-  ipc::mem::new_delete_resource mem_res;
+  thoth::mem::new_delete_resource mem_res;
   dummy_resource dummy_res;
-  ipc::mem::bytes_allocator alc1{&mem_res}, alc2{&dummy_res};
+  thoth::mem::bytes_allocator alc1{&mem_res}, alc2{&dummy_res};
   alc1.swap(alc2);
   auto p = alc2.allocate(128);
   ASSERT_NE(p, nullptr);
@@ -91,7 +91,7 @@ TEST(bytes_allocator, swap) {
 }
 
 TEST(bytes_allocator, invalid_alloc_free) {
-  ipc::mem::bytes_allocator alc1;
+  thoth::mem::bytes_allocator alc1;
   EXPECT_EQ(alc1.allocate(0), nullptr);
   EXPECT_NO_THROW(alc1.deallocate(nullptr, 128));
   EXPECT_NO_THROW(alc1.deallocate(nullptr, 0));
@@ -99,5 +99,5 @@ TEST(bytes_allocator, invalid_alloc_free) {
 }
 
 TEST(bytes_allocator, sizeof) {
-  EXPECT_EQ(sizeof(ipc::mem::bytes_allocator), sizeof(void *) * 2);
+  EXPECT_EQ(sizeof(thoth::mem::bytes_allocator), sizeof(void *) * 2);
 }

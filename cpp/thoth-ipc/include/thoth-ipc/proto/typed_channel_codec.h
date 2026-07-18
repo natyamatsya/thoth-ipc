@@ -9,13 +9,13 @@
 #include "thoth-ipc/ipc.h"
 #include "thoth-ipc/proto/codec.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 template <typename T, typename Codec>
     requires proto_codec<Codec, T>
 class typed_channel_codec {
-    ipc::channel ch_;
+    thoth::channel ch_;
 
 public:
     using codec_type = Codec;
@@ -28,7 +28,7 @@ public:
         : ch_{name, mode} {}
 
     void connect(char const *name, unsigned mode) {
-        ch_ = ipc::channel{name, mode};
+        ch_ = thoth::channel{name, mode};
     }
 
     void disconnect() { ch_.disconnect(); }
@@ -42,7 +42,7 @@ public:
         return ch_.send(data, size);
     }
 
-    message_type recv(std::uint64_t tm = ipc::invalid_value) {
+    message_type recv(std::uint64_t tm = thoth::invalid_value) {
         return codec_type::template decode<T>(ch_.recv(tm));
     }
 
@@ -50,13 +50,13 @@ public:
         return codec_type::template decode<T>(ch_.try_recv());
     }
 
-    ipc::channel &raw() noexcept { return ch_; }
-    const ipc::channel &raw() const noexcept { return ch_; }
+    thoth::channel &raw() noexcept { return ch_; }
+    const thoth::channel &raw() const noexcept { return ch_; }
 
     static void clear_storage(char const *name) {
-        ipc::channel::clear_storage(name);
+        thoth::channel::clear_storage(name);
     }
 };
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

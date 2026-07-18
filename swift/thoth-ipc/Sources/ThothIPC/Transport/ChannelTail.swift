@@ -84,7 +84,7 @@ func clearStorageImpl(prefix: String, name: String) async {
 // MARK: - Route
 
 /// A single-producer, multi-consumer broadcast IPC channel.
-/// Mirrors `ipc::route` / Rust `Route`.
+/// Mirrors `thoth::route` / Rust `Route`.
 public final class Route: @unchecked Sendable {
     private let inner: ChanInner
 
@@ -145,7 +145,7 @@ public final class Route: @unchecked Sendable {
 // MARK: - Channel
 
 /// A multi-producer, multi-consumer broadcast IPC channel.
-/// Mirrors `ipc::channel` / Rust `Channel`.
+/// Mirrors `thoth::channel` / Rust `Channel`.
 public final class Channel: @unchecked Sendable {
     private let inner: ChanInner
 

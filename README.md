@@ -8,13 +8,13 @@ A high-performance inter-process communication library using shared memory on Li
 Binary-compatible primitives implemented in multiple languages — all sharing the same wire format and shm layout.
 
 Four independent implementations — **C++, Rust, Swift and Zig** — are
-**byte-exact** on the `ipc::route` wire ABI
+**byte-exact** on the `thoth::route` wire ABI
 ([`context/xlang-channel-abi.md`](context/xlang-channel-abi.md)). A CI matrix
 framework ([`tools/xlang-runner`](tools/xlang-runner)) runs every writer→reader
 language pairing to prove a message sent by any language is received
 byte-for-byte by any other — across blocking round-trips (fragment and
 chunk-storage boundaries, 40 B – 64 KB), broadcast fan-out to mixed-language
-readers, multi-writer `ipc::channel` (two concurrent senders of different
+readers, multi-writer `thoth::channel` (two concurrent senders of different
 languages into one reader), async notify wakeup, dead-connection reaping, sync
 primitives (mutex/condition/semaphore), the typed codec layer, and **encrypted
 channels**: AEAD envelopes (AES-256-GCM, ChaCha20-Poly1305) sealed by one
@@ -60,10 +60,10 @@ Based on the original [cpp-ipc](https://github.com/mutouyun/cpp-ipc) library. Se
 - C++17 (msvc-2017/gcc-7/clang-4); built with C++23 in this repo
 - No dependencies except STL for the core transport
 - Lock-free or lightweight spin-lock only
-- `ipc::route` (1 writer, N readers) and `ipc::channel` (N writers, N readers)
+- `thoth::route` (1 writer, N readers) and `thoth::channel` (N writers, N readers)
 - Typed protocol layer: FlatBuffers, Cap'n Proto, Protocol Buffers (opt-in)
 - Opt-in secure codec with AEAD envelope (OpenSSL EVP backend, zero overhead when disabled)
-- Opt-in reactor-integrable async receive: a readiness handle (`native_wait_handle()`) and a stdexec `ipc::async_recv()` sender, so channels multiplex on one event loop instead of one blocking thread each — zero cost when off. See [`cpp/thoth-ipc/doc/async-recv.md`](cpp/thoth-ipc/doc/async-recv.md)
+- Opt-in reactor-integrable async receive: a readiness handle (`native_wait_handle()`) and a stdexec `thoth::async_recv()` sender, so channels multiplex on one event loop instead of one blocking thread each — zero cost when off. See [`cpp/thoth-ipc/doc/async-recv.md`](cpp/thoth-ipc/doc/async-recv.md)
 
 **macOS support** (not present in upstream cpp-ipc, added in this fork):
 
@@ -146,7 +146,7 @@ while true {
 
 ### Zig — [`zig/thoth-ipc/`](zig/thoth-ipc/)
 
-Native Zig port (macOS-first), independently reimplementing the `ipc::route`
+Native Zig port (macOS-first), independently reimplementing the `thoth::route`
 wire ABI — not an FFI wrapper of the C/C++ core. It covers the **core broadcast
 transport**: byte-exact shm ring (`elem_array<80,8>`, 22784B), DCLP header init
 over `os_unfair_lock`, the broadcast push/pop CAS protocol, prefix-global
@@ -162,7 +162,7 @@ ChaCha20-Poly1305 done in pure Zig `std.crypto` — a standardized algorithm is
 byte-identical to the OpenSSL-backed ports, so no C crypto is linked). It also has the **Layer-1 notify readiness** for async receive: a sender posts
 on the libnotify service keyed by `fnv1a_64("<prefix>__IPC_SHM__NOTIFY__<name>")`,
 and an `aread` receiver wakes on that fd. Like the other ports, Zig targets the
-single-writer `ipc::route`, and it joins **every cross-language matrix
+single-writer `thoth::route`, and it joins **every cross-language matrix
 scenario** — `sync`, `fanout`, `reap`, `primitives`, `typed`,
 `secure`/`secure-badkey`/`secure-negative`, and `async` — proven byte-exact with
 the C++, Rust and Swift ports in every writer→reader direction at all payload
@@ -172,7 +172,7 @@ wakes a C++/Rust/Swift condition waiter; an envelope sealed by any language open
 in Zig (with tampered / wrong-key / wrong-key-id / algorithm-mismatched envelopes
 rejected fail-closed); and a Zig `send` wakes a C++ stdexec / coroutine, Rust
 `AsyncRoute` or Swift async receiver, and vice versa. The multi-writer
-`ipc::channel` is now interoperable across all four ports too — two concurrent
+`thoth::channel` is now interoperable across all four ports too — two concurrent
 senders of different languages into one reader, byte-exact on the 96-byte
 commit-flag slot layout and the shared `AC_CONN__` message-id counter.
 
@@ -198,7 +198,7 @@ the CI matrix with a message or primitive produced by one language and consumed
 by another, in every writer→reader direction (all four languages on macOS;
 C++↔Rust on Linux/Windows). The wire format and shared-memory layout are fixed.
 
-- **Broadcast transport** — `ipc::route`, one writer → N readers over a
+- **Broadcast transport** — `thoth::route`, one writer → N readers over a
   lock-free shared-memory ring; blocking and non-blocking send/recv, message
   fragmentation and large-message (>64 B) chunk storage, verified byte-for-byte
   from 40 B to 64 KB.
@@ -226,13 +226,13 @@ C++↔Rust on Linux/Windows). The wire format and shared-memory layout are fixed
 **Platforms** — C++: Linux, Windows, macOS, FreeBSD. Rust: Linux, Windows,
 macOS. Swift: macOS 14+. Zig: macOS (arm64).
 
-Every port targets both the single-writer `ipc::route` and the multi-writer
-`ipc::channel`; both are cross-language byte-exact across all four ports.
+Every port targets both the single-writer `thoth::route` and the multi-writer
+`thoth::channel`; both are cross-language byte-exact across all four ports.
 
 **Cross-language parity** — every pairing the matrix exercises now passes
 byte-exact; the expected-failure list in
 [`tools/xlang-ci.toml`](tools/xlang-ci.toml) is empty. Gaps the matrix uncovered
-and that have since been closed include the multi-writer `ipc::channel` layout
+and that have since been closed include the multi-writer `thoth::channel` layout
 (all four ports), the C++↔port semaphore backing object (the ports' POSIX
 `sem_open` replaced by a shared shm-ulock counter byte-exact with C++), and a
 Rust Apple-mutex cross-process ref-count bug that let a prober re-initialise a
@@ -304,7 +304,7 @@ See: [`cpp/thoth-ipc/`](cpp/thoth-ipc/) for C++ usage. Rust and Swift usage is d
 
 All values in **µs/datum** (lower is better).
 
-#### `ipc::route` — 1 sender, N receivers (random 2–256 bytes × 100 000)
+#### `thoth::route` — 1 sender, N receivers (random 2–256 bytes × 100 000)
 
  Receivers | µs/datum
  ------ | ------
@@ -313,7 +313,7 @@ All values in **µs/datum** (lower is better).
  4 | 48.23
  8 | 94.88
 
-#### `ipc::channel` — multiple patterns (random 2–256 bytes × 100 000)
+#### `thoth::channel` — multiple patterns (random 2–256 bytes × 100 000)
 
  Threads | 1→N | N→1 | N→N
  ------ | ------ | ------ | ------
@@ -333,7 +333,7 @@ All values in **µs/datum** (lower is better).
 
 All values in **µs/datum** (lower is better).
 
-#### `ipc::route` — 1 sender, N receivers (random 2–256 bytes × 100 000)
+#### `thoth::route` — 1 sender, N receivers (random 2–256 bytes × 100 000)
 
  Receivers | µs/datum
  ------ | ------
@@ -342,7 +342,7 @@ All values in **µs/datum** (lower is better).
  4 | 2.05
  8 | 4.76
 
-#### `ipc::channel` — multiple patterns (random 2–256 bytes × 100 000)
+#### `thoth::channel` — multiple patterns (random 2–256 bytes × 100 000)
 
  Threads | 1→N | N→1 | N→N
  ------ | ------ | ------ | ------
@@ -360,14 +360,14 @@ Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [
 - **[Cross-Language Test Framework](tools/xlang-runner/README.md)** — the xlang matrix runner: scenarios, capability negotiation, expected-failure tracking, adding languages/scenarios
 - **[Language-neutral ABI](abi/README.md)** — `abi/abi.json` is the single source of truth the four ports are generated from and checked against (schema + C++ dump + staleness + matrix gates); see the [hands-on walkthrough](abi/EXAMPLE.md)
 - **[Cross-Language Channel ABI](context/xlang-channel-abi.md)** — the byte-exact wire spec the matrix verifies (ring layout, framing, notify, reaper)
-- **[Multi-writer `ipc::channel` RFC](context/xlang-channel-multiwriter-rfc.md)** — the multi-writer ABI + per-language roadmap (Zig → Rust → Swift), now complete: `ipc::channel` is cross-language byte-exact across all four ports
+- **[Multi-writer `thoth::channel` RFC](context/xlang-channel-multiwriter-rfc.md)** — the multi-writer ABI + per-language roadmap (Zig → Rust → Swift), now complete: `thoth::channel` is cross-language byte-exact across all four ports
 - **[macOS Technical Notes](doc/macos-technical-notes.md)** — platform-specific implementation details for macOS (semaphores, mutexes, shared memory)
 - **[Windows Technical Notes](doc/windows-technical-notes.md)** — platform-specific implementation details for Windows (MSVC conformance, process management, thread priority)
 - **[macOS Deployment & Distribution](doc/macos-deployment.md)** — code signing, notarization, sandbox restrictions, and XPC alternatives for production shipping
 - **[Typed Protocol Layer](doc/proto-layer.md)** *(prototype)* — FlatBuffers-based typed channels and routes for type-safe, zero-copy IPC messaging
 - **[Process Orchestration & Discovery](doc/orchestration.md)** *(prototype)* — service registry, process management, redundant service groups with automatic failover
-- **[Channel Aggregator Demo](cpp/thoth-ipc/demo/channel_aggregator/)** — multi-writer `ipc::channel` fan-in: N producers `send` into one channel, a single collector reads the merged stream and tallies it by producer (what a single-writer `route` cannot do). Implemented in all four ports (`cpp/thoth-ipc/demo/channel_aggregator/`, `rust/…/demo_channel_aggregator.rs`, `swift/…/DemoChannelAggregator`, `zig/…/demo_channel_aggregator.zig`), and because the wire format is byte-exact the roles are **mixable across languages** — e.g. a C++ collector receiving from C++/Rust/Swift/Zig producers at once
-- **[Polyglot Pipeline Demo](cpp/thoth-ipc/demo/pipeline/)** — a chain of single-writer→single-reader `ipc::route` hops, **one process (and one language) per stage**. The launcher [`demo/pipeline/run.sh`](cpp/thoth-ipc/demo/pipeline/run.sh) wires `Zig source → Rust stage → Swift stage → C++ sink`, and the sink prints one line showing every language a message crossed — e.g. `item-0 [zig] -> rust -> swift -> [cpp sink]`. The `source`/`stage`/`sink` roles exist in all four ports, so any stage can be any language
+- **[Channel Aggregator Demo](cpp/thoth-ipc/demo/channel_aggregator/)** — multi-writer `thoth::channel` fan-in: N producers `send` into one channel, a single collector reads the merged stream and tallies it by producer (what a single-writer `route` cannot do). Implemented in all four ports (`cpp/thoth-ipc/demo/channel_aggregator/`, `rust/…/demo_channel_aggregator.rs`, `swift/…/DemoChannelAggregator`, `zig/…/demo_channel_aggregator.zig`), and because the wire format is byte-exact the roles are **mixable across languages** — e.g. a C++ collector receiving from C++/Rust/Swift/Zig producers at once
+- **[Polyglot Pipeline Demo](cpp/thoth-ipc/demo/pipeline/)** — a chain of single-writer→single-reader `thoth::route` hops, **one process (and one language) per stage**. The launcher [`demo/pipeline/run.sh`](cpp/thoth-ipc/demo/pipeline/run.sh) wires `Zig source → Rust stage → Swift stage → C++ sink`, and the sink prints one line showing every language a message crossed — e.g. `item-0 [zig] -> rust -> swift -> [cpp sink]`. The `source`/`stage`/`sink` roles exist in all four ports, so any stage can be any language
 - **[Cross-Language Bounded Buffer Demo](cpp/thoth-ipc/demo/bounded_buffer/)** — the classic producer/consumer over a shared-memory ring, coordinated by a byte-exact named **`IpcMutex`** (guards `head`, so multiple producers contend) and two counting **`IpcSemaphore`s** (`empty`/`full`). The launcher [`demo/bounded_buffer/run.sh`](cpp/thoth-ipc/demo/bounded_buffer/run.sh) runs a Swift consumer against C++/Rust/Zig/Swift producers at once through a 4-slot ring — four languages synchronising on shared memory with the sync primitives this release made cross-language
 - **[Secure POS Demo](cpp/thoth-ipc/demo/secure_pos/)** — encrypted IPC where it is mandatory (PCI-style card pipeline): pinpad seals, gateway opens, keyless POS fails closed; roles mixable across C++/Rust
 - **[Async Gateway Demo](rust/thoth-ipc/src/bin/demo_async_gateway.rs)** — one event loop multiplexing many device channels via `AsyncRoute` (thread-per-channel does not scale; runtimes cannot host blocking recv)

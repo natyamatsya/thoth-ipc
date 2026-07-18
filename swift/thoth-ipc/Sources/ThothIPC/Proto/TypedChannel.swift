@@ -10,5 +10,5 @@ import FlatBuffers
 ///
 /// `T` is the FlatBuffers-generated root table type.
 ///
-/// Port of `ipc::proto::typed_channel<T>`.
+/// Port of `thoth::proto::typed_channel<T>`.
 public typealias TypedChannel<T: FlatBufferTable & Verifiable> = TypedChannelCodec<T, FlatBuffersCodec<T>>

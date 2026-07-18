@@ -37,7 +37,7 @@ const _: () = assert!(std::mem::size_of::<Header>() == 192);
 /// - One writer process calls [`write`] / [`write_overwrite`].
 /// - One reader process calls [`read`].
 ///
-/// Port of `ipc::proto::shm_ring<T, N>` from the C++ thoth_ipc library.
+/// Port of `thoth::proto::shm_ring<T, N>` from the C++ thoth_ipc library.
 pub struct ShmRing<T: Copy + 'static, const N: usize> {
     shm: Option<ShmHandle>,
     name: String,

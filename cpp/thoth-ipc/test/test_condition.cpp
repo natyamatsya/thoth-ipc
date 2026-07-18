@@ -1,6 +1,6 @@
 /**
  * @file test_condition.cpp
- * @brief Comprehensive unit tests for ipc::sync::condition class
+ * @brief Comprehensive unit tests for thoth::sync::condition class
  * 
  * This test suite covers:
  * - Condition variable construction (default and named)
@@ -20,8 +20,8 @@
 #include "thoth-ipc/mutex.h"
 #include "thoth-ipc/def.h"
 
-using namespace ipc;
-using namespace ipc::sync;
+using namespace thoth;
+using namespace thoth::sync;
 
 namespace {
 

@@ -13,7 +13,7 @@
 
 #include "thoth-ipc/imp/export.h"
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \brief The transform between UTF-8/16/32
@@ -36,4 +36,4 @@ void cvt_sstr(std::basic_string<CharT, TraitsT, AllocT> const &src, std::basic_s
   cvt_cstr(src.c_str(), src.size(), &des[0], des.size());
 }
 
-} // namespace ipc
+} // namespace thoth

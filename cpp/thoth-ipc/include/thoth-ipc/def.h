@@ -6,7 +6,7 @@
 #include <new>
 #include <utility>
 
-namespace ipc {
+namespace thoth {
 
 // types
 
@@ -71,4 +71,4 @@ struct prefix {
   char const *str;
 };
 
-} // namespace ipc
+} // namespace thoth

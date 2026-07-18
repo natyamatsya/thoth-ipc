@@ -28,7 +28,7 @@ use crate::chunk_storage::ChunkShmHandle;
 use crate::shm::{ShmHandle, ShmOpenMode};
 use crate::waiter::Waiter;
 
-/// Default data length per ring slot (matches C++ `ipc::data_length = 64`).
+/// Default data length per ring slot (matches C++ `thoth::data_length = 64`).
 const DATA_LENGTH: usize = abi::data_length;
 /// Ring element alignment folded into the shm name, matching C++'s queue
 /// `AlignSize = min(DataSize, alignof(std::max_align_t))`, byte-identical to C++
@@ -582,7 +582,7 @@ impl ChanInner {
         }
     }
 
-    /// Spin-then-wait helper matching the C++ `wait_for` + `ipc::sleep` pattern.
+    /// Spin-then-wait helper matching the C++ `wait_for` + `thoth::sleep` pattern.
     /// Spins/yields up to `SPIN_COUNT` times, then falls back to the condition
     /// variable. Returns `false` on timeout, `true` when `pred` returns `false`.
     fn wait_for<F>(waiter: &Waiter, pred: F, timeout_ms: Option<u64>) -> io::Result<bool>
@@ -1097,7 +1097,7 @@ impl Drop for ChanInner {
 /// One `Route` in `Sender` mode sends messages that are received by all
 /// `Route` instances in `Receiver` mode with the same name.
 ///
-/// Port of `ipc::route` from the C++ library.
+/// Port of `thoth::route` from the C++ library.
 pub struct Route {
     inner: ChanInner,
 }
@@ -1275,7 +1275,7 @@ impl Route {
 /// Multiple `Channel` instances in `Sender` mode can send messages to
 /// all `Channel` instances in `Receiver` mode with the same name.
 ///
-/// Port of `ipc::channel` from the C++ library.
+/// Port of `thoth::channel` from the C++ library.
 ///
 /// Note: internally uses the same ring buffer mechanism as `Route`.
 /// The multi-producer safety is achieved via CAS on the write cursor.

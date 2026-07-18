@@ -14,9 +14,9 @@
 
 // --- Helpers ---
 
-static bool send_and_recv(ipc::proto::typed_channel<audio::ControlMsg> &control,
-                          ipc::proto::typed_channel<audio::ReplyMsg> &reply,
-                          ipc::proto::builder &b, const char *label) {
+static bool send_and_recv(thoth::proto::typed_channel<audio::ControlMsg> &control,
+                          thoth::proto::typed_channel<audio::ReplyMsg> &reply,
+                          thoth::proto::builder &b, const char *label) {
     std::printf("host: sending %s\n", label);
     if (!control.send(b)) {
         std::printf("host: send failed (service down?)\n");
@@ -45,16 +45,16 @@ static bool send_and_recv(ipc::proto::typed_channel<audio::ControlMsg> &control,
     return true;
 }
 
-static bool connect_to_primary(const ipc::proto::managed_instance &primary,
-                               ipc::proto::typed_channel<audio::ControlMsg> &control,
-                               ipc::proto::typed_channel<audio::ReplyMsg> &reply) {
+static bool connect_to_primary(const thoth::proto::managed_instance &primary,
+                               thoth::proto::typed_channel<audio::ControlMsg> &control,
+                               thoth::proto::typed_channel<audio::ReplyMsg> &reply) {
     std::printf("host: connecting to %s (pid=%d) ctrl='%s' reply='%s'\n",
                 primary.instance_name.c_str(), primary.entry.pid,
                 primary.entry.control_channel, primary.entry.reply_channel);
     control.disconnect();
     reply.disconnect();
-    control.connect(primary.entry.control_channel, ipc::sender);
-    reply.connect(primary.entry.reply_channel, ipc::receiver);
+    control.connect(primary.entry.control_channel, thoth::sender);
+    reply.connect(primary.entry.reply_channel, thoth::receiver);
     // Brief settle time for the channel shared memory handshake
     std::this_thread::sleep_for(std::chrono::milliseconds{200});
     std::printf("host: connected (recv_count=%zu)\n", control.raw().recv_count());
@@ -70,16 +70,16 @@ int main(int argc, char *argv[]) {
     }
     const char *service_bin = argv[1];
 
-    ipc::proto::service_registry registry("audio");
+    thoth::proto::service_registry registry("audio");
     registry.gc(); // clean stale entries from previous runs
 
     // --- Start a redundant service group (2 replicas) ---
-    ipc::proto::service_group_config cfg;
+    thoth::proto::service_group_config cfg;
     cfg.service_name = "audio_compute";
     cfg.executable   = service_bin;
     cfg.replicas     = 2;
     cfg.auto_respawn = true;
-    ipc::proto::service_group group(registry, cfg);
+    thoth::proto::service_group group(registry, cfg);
 
     std::printf("host: starting service group (2 replicas)...\n");
     if (!group.start()) {
@@ -89,15 +89,15 @@ int main(int argc, char *argv[]) {
     std::printf("host: %d instances alive\n", group.alive_count());
 
     // --- Connect to the primary ---
-    ipc::proto::typed_channel<audio::ControlMsg> control;
-    ipc::proto::typed_channel<audio::ReplyMsg>   reply;
+    thoth::proto::typed_channel<audio::ControlMsg> control;
+    thoth::proto::typed_channel<audio::ReplyMsg>   reply;
     connect_to_primary(*group.primary(), control, reply);
 
     uint64_t seq = 0;
 
     // 1. Send some commands to the primary
     {
-        ipc::proto::builder b;
+        thoth::proto::builder b;
         auto ss = audio::CreateStartStream(b.fbb(), 48000, 2, 256);
         auto msg = audio::CreateControlMsg(b.fbb(), ++seq,
             audio::ControlPayload_StartStream, ss.Union());
@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
         send_and_recv(control, reply, b, "StartStream (48kHz, 2ch, 256)");
     }
     {
-        ipc::proto::builder b;
+        thoth::proto::builder b;
         auto sp = audio::CreateSetParam(b.fbb(), audio::ParamType_Gain, 0.75f);
         auto msg = audio::CreateControlMsg(b.fbb(), ++seq,
             audio::ControlPayload_SetParam, sp.Union());
@@ -118,8 +118,8 @@ int main(int argc, char *argv[]) {
     for (auto &inst : group.instances())
         std::printf("  [%d] %-24s  role=%-8s  pid=%d  alive=%d\n",
                     inst.id, inst.instance_name.c_str(),
-                    inst.role == ipc::proto::instance_role::primary ? "PRIMARY" :
-                    inst.role == ipc::proto::instance_role::standby ? "STANDBY" : "DEAD",
+                    inst.role == thoth::proto::instance_role::primary ? "PRIMARY" :
+                    inst.role == thoth::proto::instance_role::standby ? "STANDBY" : "DEAD",
                     inst.proc.pid, inst.is_alive());
 
     // 3. Simulate a crash: kill the primary
@@ -134,8 +134,8 @@ int main(int argc, char *argv[]) {
     for (auto &inst : group.instances())
         std::printf("  [%d] %-24s  role=%-8s  pid=%d  alive=%d\n",
                     inst.id, inst.instance_name.c_str(),
-                    inst.role == ipc::proto::instance_role::primary ? "PRIMARY" :
-                    inst.role == ipc::proto::instance_role::standby ? "STANDBY" : "DEAD",
+                    inst.role == thoth::proto::instance_role::primary ? "PRIMARY" :
+                    inst.role == thoth::proto::instance_role::standby ? "STANDBY" : "DEAD",
                     inst.proc.pid, inst.is_alive());
 
     // 5. Wait for the respawned standby to come online
@@ -147,8 +147,8 @@ int main(int argc, char *argv[]) {
     for (auto &inst : group.instances())
         std::printf("  [%d] %-24s  role=%-8s  pid=%d  alive=%d\n",
                     inst.id, inst.instance_name.c_str(),
-                    inst.role == ipc::proto::instance_role::primary ? "PRIMARY" :
-                    inst.role == ipc::proto::instance_role::standby ? "STANDBY" : "DEAD",
+                    inst.role == thoth::proto::instance_role::primary ? "PRIMARY" :
+                    inst.role == thoth::proto::instance_role::standby ? "STANDBY" : "DEAD",
                     inst.proc.pid, inst.is_alive());
 
     // 6. Reconnect to the new primary
@@ -161,7 +161,7 @@ int main(int argc, char *argv[]) {
 
     // 7. Resume sending commands — seamless to the application
     {
-        ipc::proto::builder b;
+        thoth::proto::builder b;
         auto ss = audio::CreateStartStream(b.fbb(), 48000, 2, 256);
         auto msg = audio::CreateControlMsg(b.fbb(), ++seq,
             audio::ControlPayload_StartStream, ss.Union());
@@ -169,7 +169,7 @@ int main(int argc, char *argv[]) {
         send_and_recv(control, reply, b, "StartStream (re-sent after failover)");
     }
     {
-        ipc::proto::builder b;
+        thoth::proto::builder b;
         auto gp = audio::CreateGetParam(b.fbb(), audio::ParamType_Gain);
         auto msg = audio::CreateControlMsg(b.fbb(), ++seq,
             audio::ControlPayload_GetParam, gp.Union());

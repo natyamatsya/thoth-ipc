@@ -7,7 +7,7 @@
 #include "thoth-ipc/def.h"
 #include "thoth-ipc/platform/detail.h"
 
-namespace ipc {
+namespace thoth {
 
 using storage_id_t = std::int32_t;
 
@@ -34,11 +34,11 @@ struct id_type : id_type<0, AlignSize> {
 };
 
 template <std::size_t DataSize  = 0,
-          std::size_t AlignSize = (ipc::detail::min)(DataSize, alignof(std::max_align_t))>
+          std::size_t AlignSize = (thoth::detail::min)(DataSize, alignof(std::max_align_t))>
 class id_pool {
 
     static constexpr std::size_t limited_max_count() {
-        return ipc::detail::min<std::size_t>(large_msg_cache, (std::numeric_limits<uint_t<8>>::max)());
+        return thoth::detail::min<std::size_t>(large_msg_cache, (std::numeric_limits<uint_t<8>>::max)());
     }
 
 public:
@@ -100,4 +100,4 @@ public:
     T const * at(storage_id_t id) const { return reinterpret_cast<T const *>(base_t::at(id)); }
 };
 
-} // namespace ipc
+} // namespace thoth

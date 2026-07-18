@@ -17,12 +17,12 @@
 #   error "Unsupported platform."
 #endif
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 void waiter::init() {
-    ipc::detail::sync::mutex::init();
+    thoth::detail::sync::mutex::init();
 }
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

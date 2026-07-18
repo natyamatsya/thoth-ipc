@@ -266,7 +266,7 @@ valid alignment supported by the implementation").
 
 ```cpp
 if (alignment < sizeof(void*)) alignment = sizeof(void*);
-return std::aligned_alloc(alignment, ipc::round_up(bytes, alignment));
+return std::aligned_alloc(alignment, thoth::round_up(bytes, alignment));
 ```
 
 ---

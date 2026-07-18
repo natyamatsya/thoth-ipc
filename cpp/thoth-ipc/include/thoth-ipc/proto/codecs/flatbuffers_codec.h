@@ -10,7 +10,7 @@
 #include "thoth-ipc/proto/codec.h"
 #include "thoth-ipc/proto/message.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 struct flatbuffers_codec {
@@ -22,7 +22,7 @@ struct flatbuffers_codec {
     using message_type = message<T>;
 
     template <typename T>
-    static message_type<T> decode(ipc::buff_t buf) {
+    static message_type<T> decode(thoth::buff_t buf) {
         return message_type<T>{std::move(buf)};
     }
 
@@ -31,4 +31,4 @@ struct flatbuffers_codec {
 };
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

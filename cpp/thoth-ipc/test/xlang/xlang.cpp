@@ -4,7 +4,7 @@
 // Cross-language round-trip harness (C++ endpoint). One binary, a uniform CLI
 // contract shared by the Rust and Swift harnesses so the matrix driver
 // (tools/xlang-runner) can pair any writer language with any reader language
-// on the same ipc::route wire ABI.
+// on the same thoth::route wire ABI.
 //
 // Verbs (see tools/xlang-runner/README.md for the scenario each serves):
 //   write/read (route), cwrite/cread (multi-writer channel), twrite/tread
@@ -44,7 +44,7 @@ std::vector<char> pattern(std::size_t n) {
 }
 
 int do_write(const char* name, int count, std::size_t size, std::size_t minrecv) {
-    ipc::route w{name, ipc::sender};
+    thoth::route w{name, thoth::sender};
     if (!w.valid()) { std::fprintf(stderr, "[cpp] connect(sender) failed\n"); return 3; }
     if (!w.wait_for_recv(minrecv, 5000)) {
         std::fprintf(stderr, "[cpp] fewer than %zu receivers within 5s\n", minrecv);
@@ -58,11 +58,11 @@ int do_write(const char* name, int count, std::size_t size, std::size_t minrecv)
     return 0;
 }
 
-// Multi-writer endpoints on ipc::channel (N writers, N readers) — same wire
+// Multi-writer endpoints on thoth::channel (N writers, N readers) — same wire
 // ABI as route, but exercises the multi-producer claim/CAS paths and cc_id
 // self-filtering with concurrent senders of different languages.
 int do_cwrite(const char* name, int count, std::size_t size) {
-    ipc::channel w{name, ipc::sender};
+    thoth::channel w{name, thoth::sender};
     if (!w.valid()) { std::fprintf(stderr, "[cpp-chan] connect(sender) failed\n"); return 3; }
     if (!w.wait_for_recv(1, 5000)) { std::fprintf(stderr, "[cpp-chan] no receiver within 5s\n"); return 2; }
     auto msg = pattern(size);
@@ -74,11 +74,11 @@ int do_cwrite(const char* name, int count, std::size_t size) {
 }
 
 int do_cread(const char* name, int count, std::size_t size) {
-    ipc::channel r{name, ipc::receiver};
+    thoth::channel r{name, thoth::receiver};
     if (!r.valid()) { std::fprintf(stderr, "[cpp-chan] connect(receiver) failed\n"); return 3; }
     auto want = pattern(size);
     for (int i = 0; i < count; ++i) {
-        ipc::buff_t b = r.recv(8000);
+        thoth::buff_t b = r.recv(8000);
         if (b.empty()) { std::fprintf(stderr, "[cpp-chan] recv %d timed out\n", i); return 5; }
         if (b.size() != size) {
             std::fprintf(stderr, "[cpp-chan] recv %d wrong size: got %zu want %zu\n", i, b.size(), size);
@@ -94,11 +94,11 @@ int do_cread(const char* name, int count, std::size_t size) {
 }
 
 int do_read(const char* name, int count, std::size_t size) {
-    ipc::route r{name, ipc::receiver};
+    thoth::route r{name, thoth::receiver};
     if (!r.valid()) { std::fprintf(stderr, "[cpp] connect(receiver) failed\n"); return 3; }
     auto want = pattern(size);
     for (int i = 0; i < count; ++i) {
-        ipc::buff_t b = r.recv(8000);
+        thoth::buff_t b = r.recv(8000);
         if (b.empty()) { std::fprintf(stderr, "[cpp] recv %d timed out\n", i); return 5; }
         if (b.size() != size) {
             std::fprintf(stderr, "[cpp] recv %d wrong size: got %zu want %zu\n", i, b.size(), size);
@@ -130,7 +130,7 @@ struct raw_message {
 
 struct raw_codec {
     // Metadata only: these bytes never travel through the typed layer.
-    static constexpr ipc::proto::codec_id id = ipc::proto::codec_id::protobuf;
+    static constexpr thoth::proto::codec_id id = thoth::proto::codec_id::protobuf;
 
     using builder_type = raw_builder;
 
@@ -138,7 +138,7 @@ struct raw_codec {
     using message_type = raw_message;
 
     template <typename T>
-    static raw_message decode(ipc::buff_t buf) {
+    static raw_message decode(thoth::buff_t buf) {
         if (buf.empty()) return {};
         auto *d = static_cast<const std::uint8_t *>(buf.data());
         return raw_message{std::vector<std::uint8_t>(d, d + buf.size())};
@@ -188,21 +188,21 @@ struct xlang_wrongid_key {
 
 template <typename Key>
 using aes256gcm_cipher =
-    ipc::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, Key>;
+    thoth::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_AES_256_GCM, Key>;
 template <typename Key>
 using chacha20poly1305_cipher =
-    ipc::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_CHACHA20_POLY1305, Key>;
+    thoth::proto::secure_openssl_evp_cipher<THOTH_IPC_SECURE_ALG_CHACHA20_POLY1305, Key>;
 
 template <typename Cipher>
 int do_swrite(const char* name, int count, std::size_t size, bool tamper) {
-    ipc::route w{name, ipc::sender};
+    thoth::route w{name, thoth::sender};
     if (!w.valid()) { std::fprintf(stderr, "[cpp-secure] connect(sender) failed\n"); return 3; }
     if (!w.wait_for_recv(1, 5000)) { std::fprintf(stderr, "[cpp-secure] no receiver within 5s\n"); return 2; }
     auto pat = pattern(size);
     raw_builder plain{std::vector<std::uint8_t>(pat.begin(), pat.end())};
     for (int i = 0; i < count; ++i) {
         // Seal per message so every envelope carries a fresh nonce.
-        ipc::proto::secure_builder<raw_codec, Cipher> sealed{plain};
+        thoth::proto::secure_builder<raw_codec, Cipher> sealed{plain};
         if (sealed.size() == 0) { std::fprintf(stderr, "[cpp-secure] seal %d failed\n", i); return 9; }
         std::vector<std::uint8_t> bytes = sealed.bytes();
         if (tamper) {
@@ -222,17 +222,17 @@ int do_swrite(const char* name, int count, std::size_t size, bool tamper) {
 
 template <typename Cipher>
 int do_sread(const char* name, int count, std::size_t size, bool expect_open) {
-    ipc::route r{name, ipc::receiver};
+    thoth::route r{name, thoth::receiver};
     if (!r.valid()) { std::fprintf(stderr, "[cpp-secure] connect(receiver) failed\n"); return 3; }
     auto want = pattern(size);
     for (int i = 0; i < count; ++i) {
-        ipc::buff_t b = r.recv(8000);
+        thoth::buff_t b = r.recv(8000);
         if (b.empty()) { std::fprintf(stderr, "[cpp-secure] recv %d timed out\n", i); return 5; }
         if (b.size() == size && std::memcmp(b.data(), want.data(), size) == 0) {
             std::fprintf(stderr, "[cpp-secure] recv %d arrived as plaintext\n", i);
             return 10;
         }
-        auto msg = ipc::proto::secure_codec<raw_codec, Cipher>::template decode<raw_message>(std::move(b));
+        auto msg = thoth::proto::secure_codec<raw_codec, Cipher>::template decode<raw_message>(std::move(b));
         if (!expect_open) {
             if (!msg.bytes_.empty()) {
                 std::fprintf(stderr, "[cpp-secure] recv %d opened under the WRONG key\n", i);
@@ -316,10 +316,10 @@ struct xlang_proto_msg {
     }
 };
 
-using xlang_typed_route = ipc::proto::typed_route_codec<xlang_proto_msg, ipc::proto::protobuf_codec>;
+using xlang_typed_route = thoth::proto::typed_route_codec<xlang_proto_msg, thoth::proto::protobuf_codec>;
 
 int do_twrite(const char* name, int count, std::size_t size) {
-    xlang_typed_route w{name, ipc::sender};
+    xlang_typed_route w{name, thoth::sender};
     if (!w.valid()) { std::fprintf(stderr, "[cpp-typed] connect(sender) failed\n"); return 3; }
     if (!w.raw().wait_for_recv(1, 5000)) { std::fprintf(stderr, "[cpp-typed] no receiver within 5s\n"); return 2; }
     auto pat = pattern(size);
@@ -327,7 +327,7 @@ int do_twrite(const char* name, int count, std::size_t size) {
         xlang_proto_msg m;
         m.seq_ = static_cast<std::uint32_t>(i);
         m.payload_.assign(pat.begin(), pat.end());
-        auto b = ipc::proto::protobuf_builder::from_message(m);
+        auto b = thoth::proto::protobuf_builder::from_message(m);
         if (b.size() == 0) { std::fprintf(stderr, "[cpp-typed] encode %d failed\n", i); return 9; }
         if (!w.send(b)) { std::fprintf(stderr, "[cpp-typed] send %d failed\n", i); return 4; }
     }
@@ -336,7 +336,7 @@ int do_twrite(const char* name, int count, std::size_t size) {
 }
 
 int do_tread(const char* name, int count, std::size_t size) {
-    xlang_typed_route r{name, ipc::receiver};
+    xlang_typed_route r{name, thoth::receiver};
     if (!r.valid()) { std::fprintf(stderr, "[cpp-typed] connect(receiver) failed\n"); return 3; }
     auto pat = pattern(size);
     for (int i = 0; i < count; ++i) {
@@ -406,10 +406,10 @@ int main(int argc, char** argv) {
         // One clearer for everything a case may have created under <name>:
         // the ring (route and channel share storage) plus the primitives'
         // derived objects (mutex <name>_m, semaphore <name>_s, cond <name>_c).
-        ipc::route::clear_storage(name);
-        ipc::sync::mutex::clear_storage((std::string(name) + "_m").c_str());
-        ipc::sync::semaphore::clear_storage((std::string(name) + "_s").c_str());
-        ipc::sync::condition::clear_storage((std::string(name) + "_c").c_str());
+        thoth::route::clear_storage(name);
+        thoth::sync::mutex::clear_storage((std::string(name) + "_m").c_str());
+        thoth::sync::semaphore::clear_storage((std::string(name) + "_s").c_str());
+        thoth::sync::condition::clear_storage((std::string(name) + "_c").c_str());
         return 0;
     }
     // --- Cross-language sync primitive endpoints (scenario: primitives) ----
@@ -417,7 +417,7 @@ int main(int argc, char** argv) {
     // contention (mtry) or, after SIGKILL, robust dead-holder recovery (mlock).
     if (verb == "mhold") {
         int secs = (argc > 3) ? std::atoi(argv[3]) : 20;
-        ipc::sync::mutex m{(std::string(name) + "_m").c_str()};
+        thoth::sync::mutex m{(std::string(name) + "_m").c_str()};
         if (!m.lock()) { std::fprintf(stderr, "[cpp-prim] lock failed\n"); return 3; }
         std::printf("READY\n");
         std::fflush(stdout);
@@ -426,7 +426,7 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (verb == "mtry") {
-        ipc::sync::mutex m{(std::string(name) + "_m").c_str()};
+        thoth::sync::mutex m{(std::string(name) + "_m").c_str()};
         bool got = false;
         try { got = m.try_lock(); } catch (...) { std::printf("error\n"); return 0; }
         if (got) { m.unlock(); std::printf("acquired\n"); }
@@ -435,14 +435,14 @@ int main(int argc, char** argv) {
     }
     if (verb == "mlock") {
         std::uint64_t ms = (argc > 3) ? static_cast<std::uint64_t>(std::atoll(argv[3])) : 5000;
-        ipc::sync::mutex m{(std::string(name) + "_m").c_str()};
+        thoth::sync::mutex m{(std::string(name) + "_m").c_str()};
         if (m.lock(ms)) { m.unlock(); std::printf("acquired\n"); }
         else            { std::printf("timeout\n"); }
         return 0;
     }
     if (verb == "spost") {
         std::uint32_t n = (argc > 3) ? static_cast<std::uint32_t>(std::atoi(argv[3])) : 1;
-        ipc::sync::semaphore s{(std::string(name) + "_s").c_str()};
+        thoth::sync::semaphore s{(std::string(name) + "_s").c_str()};
         if (!s.post(n)) { std::fprintf(stderr, "[cpp-prim] post failed\n"); return 3; }
         std::fprintf(stderr, "[cpp-prim] posted %u on '%s_s'\n", n, name);
         return 0;
@@ -452,7 +452,7 @@ int main(int argc, char** argv) {
     if (verb == "swait") {
         int n = (argc > 3) ? std::atoi(argv[3]) : 1;
         std::uint64_t ms = (argc > 4) ? static_cast<std::uint64_t>(std::atoll(argv[4])) : 8000;
-        ipc::sync::semaphore s{(std::string(name) + "_s").c_str()};
+        thoth::sync::semaphore s{(std::string(name) + "_s").c_str()};
         for (int i = 0; i < n; ++i) {
             if (!s.wait(ms)) { std::fprintf(stderr, "[cpp-prim] sem wait %d timed out\n", i); return 5; }
         }
@@ -462,8 +462,8 @@ int main(int argc, char** argv) {
     }
     if (verb == "cvwait") {
         std::uint64_t ms = (argc > 3) ? static_cast<std::uint64_t>(std::atoll(argv[3])) : 8000;
-        ipc::sync::mutex m{(std::string(name) + "_m").c_str()};
-        ipc::sync::condition c{(std::string(name) + "_c").c_str()};
+        thoth::sync::mutex m{(std::string(name) + "_m").c_str()};
+        thoth::sync::condition c{(std::string(name) + "_c").c_str()};
         if (!m.lock()) { std::fprintf(stderr, "[cpp-prim] lock failed\n"); return 3; }
         bool woke = c.wait(m, ms);
         m.unlock();
@@ -474,8 +474,8 @@ int main(int argc, char** argv) {
     // Broadcast repeatedly (the waiter needs only one wake; looping avoids a
     // notify-before-wait race without a side channel).
     if (verb == "cvnotify") {
-        ipc::sync::mutex m{(std::string(name) + "_m").c_str()};
-        ipc::sync::condition c{(std::string(name) + "_c").c_str()};
+        thoth::sync::mutex m{(std::string(name) + "_m").c_str()};
+        thoth::sync::condition c{(std::string(name) + "_c").c_str()};
         for (int i = 0; i < 30; ++i) {
             if (m.lock()) {
                 c.broadcast(m);
@@ -499,14 +499,14 @@ int main(int argc, char** argv) {
     // Observe the receiver count WITHOUT side effects (a sender neither claims a
     // receiver slot nor reaps).
     if (verb == "probe") {
-        ipc::route s{name, ipc::sender};
+        thoth::route s{name, thoth::sender};
         std::printf("%zu\n", s.recv_count());
         return 0;
     }
     // Connect a RECEIVER (reap-on-connect runs), then report the count. Used to
     // check that a dead cross-language receiver was reaped (and a live one wasn't).
     if (verb == "count") {
-        ipc::route r{name, ipc::receiver};
+        thoth::route r{name, thoth::receiver};
         std::printf("%zu\n", r.recv_count());
         return 0;
     }
@@ -514,7 +514,7 @@ int main(int argc, char** argv) {
     // SIGKILL this process and check a reaper reclaims the slot.
     if (verb == "hold") {
         int secs = (argc > 3) ? std::atoi(argv[3]) : 30;
-        ipc::route r{name, ipc::receiver};
+        thoth::route r{name, thoth::receiver};
         std::printf("READY\n");
         std::fflush(stdout);
         std::this_thread::sleep_for(std::chrono::seconds(secs));

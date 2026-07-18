@@ -1,7 +1,7 @@
 
 #include "thoth-ipc/mem/new.h"
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 
 /// \brief Select the incremental level based on the size.
@@ -118,4 +118,4 @@ void free(void *p, std::size_t bytes) noexcept {
 }
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

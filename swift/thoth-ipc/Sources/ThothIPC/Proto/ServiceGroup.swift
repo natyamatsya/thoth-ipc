@@ -51,7 +51,7 @@ public struct ServiceGroupConfig: Sendable {
 
 /// Manages a group of redundant service instances with automatic failover.
 ///
-/// Port of `ipc::proto::service_group`.
+/// Port of `thoth::proto::service_group`.
 public final class ServiceGroup: @unchecked Sendable {
 
     private let registry: ServiceRegistry

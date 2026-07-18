@@ -12,7 +12,7 @@ import Atomics
 /// A named, inter-process condition variable.
 ///
 /// On Darwin this is a ulock sequence-counter condition variable in shared
-/// memory, binary-compatible with `ipc::sync::condition` from the C++ libipc
+/// memory, binary-compatible with `thoth::sync::condition` from the C++ libipc
 /// library.
 ///
 /// Shared-memory layout (8 bytes):

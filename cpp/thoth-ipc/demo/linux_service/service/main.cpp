@@ -10,8 +10,8 @@
 int main(int argc, char *argv[]) {
     printf("My Sample Service: Main: Entry\n");
 
-    ipc::channel ipc_r{"service ipc r", ipc::sender};
-    ipc::channel ipc_w{"service ipc w", ipc::receiver};
+    thoth::channel ipc_r{"service ipc r", thoth::sender};
+    thoth::channel ipc_w{"service ipc w", thoth::receiver};
 
     while (1) {
         if (!ipc_r.send("Hello, World!")) {

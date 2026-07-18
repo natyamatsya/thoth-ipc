@@ -34,13 +34,13 @@ struct Stats {
 };
 
 // ---------------------------------------------------------------------------
-// ipc::route  —  1 sender, N receivers  (random msg_lo–msg_hi bytes × count)
+// thoth::route  —  1 sender, N receivers  (random msg_lo–msg_hi bytes × count)
 // ---------------------------------------------------------------------------
 
 static Stats bench_route(int n_receivers, std::size_t count,
                          std::size_t msg_lo, std::size_t msg_hi) {
     const char* name = "bench_route";
-    ipc::route::clear_storage(name);
+    thoth::route::clear_storage(name);
 
     std::vector<std::thread> threads;
 
@@ -52,12 +52,12 @@ static Stats bench_route(int n_receivers, std::size_t count,
     std::vector<char> payload(msg_hi, 'X');
 
     // sender (created first so shm exists for receivers)
-    ipc::route sender(name, ipc::sender);
+    thoth::route sender(name, thoth::sender);
 
     // receivers
     for (int i = 0; i < n_receivers; ++i) {
         threads.emplace_back([&, name] {
-            ipc::route r(name, ipc::receiver);
+            thoth::route r(name, thoth::receiver);
             wait_ready();
             while (!g_done.load(std::memory_order_acquire)) {
                 r.try_recv();
@@ -90,7 +90,7 @@ static Stats bench_route(int n_receivers, std::size_t count,
 }
 
 // ---------------------------------------------------------------------------
-// ipc::channel  —  pattern  (random msg_lo–msg_hi bytes × count)
+// thoth::channel  —  pattern  (random msg_lo–msg_hi bytes × count)
 //   pattern: "1-N"  = 1 sender,  N receivers
 //            "N-1"  = N senders, 1 receiver
 //            "N-N"  = N senders, N receivers
@@ -100,7 +100,7 @@ static Stats bench_channel(const std::string& pattern, int n,
                            std::size_t count, std::size_t msg_lo,
                            std::size_t msg_hi) {
     const char* name = "bench_chan";
-    ipc::channel::clear_storage(name);
+    thoth::channel::clear_storage(name);
 
     int n_senders   = (pattern == "N-1" || pattern == "N-N") ? n : 1;
     int n_receivers = (pattern == "1-N" || pattern == "N-N") ? n : 1;
@@ -115,14 +115,14 @@ static Stats bench_channel(const std::string& pattern, int n,
     std::vector<char> payload(msg_hi, 'X');
 
     // a "control" channel to keep shm alive; also used to disconnect receivers
-    ipc::channel ctrl(name, ipc::sender);
+    thoth::channel ctrl(name, thoth::sender);
 
     std::vector<std::thread> recv_threads;
 
     // receivers
     for (int i = 0; i < n_receivers; ++i) {
         recv_threads.emplace_back([&, name] {
-            ipc::channel ch(name, ipc::receiver);
+            thoth::channel ch(name, thoth::receiver);
             wait_ready();
             while (!g_done.load(std::memory_order_acquire)) {
                 ch.try_recv();
@@ -140,7 +140,7 @@ static Stats bench_channel(const std::string& pattern, int n,
     std::vector<std::atomic<std::size_t>> sent_counts(static_cast<std::size_t>(n_senders));
     for (int s = 0; s < n_senders; ++s) {
         sender_threads.emplace_back([&, s, per_sender, name] {
-            ipc::channel ch(name, ipc::sender);
+            thoth::channel ch(name, thoth::sender);
             std::size_t base = static_cast<std::size_t>(s) * per_sender;
             std::size_t local_sent = 0;
             for (std::size_t i = 0; i < per_sender; ++i)
@@ -193,7 +193,7 @@ int main(int argc, char** argv) {
     printf(", %u hardware threads\n", std::thread::hardware_concurrency());
 
     // -----------------------------------------------------------------------
-    print_header("ipc::route — 1 sender, N receivers (random 2-256 bytes x 100000)");
+    print_header("thoth::route — 1 sender, N receivers (random 2-256 bytes x 100000)");
     printf("%10s  %12s  %12s  %8s\n", "Receivers", "RTT (ms)", "us/datum", "drop%");
     printf("%10s  %12s  %12s  %8s\n", "----------", "----------", "----------", "--------");
 
@@ -203,7 +203,7 @@ int main(int argc, char** argv) {
     }
 
     // -----------------------------------------------------------------------
-    print_header("ipc::channel — 1-N (random 2-256 bytes x 100000)");
+    print_header("thoth::channel — 1-N (random 2-256 bytes x 100000)");
     printf("%10s  %12s  %12s  %8s\n", "Receivers", "RTT (ms)", "us/datum", "drop%");
     printf("%10s  %12s  %12s  %8s\n", "----------", "----------", "----------", "--------");
 
@@ -213,7 +213,7 @@ int main(int argc, char** argv) {
     }
 
     // -----------------------------------------------------------------------
-    print_header("ipc::channel — N-1 (random 2-256 bytes x 100000)");
+    print_header("thoth::channel — N-1 (random 2-256 bytes x 100000)");
     printf("%10s  %12s  %12s  %8s\n", "Senders", "RTT (ms)", "us/datum", "drop%");
     printf("%10s  %12s  %12s  %8s\n", "----------", "----------", "----------", "--------");
 
@@ -223,7 +223,7 @@ int main(int argc, char** argv) {
     }
 
     // -----------------------------------------------------------------------
-    print_header("ipc::channel — N-N (random 2-256 bytes x 100000)");
+    print_header("thoth::channel — N-N (random 2-256 bytes x 100000)");
     printf("%10s  %12s  %12s  %8s\n", "Threads", "RTT (ms)", "us/datum", "drop%");
     printf("%10s  %12s  %12s  %8s\n", "----------", "----------", "----------", "--------");
 

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Cross-language async harness, C++ COROUTINE endpoint (path b): async receive
-// via `co_await ipc::coro::async_recv_co(route)` — the stdexec-FREE coroutine
+// via `co_await thoth::coro::async_recv_co(route)` — the stdexec-FREE coroutine
 // front end, built with only THOTH_IPC_NOTIFY_FD (+ C++20/23). Same uniform CLI as
 // the other harnesses so tools/xlang_matrix.py can pair it as an async receiver.
 //
@@ -27,7 +27,7 @@ std::vector<char> pattern(std::size_t n) {
 }
 
 int do_write(const char *name, int count, std::size_t size) {
-    ipc::route w{name, ipc::sender};
+    thoth::route w{name, thoth::sender};
     if (!w.valid()) { std::fprintf(stderr, "[cpp-coro] connect(sender) failed\n"); return 3; }
     if (!w.wait_for_recv(1, 5000)) { std::fprintf(stderr, "[cpp-coro] no receiver within 5s\n"); return 2; }
     auto msg = pattern(size);
@@ -39,12 +39,12 @@ int do_write(const char *name, int count, std::size_t size) {
 }
 
 // The coroutine: awaits `count` messages and verifies each. Returns an exit code.
-ipc::coro::task<int> recv_loop(ipc::route &r, int count, std::size_t size) {
+thoth::coro::task<int> recv_loop(thoth::route &r, int count, std::size_t size) {
     auto want = pattern(size);
     for (int i = 0; i < count; ++i) {
-        ipc::recv_result res = co_await ipc::coro::async_recv_co(r);
+        thoth::recv_result res = co_await thoth::coro::async_recv_co(r);
         if (!res.has_value()) { std::fprintf(stderr, "[cpp-coro] recv %d errc=%d\n", i, int(res.error())); co_return 5; }
-        ipc::buff_t const &b = res.value();
+        thoth::buff_t const &b = res.value();
         if (b.size() != size) { std::fprintf(stderr, "[cpp-coro] recv %d wrong size %zu\n", i, b.size()); co_return 6; }
         if (std::memcmp(b.data(), want.data(), size) != 0) { std::fprintf(stderr, "[cpp-coro] recv %d mismatch\n", i); co_return 7; }
     }
@@ -53,9 +53,9 @@ ipc::coro::task<int> recv_loop(ipc::route &r, int count, std::size_t size) {
 }
 
 int do_aread(const char *name, int count, std::size_t size) {
-    ipc::route r{name, ipc::receiver};
+    thoth::route r{name, thoth::receiver};
     if (!r.valid()) { std::fprintf(stderr, "[cpp-coro] connect(receiver) failed\n"); return 3; }
-    if (r.native_wait_handle() == ipc::invalid_wait_handle) {
+    if (r.native_wait_handle() == thoth::invalid_wait_handle) {
         std::fprintf(stderr, "[cpp-coro] no readiness handle\n");
         return 8;
     }
@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
     if (argc < 3) { std::fprintf(stderr, "usage: %s <write|aread|clear> <name> [count] [size]\n", argv[0]); return 1; }
     std::string verb = argv[1];
     const char *name = argv[2];
-    if (verb == "clear") { ipc::route::clear_storage(name); return 0; }
+    if (verb == "clear") { thoth::route::clear_storage(name); return 0; }
     // Built with THOTH_IPC_NOTIFY_FD: posts notify + coroutine async_recv (no stdexec).
     if (verb == "caps") { std::printf("notify async\n"); return 0; }
     if (argc < 5) { std::fprintf(stderr, "write/aread need <count> <size>\n"); return 1; }

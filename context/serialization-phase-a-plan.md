@@ -8,7 +8,7 @@ This plan introduces a codec abstraction while keeping FlatBuffers behavior and 
 
 - Preserve existing FlatBuffers typed API behavior in C++, Rust, Swift.
 - Introduce internal codec seams for future Protobuf/Cap'n Proto modules.
-- Avoid transport changes (`ipc::channel` / `ipc::route` and shared-memory layout remain untouched).
+- Avoid transport changes (`thoth::channel` / `thoth::route` and shared-memory layout remain untouched).
 
 ### Non-goals
 

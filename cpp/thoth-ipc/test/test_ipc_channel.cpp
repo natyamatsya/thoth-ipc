@@ -1,6 +1,6 @@
 /**
  * @file test_ipc_channel.cpp
- * @brief Comprehensive unit tests for ipc::route and ipc::channel classes
+ * @brief Comprehensive unit tests for thoth::route and thoth::channel classes
  * 
  * This test suite covers:
  * - Route (single producer, multiple consumer) functionality
@@ -27,7 +27,7 @@
 #include "thoth-ipc/ipc.h"
 #include "thoth-ipc/buffer.h"
 
-using namespace ipc;
+using namespace thoth;
 
 namespace {
 

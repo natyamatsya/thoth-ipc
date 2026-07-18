@@ -11,19 +11,19 @@
 #include "thoth-ipc/imp/result.h"
 
 TEST(fmt, spec) {
-  EXPECT_STREQ(ipc::spec("hello")(123).fstr.data(), "hello");
-  EXPECT_EQ(ipc::spec("hello")(123).param , 123);
-  EXPECT_STREQ(ipc::spec("hello")("world").fstr.data(), "hello");
-  EXPECT_STREQ(ipc::spec("hello")("world").param , "world");
+  EXPECT_STREQ(thoth::spec("hello")(123).fstr.data(), "hello");
+  EXPECT_EQ(thoth::spec("hello")(123).param , 123);
+  EXPECT_STREQ(thoth::spec("hello")("world").fstr.data(), "hello");
+  EXPECT_STREQ(thoth::spec("hello")("world").param , "world");
 }
 
 TEST(fmt, to_string) {
   std::string joined;
-  ipc::fmt_context ctx(joined);
+  thoth::fmt_context ctx(joined);
 
   auto check = [&](auto &&txt, auto &&...val) {
     ctx.reset();
-    EXPECT_TRUE(ipc::to_string(ctx, std::forward<decltype(val)>(val)...));
+    EXPECT_TRUE(thoth::to_string(ctx, std::forward<decltype(val)>(val)...));
     ctx.finish();
     EXPECT_EQ(joined, std::forward<decltype(txt)>(txt));
   };
@@ -73,25 +73,25 @@ TEST(fmt, to_string) {
   check("1.500000e+00", 1.5, "e");
   check("1.500000E+00", 1.5, "E");
   double r = 0.0;
-  ctx.reset(); EXPECT_TRUE(ipc::to_string(ctx, 0.0/r)); ctx.finish();
+  ctx.reset(); EXPECT_TRUE(thoth::to_string(ctx, 0.0/r)); ctx.finish();
   std::cout << joined << "\n";
-  ctx.reset(); EXPECT_TRUE(ipc::to_string(ctx, 1.0/r)); ctx.finish();
+  ctx.reset(); EXPECT_TRUE(thoth::to_string(ctx, 1.0/r)); ctx.finish();
   std::cout << joined << "\n";
 
   /// \brief pointer
   check("null", nullptr);
   int *p = (int *)0x0f013a04;
-  ctx.reset(); EXPECT_TRUE(ipc::to_string(ctx, (void *)p)); ctx.finish();
+  ctx.reset(); EXPECT_TRUE(thoth::to_string(ctx, (void *)p)); ctx.finish();
   std::cout << joined << "\n";
 
   /// \brief date and time
   auto tp = std::chrono::system_clock::now();
   auto tt = std::chrono::system_clock::to_time_t(tp);
   auto tm = *std::localtime(&tt);
-  ctx.reset(); EXPECT_TRUE(ipc::to_string(ctx, tm)); ctx.finish();
+  ctx.reset(); EXPECT_TRUE(thoth::to_string(ctx, tm)); ctx.finish();
   std::cout << joined << "\n";
   std::string tm_str = joined;
-  ctx.reset(); EXPECT_TRUE(ipc::to_string(ctx, tp)); ctx.finish();
+  ctx.reset(); EXPECT_TRUE(thoth::to_string(ctx, tp)); ctx.finish();
   EXPECT_EQ(tm_str, joined);
 }
 
@@ -99,30 +99,30 @@ TEST(fmt, fmt) {
   char const txt[] = "hello world.";
 
   /// \brief hello world
-  auto s = ipc::fmt("hello", " ", "world", ".");
+  auto s = thoth::fmt("hello", " ", "world", ".");
   EXPECT_EQ(s, txt);
 
   /// \brief chrono
-  std::cout << ipc::fmt('[', std::chrono::system_clock::now(), "] ", s) << "\n";
+  std::cout << thoth::fmt('[', std::chrono::system_clock::now(), "] ", s) << "\n";
 
   /// \brief long string
-  s = ipc::fmt(ipc::spec("4096")(txt));
+  s = thoth::fmt(thoth::spec("4096")(txt));
   std::string test(4096, ' ');
   std::memcpy(&test[test.size() - sizeof(txt) + 1], txt, sizeof(txt) - 1);
   EXPECT_EQ(s, test);
 
-  EXPECT_EQ(ipc::fmt("", 1, "", '2', "", 3.0), "123.000000");
+  EXPECT_EQ(thoth::fmt("", 1, "", '2', "", 3.0), "123.000000");
   char const * nc = nullptr;
-  EXPECT_EQ(ipc::fmt(nc, 1, "", '2', "", 3.0), "123.000000");
+  EXPECT_EQ(thoth::fmt(nc, 1, "", '2', "", 3.0), "123.000000");
   std::string empty;
-  EXPECT_EQ(ipc::fmt(empty, 1, "", '2', "", 3.0), "123.000000");
+  EXPECT_EQ(thoth::fmt(empty, 1, "", '2', "", 3.0), "123.000000");
 }
 
 namespace {
 
 class foo {};
 
-bool tag_invoke(decltype(ipc::fmt_to), ipc::fmt_context &, foo arg) noexcept(false) {
+bool tag_invoke(decltype(thoth::fmt_to), thoth::fmt_context &, foo arg) noexcept(false) {
   throw arg;
   return {};
 }
@@ -130,65 +130,65 @@ bool tag_invoke(decltype(ipc::fmt_to), ipc::fmt_context &, foo arg) noexcept(fal
 } // namespace
 
 TEST(fmt, throw) {
-  EXPECT_THROW(std::ignore = ipc::fmt(foo{}), foo);
+  EXPECT_THROW(std::ignore = thoth::fmt(foo{}), foo);
 }
 
 TEST(fmt, byte) {
   {
-    ipc::byte b1{}, b2(31);
-    EXPECT_EQ(ipc::fmt(b1), "00");
-    EXPECT_EQ(ipc::fmt(b2), "1f");
-    EXPECT_EQ(ipc::fmt(ipc::spec("03X")(b2)), "01F");
+    thoth::byte b1{}, b2(31);
+    EXPECT_EQ(thoth::fmt(b1), "00");
+    EXPECT_EQ(thoth::fmt(b2), "1f");
+    EXPECT_EQ(thoth::fmt(thoth::spec("03X")(b2)), "01F");
   }
   {
-    ipc::byte bs[] {31, 32, 33, 34, 35, 36, 37, 38};
-    EXPECT_EQ(ipc::fmt(ipc::make_span(bs)), "1f 20 21 22 23 24 25 26");
+    thoth::byte bs[] {31, 32, 33, 34, 35, 36, 37, 38};
+    EXPECT_EQ(thoth::fmt(thoth::make_span(bs)), "1f 20 21 22 23 24 25 26");
   }
 }
 
 TEST(fmt, span) {
-  EXPECT_EQ(ipc::fmt(ipc::span<int>{}), "");
-  EXPECT_EQ(ipc::fmt(ipc::make_span({1, 3, 2, 4, 5, 6, 7})), "1 3 2 4 5 6 7");
+  EXPECT_EQ(thoth::fmt(thoth::span<int>{}), "");
+  EXPECT_EQ(thoth::fmt(thoth::make_span({1, 3, 2, 4, 5, 6, 7})), "1 3 2 4 5 6 7");
 }
 
 TEST(fmt, result) {
   {
-    ipc::result<std::uint64_t> r1;
-    EXPECT_EQ(ipc::fmt(r1), ipc::fmt("fail, error = ", std::error_code(-1, std::generic_category())));
-    ipc::result<std::uint64_t> r2(65537);
-    EXPECT_EQ(ipc::fmt(r2), "succ, value = 65537");
-    ipc::result<std::uint64_t> r3(0);
-    EXPECT_EQ(ipc::fmt(r3), "succ, value = 0");
+    thoth::result<std::uint64_t> r1;
+    EXPECT_EQ(thoth::fmt(r1), thoth::fmt("fail, error = ", std::error_code(-1, std::generic_category())));
+    thoth::result<std::uint64_t> r2(65537);
+    EXPECT_EQ(thoth::fmt(r2), "succ, value = 65537");
+    thoth::result<std::uint64_t> r3(0);
+    EXPECT_EQ(thoth::fmt(r3), "succ, value = 0");
   }
   {
-    ipc::result<int> r0;
-    EXPECT_EQ(ipc::fmt(r0), ipc::fmt(ipc::result<std::uint64_t>()));
-    ipc::result<int> r1 {std::error_code(-1, std::generic_category())};
-    EXPECT_EQ(ipc::fmt(r1), ipc::fmt("fail, error = ", std::error_code(-1, std::generic_category())));
+    thoth::result<int> r0;
+    EXPECT_EQ(thoth::fmt(r0), thoth::fmt(thoth::result<std::uint64_t>()));
+    thoth::result<int> r1 {std::error_code(-1, std::generic_category())};
+    EXPECT_EQ(thoth::fmt(r1), thoth::fmt("fail, error = ", std::error_code(-1, std::generic_category())));
 
-    ipc::result<void *> r2 {&r1};
-    EXPECT_EQ(ipc::fmt(r2), ipc::fmt("succ, value = ", (void *)&r1));
+    thoth::result<void *> r2 {&r1};
+    EXPECT_EQ(thoth::fmt(r2), thoth::fmt("succ, value = ", (void *)&r1));
 
     int aaa {};
-    ipc::result<int *> r3 {&aaa};
-    EXPECT_EQ(ipc::fmt(r3), ipc::fmt("succ, value = ", (void *)&aaa));
-    ipc::result<int *> r4 {nullptr};
-    EXPECT_EQ(ipc::fmt(r4), ipc::fmt("fail, error = ", std::error_code(-1, std::generic_category())));
+    thoth::result<int *> r3 {&aaa};
+    EXPECT_EQ(thoth::fmt(r3), thoth::fmt("succ, value = ", (void *)&aaa));
+    thoth::result<int *> r4 {nullptr};
+    EXPECT_EQ(thoth::fmt(r4), thoth::fmt("fail, error = ", std::error_code(-1, std::generic_category())));
     r4 = std::error_code(1234, std::generic_category());
-    EXPECT_EQ(ipc::fmt(r4), ipc::fmt("fail, error = ", std::error_code(1234, std::generic_category())));
-    ipc::result<int *> r5;
-    EXPECT_EQ(ipc::fmt(r5), ipc::fmt("fail, error = ", std::error_code(-1, std::generic_category())));
+    EXPECT_EQ(thoth::fmt(r4), thoth::fmt("fail, error = ", std::error_code(1234, std::generic_category())));
+    thoth::result<int *> r5;
+    EXPECT_EQ(thoth::fmt(r5), thoth::fmt("fail, error = ", std::error_code(-1, std::generic_category())));
   }
   {
-    ipc::result<std::int64_t> r1 {-123};
-    EXPECT_EQ(ipc::fmt(r1), ipc::fmt("succ, value = ", -123));
+    thoth::result<std::int64_t> r1 {-123};
+    EXPECT_EQ(thoth::fmt(r1), thoth::fmt("succ, value = ", -123));
   }
   {
-    ipc::result<void> r1;
-    EXPECT_EQ(ipc::fmt(r1), ipc::fmt("fail, error = ", std::error_code(-1, std::generic_category())));
+    thoth::result<void> r1;
+    EXPECT_EQ(thoth::fmt(r1), thoth::fmt("fail, error = ", std::error_code(-1, std::generic_category())));
     r1 = std::error_code{};
     EXPECT_TRUE(r1);
-    EXPECT_EQ(ipc::fmt(r1), ipc::fmt("succ, error = ", std::error_code()));
+    EXPECT_EQ(thoth::fmt(r1), thoth::fmt("succ, error = ", std::error_code()));
   }
 }
 
@@ -196,69 +196,69 @@ TEST(fmt, result) {
 /// \see https://github.com/mutouyun/cpp-ipc/issues/171
 /// 
 /// The issue is that std::hex and std::dec (I/O manipulators) were incorrectly
-/// used with ipc::fmt. These are function pointers of type:
+/// used with thoth::fmt. These are function pointers of type:
 ///   std::ios_base& (*)(std::ios_base&)
-/// which ipc::fmt does not support.
+/// which thoth::fmt does not support.
 /// 
-/// The correct way to output hexadecimal values with ipc::fmt is to use ipc::spec.
+/// The correct way to output hexadecimal values with thoth::fmt is to use thoth::spec.
 TEST(fmt, hex_output_with_spec) {
-  /// \brief Basic hexadecimal formatting using ipc::spec
+  /// \brief Basic hexadecimal formatting using thoth::spec
   /// This is the correct way to format hex values (instead of std::hex)
   {
     unsigned int val = 255;
-    EXPECT_EQ(ipc::fmt(ipc::spec("x")(val)), "ff");
-    EXPECT_EQ(ipc::fmt(ipc::spec("X")(val)), "FF");
-    EXPECT_EQ(ipc::fmt(ipc::spec("08x")(val)), "000000ff");
-    EXPECT_EQ(ipc::fmt(ipc::spec("08X")(val)), "000000FF");
+    EXPECT_EQ(thoth::fmt(thoth::spec("x")(val)), "ff");
+    EXPECT_EQ(thoth::fmt(thoth::spec("X")(val)), "FF");
+    EXPECT_EQ(thoth::fmt(thoth::spec("08x")(val)), "000000ff");
+    EXPECT_EQ(thoth::fmt(thoth::spec("08X")(val)), "000000FF");
   }
 
   /// \brief Hex formatting with prefix (simulating "0x" prefix like std::hex would produce)
   {
     unsigned int val = 0xDEADBEEF;
-    // Correct way: use string concatenation with ipc::spec for hex format
-    EXPECT_EQ(ipc::fmt("0x", ipc::spec("x")(val)), "0xdeadbeef");
-    EXPECT_EQ(ipc::fmt("0x", ipc::spec("X")(val)), "0xDEADBEEF");
-    EXPECT_EQ(ipc::fmt("0x", ipc::spec("08x")(val)), "0xdeadbeef");
+    // Correct way: use string concatenation with thoth::spec for hex format
+    EXPECT_EQ(thoth::fmt("0x", thoth::spec("x")(val)), "0xdeadbeef");
+    EXPECT_EQ(thoth::fmt("0x", thoth::spec("X")(val)), "0xDEADBEEF");
+    EXPECT_EQ(thoth::fmt("0x", thoth::spec("08x")(val)), "0xdeadbeef");
   }
 
   /// \brief Mixed decimal and hex output (simulating the problematic log pattern from issue #171)
   /// Original problematic code pattern was:
   ///   log.error("fail WaitForSingleObject[", ::GetLastError(), "]: 0x", std::hex, ret, std::dec);
   /// Correct pattern should be:
-  ///   log.error("fail WaitForSingleObject[", ::GetLastError(), "]: ", ipc::spec("08x")(ret));
+  ///   log.error("fail WaitForSingleObject[", ::GetLastError(), "]: ", thoth::spec("08x")(ret));
   {
     unsigned long error_code = 5;  // ERROR_ACCESS_DENIED
     unsigned int ret = 0x00000102; // WAIT_TIMEOUT value
     
     // Correct way to format the log message
-    auto msg = ipc::fmt("fail WaitForSingleObject[", error_code, "]: ", ipc::spec("08x")(ret));
+    auto msg = thoth::fmt("fail WaitForSingleObject[", error_code, "]: ", thoth::spec("08x")(ret));
     EXPECT_EQ(msg, "fail WaitForSingleObject[5]: 00000102");
     
     // Alternative with "0x" prefix
-    auto msg2 = ipc::fmt("fail WaitForSingleObject[", error_code, "]: 0x", ipc::spec("x")(ret));
+    auto msg2 = thoth::fmt("fail WaitForSingleObject[", error_code, "]: 0x", thoth::spec("x")(ret));
     EXPECT_EQ(msg2, "fail WaitForSingleObject[5]: 0x102");
   }
 
   /// \brief Various integer types with hex formatting
-  /// Note: ipc::spec format string should NOT include length modifiers (like "ll").
+  /// Note: thoth::spec format string should NOT include length modifiers (like "ll").
   /// The to_string function automatically adds the correct length modifier based on
   /// the argument type. Just use "x" or "X" for hex conversion.
   {
-    EXPECT_EQ(ipc::fmt(ipc::spec("x")((unsigned char)0xAB)), "ab");
-    EXPECT_EQ(ipc::fmt(ipc::spec("x")((unsigned short)0xABCD)), "abcd");
-    EXPECT_EQ(ipc::fmt(ipc::spec("x")((unsigned int)0xABCDEF01)), "abcdef01");
-    EXPECT_EQ(ipc::fmt(ipc::spec("x")((unsigned long)0xABCDEF01)), "abcdef01");
+    EXPECT_EQ(thoth::fmt(thoth::spec("x")((unsigned char)0xAB)), "ab");
+    EXPECT_EQ(thoth::fmt(thoth::spec("x")((unsigned short)0xABCD)), "abcd");
+    EXPECT_EQ(thoth::fmt(thoth::spec("x")((unsigned int)0xABCDEF01)), "abcdef01");
+    EXPECT_EQ(thoth::fmt(thoth::spec("x")((unsigned long)0xABCDEF01)), "abcdef01");
     // For unsigned long long, just use "x" - the length modifier is added automatically
-    EXPECT_EQ(ipc::fmt(ipc::spec("x")((unsigned long long)0xABCDEF0123456789ULL)), "abcdef0123456789");
+    EXPECT_EQ(thoth::fmt(thoth::spec("x")((unsigned long long)0xABCDEF0123456789ULL)), "abcdef0123456789");
   }
 
   /// \brief Width and padding with hex
   {
     unsigned int val = 0x1F;
-    EXPECT_EQ(ipc::fmt(ipc::spec("2x")(val)), "1f");
-    EXPECT_EQ(ipc::fmt(ipc::spec("4x")(val)), "  1f");
-    EXPECT_EQ(ipc::fmt(ipc::spec("04x")(val)), "001f");
-    EXPECT_EQ(ipc::fmt(ipc::spec("8x")(val)), "      1f");
-    EXPECT_EQ(ipc::fmt(ipc::spec("08x")(val)), "0000001f");
+    EXPECT_EQ(thoth::fmt(thoth::spec("2x")(val)), "1f");
+    EXPECT_EQ(thoth::fmt(thoth::spec("4x")(val)), "  1f");
+    EXPECT_EQ(thoth::fmt(thoth::spec("04x")(val)), "001f");
+    EXPECT_EQ(thoth::fmt(thoth::spec("8x")(val)), "      1f");
+    EXPECT_EQ(thoth::fmt(thoth::spec("08x")(val)), "0000001f");
   }
 }

@@ -7,7 +7,7 @@
 
 #include "thoth-ipc/platform/detail.h"
 
-namespace ipc {
+namespace thoth {
 
 template <typename F, typename D>
 constexpr decltype(auto) static_switch(std::size_t /*i*/, std::index_sequence<>, F&& /*f*/, D&& def) {
@@ -49,4 +49,4 @@ IPC_CONSTEXPR_ std::size_t make_align(std::size_t align, std::size_t size) {
     return (size + align - 1) & ~(align - 1);
 }
 
-} // namespace ipc
+} // namespace thoth

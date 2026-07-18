@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <cstring>
 
-namespace ipc {
+namespace thoth {
 namespace posix_ {
 namespace detail {
 
@@ -72,4 +72,4 @@ inline std::string make_shm_name(const char *name) {
 
 } // namespace detail
 } // namespace posix_
-} // namespace ipc
+} // namespace thoth

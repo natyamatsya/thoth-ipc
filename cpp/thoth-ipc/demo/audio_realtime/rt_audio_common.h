@@ -67,13 +67,13 @@ struct shared_state {
 
 // Helper to open/create a named shared state block.
 class shared_state_handle {
-    ipc::shm::handle shm_;
+    thoth::shm::handle shm_;
     shared_state *ptr_ = nullptr;
 
 public:
     bool open_or_create(const char *name) {
         close();
-        if (!shm_.acquire(name, sizeof(shared_state), ipc::shm::create | ipc::shm::open))
+        if (!shm_.acquire(name, sizeof(shared_state), thoth::shm::create | thoth::shm::open))
             return false;
         ptr_ = static_cast<shared_state *>(shm_.get());
         return true;
@@ -81,7 +81,7 @@ public:
 
     bool open_existing(const char *name) {
         close();
-        if (!shm_.acquire(name, sizeof(shared_state), ipc::shm::open))
+        if (!shm_.acquire(name, sizeof(shared_state), thoth::shm::open))
             return false;
         ptr_ = static_cast<shared_state *>(shm_.get());
         return true;

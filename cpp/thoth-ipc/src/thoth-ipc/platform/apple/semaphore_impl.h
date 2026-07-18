@@ -14,7 +14,7 @@
 
 #include "thoth-ipc/platform/apple/ulock.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
@@ -36,7 +36,7 @@ struct ulock_sem_t {
 };
 
 class semaphore {
-    ipc::shm::handle shm_;
+    thoth::shm::handle shm_;
     ulock_sem_t *data_ = nullptr;
 
 public:
@@ -90,7 +90,7 @@ public:
     }
 
     static void clear_storage(char const *name) noexcept {
-        ipc::shm::handle::clear_storage(name);
+        thoth::shm::handle::clear_storage(name);
     }
 
     bool wait(std::uint64_t tm) noexcept {
@@ -156,4 +156,4 @@ public:
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

@@ -20,7 +20,7 @@
 #include "thoth-ipc/imp/detect_plat.h"
 #include "thoth-ipc/imp/scope_exit.h"
 
-namespace ipc {
+namespace thoth {
 namespace sys {
 
 /**
@@ -88,4 +88,4 @@ result<std::int64_t> conf(info r) noexcept {
 }
 
 } // namespace sys
-} // namespace ipc
+} // namespace thoth

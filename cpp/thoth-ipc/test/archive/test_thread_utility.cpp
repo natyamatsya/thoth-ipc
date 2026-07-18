@@ -73,8 +73,8 @@ void benchmark_lc(int w, int r, char const * message) {
 
 void test_lock_performance(int w, int r) {
     std::cout << "test_lock_performance: [" << w << "-" << r << "]" << std::endl;
-    benchmark_lc<ipc::rw_lock               >(w, r, "ipc::rw_lock");
-    benchmark_lc<lc_wrapper< ipc::spin_lock>>(w, r, "ipc::spin_lock");
+    benchmark_lc<thoth::rw_lock               >(w, r, "thoth::rw_lock");
+    benchmark_lc<lc_wrapper< thoth::spin_lock>>(w, r, "thoth::spin_lock");
     benchmark_lc<lc_wrapper<capo::spin_lock>>(w, r, "capo::spin_lock");
     benchmark_lc<lc_wrapper<std::mutex>     >(w, r, "std::mutex");
     // benchmark_lc<std::shared_mutex          >(w, r, "std::shared_mutex");
@@ -88,9 +88,9 @@ void test_lock_performance(int w, int r) {
 //    for (int i = 2; i <= ThreadMax; ++i) test_lock_performance(i, i);
 //}
 
-#if 0 // disable ipc::tls
+#if 0 // disable thoth::tls
 TEST(Thread, tls_main_thread) {
-    ipc::tls::pointer<int> p;
+    thoth::tls::pointer<int> p;
     EXPECT_FALSE(p);
     EXPECT_NE(p.create(123), nullptr);
     EXPECT_EQ(*p, 123);
@@ -113,7 +113,7 @@ TEST(Thread, tls_create_once) {
     Foo { &x };
     EXPECT_EQ(x, 1);
     {
-        ipc::tls::pointer<Foo> foo;
+        thoth::tls::pointer<Foo> foo;
         EXPECT_NE(foo.create(&x), nullptr);
         EXPECT_EQ(x, 1);
 
@@ -130,7 +130,7 @@ TEST(Thread, tls_create_once) {
 TEST(Thread, tls_multi_thread) {
     std::atomic<int> x { 0 };
     {
-        ipc::tls::pointer<Foo> foo; // no create
+        thoth::tls::pointer<Foo> foo; // no create
         EXPECT_EQ(x, 0);
 
         ipc_ut::thread_pool pool { 10 };
@@ -170,7 +170,7 @@ void benchmark_tls(char const * message) {
 struct ipc_tls {
     template <typename T>
     static T * get() {
-        static ipc::tls::pointer<T> p;
+        static thoth::tls::pointer<T> p;
         return p.create_once();
     }
 };

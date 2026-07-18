@@ -5,7 +5,7 @@
 #include "thoth-ipc/mem/bytes_allocator.h"
 #include "thoth-ipc/mem/memory_resource.h"
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 
 bytes_allocator::holder_mr_base &bytes_allocator::get_holder() noexcept {
@@ -17,14 +17,14 @@ bytes_allocator::holder_mr_base const &bytes_allocator::get_holder() const noexc
 }
 
 void bytes_allocator::init_default_resource() noexcept {
-  std::ignore = ipc::construct<holder_mr<new_delete_resource>>(holder_.data(), new_delete_resource::get());
+  std::ignore = thoth::construct<holder_mr<new_delete_resource>>(holder_.data(), new_delete_resource::get());
 }
 
 bytes_allocator::bytes_allocator() noexcept
   : bytes_allocator(new_delete_resource::get()) {}
 
 bytes_allocator::~bytes_allocator() noexcept {
-  ipc::destroy(&get_holder());
+  thoth::destroy(&get_holder());
 }
 
 void bytes_allocator::swap(bytes_allocator &other) noexcept {
@@ -50,4 +50,4 @@ void bytes_allocator::deallocate(void *p, std::size_t s, std::size_t a) const {
 }
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

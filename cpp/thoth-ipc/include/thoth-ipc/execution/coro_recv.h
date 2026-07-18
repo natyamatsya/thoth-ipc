@@ -1,14 +1,14 @@
 #pragma once
 
 // Path (b): a **stdexec-free** C++20-coroutine front end for async receive.
-// `co_await ipc::async_recv_co(route)` suspends the coroutine, parks its
+// `co_await thoth::async_recv_co(route)` suspends the coroutine, parks its
 // readiness fd (Layer 1 native_wait_handle) on the shared process-global reactor
-// (reactor.h — no stdexec), and resumes with an ipc::recv_result. Mirrors the
+// (reactor.h — no stdexec), and resumes with an thoth::recv_result. Mirrors the
 // stdexec recv_op, but resumes a coroutine handle instead of completing a P2300
 // receiver. Needs only THOTH_IPC_NOTIFY_FD (+ C++20 coroutines, C++23 std::expected).
 //
 // For consumers who already use stdexec, prefer path (a): stdexec senders are
-// awaitable, so `co_await ipc::async_recv(route, sched)` works in an exec::task<>
+// awaitable, so `co_await thoth::async_recv(route, sched)` works in an exec::task<>
 // with structured cancellation. This path is for coroutine users who do NOT want
 // the stdexec dependency.
 //
@@ -33,22 +33,22 @@
 #include "thoth-ipc/execution/wait_drain.h" // detail::drain_wait_handle (no <unistd.h> here)
 #include "thoth-ipc/execution/recv_result.h"
 
-namespace ipc {
+namespace thoth {
 namespace coro {
 
 // Awaiter for a single async receive. Address-stable while suspended (the reactor
 // holds `this`); lives on the awaiting coroutine's frame.
 class recv_awaitable : public detail::reactor_waiter {
-    ipc::route     *ch_;
+    thoth::route     *ch_;
     detail::reactor *reactor_;
-    ipc::wait_handle_t fd_  = ipc::invalid_wait_handle;
+    thoth::wait_handle_t fd_  = thoth::invalid_wait_handle;
     bool             armed_ = false;
     std::atomic<bool> done_{false}; // arbitrates on_ready vs destructor (cancel)
     std::coroutine_handle<> waiting_{};
     recv_result      result_{std::unexpected(recv_errc::unknown)};
 
 public:
-    explicit recv_awaitable(ipc::route &ch,
+    explicit recv_awaitable(thoth::route &ch,
                             detail::reactor &r = detail::reactor::instance()) noexcept
         : ch_(&ch), reactor_(&r) {}
     recv_awaitable(recv_awaitable &&) = delete;
@@ -64,7 +64,7 @@ public:
 
     bool await_ready() noexcept {
         fd_ = ch_->native_wait_handle();
-        if (fd_ == ipc::invalid_wait_handle) {
+        if (fd_ == thoth::invalid_wait_handle) {
             result_ = std::unexpected(recv_errc::no_readiness_handle);
             return true; // complete synchronously, no suspend
         }
@@ -97,7 +97,7 @@ public:
 private:
     bool try_deliver() noexcept {
         try {
-            ipc::buff_t buff = ch_->try_recv();
+            thoth::buff_t buff = ch_->try_recv();
             if (buff.empty()) return false;
             result_ = std::move(buff);
         } catch (std::bad_alloc const &) {
@@ -110,11 +110,11 @@ private:
 };
 
 /// Await one message from `channel` (a receiver-mode route/channel with a
-/// readiness handle). `co_await ipc::coro::async_recv_co(ch)` -> ipc::recv_result.
-inline recv_awaitable async_recv_co(ipc::route &channel) noexcept {
+/// readiness handle). `co_await thoth::coro::async_recv_co(ch)` -> thoth::recv_result.
+inline recv_awaitable async_recv_co(thoth::route &channel) noexcept {
     return recv_awaitable{channel};
 }
-inline recv_awaitable async_recv_co(ipc::route &channel, detail::reactor &r) noexcept {
+inline recv_awaitable async_recv_co(thoth::route &channel, detail::reactor &r) noexcept {
     return recv_awaitable{channel, r};
 }
 
@@ -218,6 +218,6 @@ private:
 };
 
 } // namespace coro
-} // namespace ipc
+} // namespace thoth
 
 #endif // THOTH_IPC_NOTIFY_FD

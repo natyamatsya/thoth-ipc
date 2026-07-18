@@ -2,7 +2,7 @@
 
 #include <type_traits>  // std::enable_if
 
-namespace ipc {
+namespace thoth {
 
 // concept helpers
 
@@ -26,4 +26,4 @@ public:                                                                \
     constexpr static auto value = type::value;                         \
 }
 
-} // namespace ipc
+} // namespace thoth

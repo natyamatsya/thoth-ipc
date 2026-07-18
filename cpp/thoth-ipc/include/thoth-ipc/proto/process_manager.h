@@ -25,7 +25,7 @@
    extern char **environ;
 #endif
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 // Handle to a spawned child process.
@@ -216,4 +216,4 @@ bool spawn_and_wait(Registry &registry,
 }
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

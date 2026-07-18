@@ -6,7 +6,7 @@
 #include "thoth-ipc/proto/codecs/secure_codec.h"
 #include "thoth-ipc/proto/typed_route_codec.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 template <typename T, typename InnerCodec, secure_cipher Cipher>
@@ -14,4 +14,4 @@ using typed_route_secure =
     typed_route_codec<T, secure_codec<InnerCodec, Cipher>>;
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

@@ -22,7 +22,7 @@ import ThothIPCShim
 ///     constructed : UInt8 + 63 bytes padding
 ///   Slots: capacity × MemoryLayout<T>.stride
 ///
-/// Port of `ipc::proto::shm_ring<T, N>`.
+/// Port of `thoth::proto::shm_ring<T, N>`.
 public final class ShmRing<T: BitwiseCopyable>: @unchecked Sendable {
 
     // MARK: - Header layout (192 bytes)

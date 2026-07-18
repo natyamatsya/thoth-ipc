@@ -17,7 +17,7 @@
 #include "thoth-ipc/concur/intrusive_stack.h"
 #include "thoth-ipc/mem/central_cache_allocator.h"
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 
 /**
@@ -140,4 +140,4 @@ public:
 };
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

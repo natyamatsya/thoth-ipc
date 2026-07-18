@@ -13,7 +13,7 @@
 // Cross-process model
 // -------------------
 // libipc synchronises writer and reader *across processes* through shm-backed
-// futex/ulock conditions (ipc::detail::waiter). A plain self-pipe/eventfd is
+// futex/ulock conditions (thoth::detail::waiter). A plain self-pipe/eventfd is
 // process-local and cannot carry the remote writer's enqueue signal into the
 // reader's process. Two cross-process, fd-bearing, kqueue/epoll-able backends:
 //
@@ -52,25 +52,25 @@
 #include <cstdint>
 #include <string>
 
-#include "thoth-ipc/circ/elem_def.h"                 // ipc::circ::cc_t
-#include "thoth-ipc/mem/resource.h"                  // ipc::make_prefix
+#include "thoth-ipc/circ/elem_def.h"                 // thoth::circ::cc_t
+#include "thoth-ipc/mem/resource.h"                  // thoth::make_prefix
 #include "thoth-ipc/platform/posix/shm_name.h"       // fnv1a_64 / to_hex
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 // Short, filesystem-/service-safe identity for a channel: a 16-hex FNV-1a hash
 // of the (possibly long, prefixed) channel name.
 inline std::string notify_hash(std::string const &prefix, std::string const &name) {
-    std::string id = ipc::make_prefix(prefix, "NOTIFY__", name);
+    std::string id = thoth::make_prefix(prefix, "NOTIFY__", name);
     char hex[16];
-    ipc::posix_::detail::to_hex(
-        ipc::posix_::detail::fnv1a_64(id.data(), id.size()), hex);
+    thoth::posix_::detail::to_hex(
+        thoth::posix_::detail::fnv1a_64(id.data(), id.size()), hex);
     return std::string(hex, 16);
 }
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth
 
 // =============================================================================
 #if defined(THOTH_IPC_NOTIFY_BACKEND_WINEVENT)
@@ -81,14 +81,14 @@ inline std::string notify_hash(std::string const &prefix, std::string const &nam
 #include "thoth-ipc/platform/win/to_tchar.h" // to_tchar + win_object_name (+ <Windows.h>)
 #include "thoth-ipc/platform/win/get_sa.h"   // detail::get_sa (SECURITY_ATTRIBUTES)
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 // Max reader connection slots in broadcast mode (see circ::conn_head).
 inline constexpr int notify_max_slots = 32;
 
 // Bit position (0..31) of a single-bit connection id, or -1 if none.
-inline int notify_slot_of(ipc::circ::cc_t bit) noexcept {
+inline int notify_slot_of(thoth::circ::cc_t bit) noexcept {
     if (bit == 0) return -1;
     unsigned long idx = 0;
     _BitScanForward(&idx, static_cast<unsigned long>(bit));
@@ -121,7 +121,7 @@ public:
     HANDLE native_handle() const noexcept { return ev_; }
 
     bool open(std::string const &prefix, std::string const &name,
-              ipc::circ::cc_t slot_bit) {
+              thoth::circ::cc_t slot_bit) {
         if (ev_ != nullptr) return true;
         int slot = notify_slot_of(slot_bit);
         if (slot < 0 || slot >= notify_max_slots) return false;
@@ -157,9 +157,9 @@ public:
     ~notify_source() { close(); }
 
     void signal(std::string const &prefix, std::string const &name,
-                ipc::circ::cc_t conns, ipc::circ::cc_t self) noexcept {
+                thoth::circ::cc_t conns, thoth::circ::cc_t self) noexcept {
         for (int i = 0; i < notify_max_slots; ++i) {
-            ipc::circ::cc_t bit = static_cast<ipc::circ::cc_t>(1u) << i;
+            thoth::circ::cc_t bit = static_cast<thoth::circ::cc_t>(1u) << i;
             bool want = (conns & bit) && !(self & bit);
             if (!want) { close_slot(i); continue; }
             if (ev_[i] == nullptr) {
@@ -185,10 +185,10 @@ public:
 // nothing on disk to reclaim.
 inline void notify_clear_storage(std::string const &, std::string const &) noexcept {}
 inline void notify_clear_slot(std::string const &, std::string const &,
-                              ipc::circ::cc_t /*slot_bit*/) noexcept {}
+                              thoth::circ::cc_t /*slot_bit*/) noexcept {}
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth
 
 // =============================================================================
 #elif defined(THOTH_IPC_NOTIFY_BACKEND_LIBNOTIFY)
@@ -196,7 +196,7 @@ inline void notify_clear_slot(std::string const &, std::string const &,
 
 #include <notify.h>
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 // libnotify service key for a channel (one per channel — posts are multicast).
@@ -220,7 +220,7 @@ public:
 
     // slot_bit is unused: libnotify is multicast, one name per channel.
     bool open(std::string const &prefix, std::string const &name,
-              ipc::circ::cc_t /*slot_bit*/) {
+              thoth::circ::cc_t /*slot_bit*/) {
         if (fd_ != -1) return true;
         std::string key = notify_key(prefix, name);
         int fd = -1, tok = -1;
@@ -257,7 +257,7 @@ class notify_source {
 
 public:
     void signal(std::string const &prefix, std::string const &name,
-                ipc::circ::cc_t /*conns*/, ipc::circ::cc_t /*self*/) noexcept {
+                thoth::circ::cc_t /*conns*/, thoth::circ::cc_t /*self*/) noexcept {
         if (key_.empty()) key_ = notify_key(prefix, name);
         ::notify_post(key_.c_str());
     }
@@ -268,10 +268,10 @@ public:
 inline void notify_clear_storage(std::string const &, std::string const &) noexcept {}
 // Per-slot reclamation (dead-connection reaper): nothing to do for libnotify.
 inline void notify_clear_slot(std::string const &, std::string const &,
-                              ipc::circ::cc_t /*slot_bit*/) noexcept {}
+                              thoth::circ::cc_t /*slot_bit*/) noexcept {}
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth
 
 // =============================================================================
 #else // THOTH_IPC_NOTIFY_BACKEND_FIFO
@@ -285,14 +285,14 @@ inline void notify_clear_slot(std::string const &, std::string const &,
 #  include <csignal>
 #endif
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 // Max reader connection slots in broadcast mode (see circ::conn_head).
 inline constexpr int notify_max_slots = 32;
 
 // Bit position (0..31) of a single-bit connection id, or -1 if none.
-inline int notify_slot_of(ipc::circ::cc_t bit) noexcept {
+inline int notify_slot_of(thoth::circ::cc_t bit) noexcept {
     return (bit == 0) ? -1 : __builtin_ctz(static_cast<unsigned>(bit));
 }
 
@@ -353,7 +353,7 @@ public:
     int native_handle() const noexcept { return rfd_; }
 
     bool open(std::string const &prefix, std::string const &name,
-              ipc::circ::cc_t slot_bit) {
+              thoth::circ::cc_t slot_bit) {
         if (rfd_ != -1) return true;
         int slot = notify_slot_of(slot_bit);
         if (slot < 0 || slot >= notify_max_slots) return false;
@@ -396,9 +396,9 @@ public:
     ~notify_source() { close(); }
 
     void signal(std::string const &prefix, std::string const &name,
-                ipc::circ::cc_t conns, ipc::circ::cc_t self) noexcept {
+                thoth::circ::cc_t conns, thoth::circ::cc_t self) noexcept {
         for (int i = 0; i < notify_max_slots; ++i) {
-            ipc::circ::cc_t bit = static_cast<ipc::circ::cc_t>(1u) << i;
+            thoth::circ::cc_t bit = static_cast<thoth::circ::cc_t>(1u) << i;
             bool want = (conns & bit) && !(self & bit);
             if (!want) { close_slot(i); continue; }
             if (wfd_[i] == -1) {
@@ -432,7 +432,7 @@ inline void notify_clear_storage(std::string const &prefix,
 
 // Reclaim a single reaped slot's FIFO node (dead-connection reaper).
 inline void notify_clear_slot(std::string const &prefix, std::string const &name,
-                              ipc::circ::cc_t slot_bit) noexcept {
+                              thoth::circ::cc_t slot_bit) noexcept {
     int slot = notify_slot_of(slot_bit);
     if (slot >= 0 && slot < notify_max_slots) {
         ::unlink(notify_fifo_path(prefix, name, slot).c_str());
@@ -440,7 +440,7 @@ inline void notify_clear_slot(std::string const &prefix, std::string const &name
 }
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth
 
 #endif // backend selection
 

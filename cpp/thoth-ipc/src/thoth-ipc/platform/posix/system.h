@@ -14,7 +14,7 @@
 #include "thoth-ipc/imp/system.h"
 #include "thoth-ipc/imp/log.h"
 
-namespace ipc {
+namespace thoth {
 namespace sys {
 
 /**
@@ -49,4 +49,4 @@ result<std::int64_t> conf(info r) noexcept {
 }
 
 } // namespace sys
-} // namespace ipc
+} // namespace thoth

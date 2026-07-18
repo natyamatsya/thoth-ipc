@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
-// The ipc::route broadcast channel (single-writer, N-reader), ported byte-exact
+// The thoth::route broadcast channel (single-writer, N-reader), ported byte-exact
 // from the C++ prod_cons_impl<single,multi,broadcast> (cpp/thoth-ipc/src/thoth-ipc/
 // prod_cons.h) and the Swift port (swift/thoth-ipc/.../Transport/Channel.swift).
 // See context/xlang-channel-abi.md §5/§6/§6a/§6b.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
-// Multi-writer ipc::channel fan-in aggregator.
+// Multi-writer thoth::channel fan-in aggregator.
 //
 // Usage (run the collector first, then one or more producers):
 //   demo-channel-aggregator collect <total>

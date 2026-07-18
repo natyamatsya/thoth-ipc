@@ -44,7 +44,7 @@
 // C++17 and later: std library already provides deduction guides
 // No need to add custom ones, just use the standard ones directly
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 using std::unique_ptr;
@@ -55,7 +55,7 @@ using std::min;
 
 #else /*__cplusplus < 201703L*/
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 // deduction guides for std::unique_ptr
@@ -94,7 +94,7 @@ constexpr const T& (min)(const T& a, const T& b) {
 #endif/*__cplusplus < 201703L*/
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth
 
 #endif // defined(__cplusplus)
 #endif // THOTH_IPC_SRC_PLATFORM_DETAIL_H_

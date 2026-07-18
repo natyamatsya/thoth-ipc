@@ -11,7 +11,7 @@ import Atomics
 /// A named waiter combining a condition variable, a mutex, and a quit flag.
 ///
 /// Used internally by IPC channels to implement blocking send/recv with
-/// timeout support. Mirrors `ipc::detail::waiter` / Rust `Waiter`.
+/// timeout support. Mirrors `thoth::detail::waiter` / Rust `Waiter`.
 ///
 /// `Waiter` is `~Copyable`: each value owns a unique open handle pair.
 public struct Waiter: ~Copyable, @unchecked Sendable {

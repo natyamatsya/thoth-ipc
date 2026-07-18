@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
-// Byte-exact ABI layout for the C++ `ipc::route` broadcast ring
+// Byte-exact ABI layout for the C++ `thoth::route` broadcast ring
 // (elem_array<broadcast, DataSize=80, AlignSize=8>) on Apple arm64.
 // See context/xlang-channel-abi.md §2/§3/§4. All offsets/sizes are verified
 // against the real C++ types and the Swift/Rust ports; comptime asserts guard

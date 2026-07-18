@@ -17,7 +17,7 @@
 #include "thoth-ipc/imp/generic.h"
 #include "thoth-ipc/imp/fmt.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail_result {
 
 template <typename T>
@@ -133,9 +133,9 @@ public:
 namespace detail_tag_invoke {
 
 template <typename T>
-inline bool tag_invoke(decltype(ipc::fmt_to), fmt_context &ctx, result<T> const &r) {
+inline bool tag_invoke(decltype(thoth::fmt_to), fmt_context &ctx, result<T> const &r) {
   return fmt_to(ctx, (r ? "succ" : "fail"), ", ", r.format_string());
 }
 
 } // namespace detail_tag_invoke
-} // namespace ipc
+} // namespace thoth

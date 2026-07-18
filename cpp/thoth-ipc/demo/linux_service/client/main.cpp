@@ -8,8 +8,8 @@
 
 int main(int argc, char *argv[]) {
     printf("My Sample Client: Entry\n");
-    ipc::channel ipc_r{"service ipc r", ipc::receiver};
-    ipc::channel ipc_w{"service ipc w", ipc::sender};
+    thoth::channel ipc_r{"service ipc r", thoth::receiver};
+    thoth::channel ipc_w{"service ipc w", thoth::sender};
     while (1) {
         auto msg = ipc_r.recv();
         if (msg.empty()) {

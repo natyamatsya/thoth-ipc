@@ -24,7 +24,7 @@
 #include "thoth-ipc/imp/detect_plat.h"
 #include "thoth-ipc/imp/export.h"
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \brief The format string reference wrapper.
@@ -141,19 +141,19 @@ bool to_string(fmt_context &ctx, std::chrono::time_point<Clock, Duration> const 
 namespace detail_tag_invoke {
 
 template <typename T>
-auto tag_invoke(decltype(ipc::fmt_to), fmt_context &ctx, T &&arg) noexcept
-  -> decltype(ipc::to_string(ctx, std::forward<T>(arg))) {
-  return ipc::to_string(ctx, std::forward<T>(arg));
+auto tag_invoke(decltype(thoth::fmt_to), fmt_context &ctx, T &&arg) noexcept
+  -> decltype(thoth::to_string(ctx, std::forward<T>(arg))) {
+  return thoth::to_string(ctx, std::forward<T>(arg));
 }
 
 template <typename T>
-auto tag_invoke(decltype(ipc::fmt_to), fmt_context &ctx, fmt_ref<T> arg) noexcept
-  -> decltype(ipc::to_string(ctx, static_cast<T>(arg.param), arg.fstr)) {
-  return ipc::to_string(ctx, static_cast<T>(arg.param), arg.fstr);
+auto tag_invoke(decltype(thoth::fmt_to), fmt_context &ctx, fmt_ref<T> arg) noexcept
+  -> decltype(thoth::to_string(ctx, static_cast<T>(arg.param), arg.fstr)) {
+  return thoth::to_string(ctx, static_cast<T>(arg.param), arg.fstr);
 }
 
 template <typename T>
-bool tag_invoke(decltype(ipc::fmt_to), fmt_context &ctx, span<T> s) {
+bool tag_invoke(decltype(thoth::fmt_to), fmt_context &ctx, span<T> s) {
   if (s.empty()) {
     return false;
   }
@@ -172,9 +172,9 @@ bool unfold_tuple_fmt_to(fmt_context &ctx, Tp const &tp, std::index_sequence<I..
 }
 
 template <typename... T>
-bool tag_invoke(decltype(ipc::fmt_to), fmt_context &ctx, std::tuple<T...> const &tp) {
+bool tag_invoke(decltype(thoth::fmt_to), fmt_context &ctx, std::tuple<T...> const &tp) {
   return unfold_tuple_fmt_to(ctx, tp, std::index_sequence_for<T...>{});
 }
 
 } // namespace detail_tag_invoke
-} // namespace ipc
+} // namespace thoth

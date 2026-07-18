@@ -10,14 +10,14 @@ Notable changes to thoth-ipc. The format follows
 - **Channel aggregator demo** in all four ports
   ([`cpp/thoth-ipc/demo/channel_aggregator/`](cpp/thoth-ipc/demo/channel_aggregator/),
   `rust/…/demo_channel_aggregator.rs`, `swift/…/DemoChannelAggregator`,
-  `zig/…/demo_channel_aggregator.zig`) — a multi-writer `ipc::channel` fan-in:
+  `zig/…/demo_channel_aggregator.zig`) — a multi-writer `thoth::channel` fan-in:
   N producers `send` into one channel, a single collector reads the merged
   stream and tallies by producer (the pattern a single-writer `route` cannot
   express). Roles are mixable across languages — verified with a collector of
   one language receiving from producers of all four.
 - **Polyglot pipeline demo** in all four ports (`demo/pipeline` / `demo_pipeline`)
   with a launcher [`cpp/thoth-ipc/demo/pipeline/run.sh`](cpp/thoth-ipc/demo/pipeline/run.sh) —
-  a chain of single-writer→single-reader `ipc::route` hops, one process (and one
+  a chain of single-writer→single-reader `thoth::route` hops, one process (and one
   language) per stage. `source`/`stage`/`sink` roles compose into
   `Zig → Rust → Swift → C++`, and the sink prints one line showing every language
   a message crossed (`item-0 [zig] -> rust -> swift -> [cpp sink]`).
@@ -55,10 +55,17 @@ Notable changes to thoth-ipc. The format follows
   `thoth_ipc::secure_crypto_c`); and the Swift product/module `LibIPCSecureCryptoC`
   → `ThothIPCSecureCryptoC`. Wire-compatible (the AEAD envelope bytes are
   unchanged — only internal symbol names moved).
-- **Deliberately unchanged** across all of the above: the `ipc::` C++ namespace,
-  the runtime wire/shm identifiers (`__libipc_sync_abi_*`, the `libipc_<hex>`
-  shm-name format), the Swift port's `libipc_shm_open_*` C shim, and upstream
-  cpp-ipc / libipc attribution in `LICENSE`, `NOTICE` and `// Port of …` comments.
+- **Renamed the C++ namespace `ipc::` → `thoth::`** (the last of the fork's
+  `ipc`-prefixed public surface): `ipc::route`/`ipc::channel`/`ipc::sync::*`/
+  `ipc::shm::*`/`ipc::async_recv()`/… are now `thoth::…`, and the generated ABI
+  module `namespace ipc::abi` → `namespace thoth::abi`. **Breaking** for every C++
+  consumer (a `namespace ipc = thoth;` alias restores source-compat if needed).
+  Wire/shm-compatible — a pure C++-symbol rename with no ABI-byte impact (the full
+  xlang matrix stays byte-exact across all four ports).
+- **Deliberately unchanged** across all of the above: the runtime wire/shm
+  identifiers (`__libipc_sync_abi_*`, the `libipc_<hex>` shm-name format), the
+  Swift port's `libipc_shm_open_*` C shim, and upstream cpp-ipc / libipc
+  attribution in `LICENSE`, `NOTICE` and `// Port of …` comments.
 - `IpcMutex.openSync(name:)` (Swift) is now `public`, mirroring
   `Route.connectBlocking` — a blocking mutex open for non-async call sites.
 

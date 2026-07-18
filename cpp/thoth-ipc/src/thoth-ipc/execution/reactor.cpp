@@ -7,8 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
-// Platform headers MUST be included at file scope (not inside namespace ipc),
-// or every Win32 / POSIX symbol lands in ipc::detail and `::Foo` fails to resolve.
+// Platform headers MUST be included at file scope (not inside namespace thoth),
+// or every Win32 / POSIX symbol lands in thoth::detail and `::Foo` fails to resolve.
 #if defined(THOTH_IPC_OS_WIN)
 #  include "thoth-ipc/imp/windows_preamble.h" // full <Windows.h> (thread-pool wait API)
 #else
@@ -28,7 +28,7 @@
 #  endif
 #endif
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 #if defined(THOTH_IPC_OS_WIN)
@@ -427,6 +427,6 @@ void reactor::remove(wait_handle_t h, reactor_waiter *w) {
 #endif // platform
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth
 
 #endif // THOTH_IPC_NOTIFY_FD

@@ -11,7 +11,7 @@
 #include "thoth-ipc/imp/export.h"
 #include "thoth-ipc/mem/bytes_allocator.h"
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 
 /// \brief Get the central cache allocator.
@@ -20,4 +20,4 @@ namespace mem {
 THOTH_IPC_EXPORT bytes_allocator &central_cache_allocator() noexcept;
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

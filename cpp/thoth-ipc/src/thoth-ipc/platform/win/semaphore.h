@@ -9,7 +9,7 @@
 #include "to_tchar.h"
 #include "get_sa.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
@@ -64,7 +64,7 @@ public:
             return false;
         case WAIT_ABANDONED:
         default:
-            log.error("fail WaitForSingleObject[", ::GetLastError(), "]: ", ipc::spec("#x")(ret));
+            log.error("fail WaitForSingleObject[", ::GetLastError(), "]: ", thoth::spec("#x")(ret));
             return false;
         }
     }
@@ -81,4 +81,4 @@ public:
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

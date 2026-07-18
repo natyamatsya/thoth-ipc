@@ -69,7 +69,7 @@ bin = "${XLANG_ZIG_ASYNC_BIN}"
 modes = ["async"]
 
 # Payload sizes exercise the single-fragment (<=64B), multi-fragment and
-# chunk-storage paths of the ipc::route wire — including the exact
+# chunk-storage paths of the thoth::route wire — including the exact
 # data_length boundary (63/64/65) and a large chunk-storage payload.
 [scenarios.sync]
 sizes = [40, 63, 64, 65, 200, 3000, 65536]
@@ -93,7 +93,7 @@ count = 5
 sizes = [65, 3000]
 count = 5
 
-# Multi-writer ipc::channel: two concurrent senders of different languages
+# Multi-writer thoth::channel: two concurrent senders of different languages
 # into one reader (count is per writer; the reader expects 2 x count).
 [scenarios.channel]
 sizes = [40, 65, 3000]

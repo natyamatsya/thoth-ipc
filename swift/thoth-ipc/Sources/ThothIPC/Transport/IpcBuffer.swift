@@ -6,7 +6,7 @@
 
 /// An owning byte buffer for IPC message data.
 ///
-/// Mirrors `ipc::buffer` / Rust `IpcBuffer`.
+/// Mirrors `thoth::buffer` / Rust `IpcBuffer`.
 /// Messages sent through `Route` or `Channel` are serialised into
 /// `IpcBuffer` for transmission and deserialised back on the receiver side.
 public struct IpcBuffer: Sendable {

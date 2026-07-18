@@ -11,7 +11,7 @@ mode *recycled-heap* garbage rather than a clean crash.
 > **Implementation note (2026-07-14).** Tracing the code during
 > implementation showed the hazard is **mutex-only**, not shared across all
 > named sync objects as this RFC's first draft assumed. `condition` and
-> `semaphore` hold an `ipc::shm::handle` **by value** and their
+> `semaphore` hold an `thoth::shm::handle` **by value** and their
 > `clear_storage` is already a pure `shm_unlink` (POSIX-unlink semantics; no
 > in-process node to dangle), and the Windows mutex `clear_storage` is a
 > no-op. Only the **mutex** carries the vulnerable per-process
@@ -22,7 +22,7 @@ mode *recycled-heap* garbage rather than a clean crash.
 
 ## Problem
 
-`ipc::sync::mutex::clear_storage(name)` (and its condition/semaphore
+`thoth::sync::mutex::clear_storage(name)` (and its condition/semaphore
 siblings) force-erases the **per-process handle cache entry** for `name`
 regardless of how many live handles in the calling process still point into
 it:
@@ -32,12 +32,12 @@ it:
 static void clear_storage(char const *name) noexcept {
     if (name == nullptr) return;
     release_mutex(name, [] { return true; });   // <-- unconditional erase
-    ipc::shm::handle::clear_storage(name);      // unlink global backing
+    thoth::shm::handle::clear_storage(name);      // unlink global backing
 }
 ```
 
 Every open handle holds raw pointers (`shm_`, `ref_`, `data_`) into that
-cache entry (`curr_prog::mutex_handles`, an `ipc::map<std::string, shm_data>`
+cache entry (`curr_prog::mutex_handles`, an `thoth::map<std::string, shm_data>`
 backed by the central allocator). Erasing the entry destroys the `shm_data`
 — unmapping the segment and returning the node to the allocator's recycling
 pool — while the live handles keep dereferencing it.
@@ -97,7 +97,7 @@ Sketch (apple; posix/linux are structurally identical):
 
 ```cpp
 struct curr_prog {
-    ipc::map<std::string, shm_data*> mutex_handles;  // owning via node pool
+    thoth::map<std::string, shm_data*> mutex_handles;  // owning via node pool
     std::vector<shm_data*>           orphans;        // cleared-while-in-use
     spin_lock lock;
 };
@@ -105,7 +105,7 @@ struct curr_prog {
 static void clear_storage(char const *name) noexcept {
     if (name == nullptr) return;
     orphan_or_erase(name);                  // NEW: ref-count-aware
-    ipc::shm::handle::clear_storage(name);  // unchanged: unlink global name
+    thoth::shm::handle::clear_storage(name);  // unchanged: unlink global name
 }
 
 void close() noexcept {
@@ -116,7 +116,7 @@ void close() noexcept {
 
 ~~The same treatment applies to `condition` and `semaphore`, which share the
 `curr_prog` cache pattern~~ — **struck: they do not.** `condition` and
-`semaphore` hold `ipc::shm::handle` by value and are already unlink-safe (see
+`semaphore` hold `thoth::shm::handle` by value and are already unlink-safe (see
 the implementation note above); no change was needed. The aggregate
 `waiter::clear_storage` fans out to `condition::clear_storage` +
 `mutex::clear_storage`, so it inherits the mutex fix automatically.
@@ -229,7 +229,7 @@ matrix (`os-parity.md`).
 ## Implementation status
 
 - **C++ mutex — done** (`platform/{apple,posix,linux}/mutex.h`). Each node
-  is now heap-allocated and stored as `ipc::map<std::string, shm_data*>`
+  is now heap-allocated and stored as `thoth::map<std::string, shm_data*>`
   plus a `std::vector<shm_data*> orphans`. `clear_storage` orphans (logs a
   warning + moves the node) when its in-process `ref > 0`, else erases; it
   always unlinks the global name. `close()`/`clear()` were re-keyed from

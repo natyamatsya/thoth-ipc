@@ -8,7 +8,7 @@ secure envelope and async notify — every cross-language scenario. (Multi-write
 parity claims for all languages, not just Zig.)
 Same-language test suites cannot catch ABI drift; this runner proves parity by
 pairing every writer language with every reader language over a real
-`ipc::route` channel.
+`thoth::route` channel.
 
 It supersedes `tools/xlang_matrix.py` with the same architecture — one harness
 binary per language, a uniform CLI — but a real framework around it:
@@ -33,7 +33,7 @@ binary per language, a uniform CLI — but a real framework around it:
 | `sync`            | blocking round-trip, byte-for-byte, incl. 63/64/65 boundary + 64KB payloads | `write` / `read`             |
 | `async`           | a writer's notify wakes an async (readiness-driven) receiver                | `write` / `aread`            |
 | `fanout`          | 1 writer → N mixed-language readers: every receiver gets every message (rc_ bitmask with N>1) | `write minrecv=N` / `read` |
-| `channel`         | multi-writer `ipc::channel` (2 writers of different languages → 1 reader)  | `cwrite` / `cread`           |
+| `channel`         | multi-writer `thoth::channel` (2 writers of different languages → 1 reader)  | `cwrite` / `cread`           |
 | `reap`            | dead receivers reclaimed, live never falsely; sender `probe` doesn't reap; traffic flows after a reap | `hold` / `count` / `probe` |
 | `primitives`      | mutex contention + robust dead-holder recovery, semaphore count exactness, condition wakeup | `mhold`/`mtry`/`mlock`, `spost`/`swait`, `cvnotify`/`cvwait` |
 | `typed`           | the typed codec layer end-to-end (canonical protobuf message, field-level verify) | `twrite` / `tread`      |
@@ -55,7 +55,7 @@ reported in every run, don't fail the build, and are flagged `XPASS` when they
 unexpectedly pass so the expectation gets flipped. Current entries document
 gaps this matrix discovered:
 
-- **`channel`**: cross-language `ipc::channel` was never ABI-compatible — the
+- **`channel`**: cross-language `thoth::channel` was never ABI-compatible — the
   C++ multi-producer broadcast queue uses 96-byte slots with an `f_ct_` commit
   flag and a commit-index protocol (`prod_cons.h`, multi-multi-broadcast),
   while the Rust/Swift `Channel` reuses the 88-byte route layout (and Zig has no

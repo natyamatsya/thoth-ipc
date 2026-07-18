@@ -18,7 +18,7 @@ in the same domain sees the same set of registered services.
 #include "thoth-ipc/proto/service_registry.h"
 
 // Both processes use the same domain name
-ipc::proto::service_registry registry("my_domain");
+thoth::proto::service_registry registry("my_domain");
 
 // Service side: register on startup
 registry.register_service("my_service", "ctrl_channel", "reply_channel");
@@ -55,17 +55,17 @@ POSIX utilities for spawning, monitoring, and shutting down child processes.
 #include "thoth-ipc/proto/process_manager.h"
 
 // Spawn a child process
-auto h = ipc::proto::spawn("my_service", "/path/to/binary", {"arg1", "arg2"});
+auto h = thoth::proto::spawn("my_service", "/path/to/binary", {"arg1", "arg2"});
 
 // Check if alive
 if (h.is_alive()) { /* ... */ }
 
 // Graceful shutdown: SIGTERM → wait → SIGKILL if needed
-auto result = ipc::proto::shutdown(h, std::chrono::milliseconds{3000});
+auto result = thoth::proto::shutdown(h, std::chrono::milliseconds{3000});
 // result.exited, result.exit_code, result.signaled
 
 // Spawn and wait for registry appearance
-bool ok = ipc::proto::spawn_and_wait(
+bool ok = thoth::proto::spawn_and_wait(
     registry, "my_service", "/path/to/binary", {},
     std::chrono::milliseconds{5000});
 ```
@@ -117,9 +117,9 @@ sequenceDiagram
 ```cpp
 #include "thoth-ipc/proto/service_group.h"
 
-ipc::proto::service_registry registry("audio");
+thoth::proto::service_registry registry("audio");
 
-ipc::proto::service_group group(registry, {
+thoth::proto::service_group group(registry, {
     .service_name = "audio_compute",
     .executable   = "./build/bin/audio_service",
     .replicas     = 2,
@@ -170,7 +170,7 @@ group.stop();
 ## Important Notes
 
 - **Stale shared memory** — services should call
-  `ipc::channel::clear_storage()` on their channel names at startup to reset
+  `thoth::channel::clear_storage()` on their channel names at startup to reset
   connection counts from previous runs
 - **Zombie reaping** — when killing a child process, always `waitpid()` before
   checking `is_alive()`, since `kill(pid, 0)` returns true for zombies

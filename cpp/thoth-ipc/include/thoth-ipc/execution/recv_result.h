@@ -14,10 +14,10 @@
 
 #include "thoth-ipc/ipc.h"
 
-namespace ipc {
+namespace thoth {
 
 /// \brief Error codes carried on the async-receive value channel (the error type
-/// of ipc::recv_result). Because the error channel is pruned, these are data.
+/// of thoth::recv_result). Because the error channel is pruned, these are data.
 enum class recv_errc {
     no_readiness_handle = 1, ///< channel has no native_wait_handle (build with
                              ///< THOTH_IPC_NOTIFY_FD and connect as a receiver)
@@ -39,8 +39,8 @@ inline char const *recv_message(recv_errc e) noexcept {
 
 /// \brief What an async receive delivers: a received message, or a recv_errc
 /// describing why one could not be produced.
-using recv_result = std::expected<ipc::buff_t, recv_errc>;
+using recv_result = std::expected<thoth::buff_t, recv_errc>;
 
-} // namespace ipc
+} // namespace thoth
 
 #endif // THOTH_IPC_NOTIFY_FD

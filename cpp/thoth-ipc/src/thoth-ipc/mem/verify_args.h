@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-namespace ipc {
+namespace thoth {
 namespace mem {
 
 /**
@@ -13,4 +13,4 @@ inline constexpr bool verify_args(std::size_t bytes, std::size_t alignment) noex
 }
 
 } // namespace mem
-} // namespace ipc
+} // namespace thoth

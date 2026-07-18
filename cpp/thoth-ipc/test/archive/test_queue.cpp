@@ -24,10 +24,10 @@ struct msg_t {
     msg_t(int p, int d) : pid_(p), dat_(d) {}
 };
 
-template <ipc::relat Rp, ipc::relat Rc, ipc::trans Ts>
-using queue_t = ipc::queue<msg_t, ipc::policy::choose<ipc::circ::elem_array, ipc::wr<Rp, Rc, Ts>>>;
+template <thoth::relat Rp, thoth::relat Rc, thoth::trans Ts>
+using queue_t = thoth::queue<msg_t, thoth::policy::choose<thoth::circ::elem_array, thoth::wr<Rp, Rc, Ts>>>;
 
-template <ipc::relat Rp, ipc::relat Rc, ipc::trans Ts>
+template <thoth::relat Rp, thoth::relat Rc, thoth::trans Ts>
 struct elems_t : public queue_t<Rp, Rc, Ts>::elems_t {};
 
 bool operator==(msg_t const & m1, msg_t const & m2) noexcept {
@@ -59,11 +59,11 @@ msg_t pop(Que & que) {
     return msg;
 }
 
-template <ipc::trans Ts>
+template <thoth::trans Ts>
 struct quitter;
 
 template <>
-struct quitter<ipc::trans::unicast> {
+struct quitter<thoth::trans::unicast> {
     template <typename Que>
     static void emit(Que && que, int r_cnt) {
         for (int k = 0; k < r_cnt; ++k) {
@@ -73,14 +73,14 @@ struct quitter<ipc::trans::unicast> {
 };
 
 template <>
-struct quitter<ipc::trans::broadcast> {
+struct quitter<thoth::trans::broadcast> {
     template <typename Que>
     static void emit(Que && que, int /*r_cnt*/) {
         push(que, -1, -1);
     }
 };
 
-template <ipc::relat Rp, ipc::relat Rc, ipc::trans Ts>
+template <thoth::relat Rp, thoth::relat Rc, thoth::trans Ts>
 void test_sr(elems_t<Rp, Rc, Ts> && elems, int s_cnt, int r_cnt, char const * message) {
     ipc_ut::sender().start(static_cast<std::size_t>(s_cnt));
     ipc_ut::reader().start(static_cast<std::size_t>(r_cnt));
@@ -116,7 +116,7 @@ void test_sr(elems_t<Rp, Rc, Ts> && elems, int s_cnt, int r_cnt, char const * me
 } // internal-linkage
 
 TEST(Queue, check_size) {
-    using el_t = elems_t<ipc::relat::single, ipc::relat::multi, ipc::trans::broadcast>;
+    using el_t = elems_t<thoth::relat::single, thoth::relat::multi, thoth::trans::broadcast>;
 
     std::cout << "cq_t::head_size  = " << el_t::head_size << std::endl;
     std::cout << "cq_t::data_size  = " << el_t::data_size << std::endl;
@@ -130,7 +130,7 @@ TEST(Queue, check_size) {
 
 TEST(Queue, el_connection) {
     {
-        elems_t<ipc::relat::single, ipc::relat::single, ipc::trans::unicast> el;
+        elems_t<thoth::relat::single, thoth::relat::single, thoth::trans::unicast> el;
         EXPECT_TRUE(el.connect_sender());
         for (std::size_t i = 0; i < 10000; ++i) {
             ASSERT_FALSE(el.connect_sender());
@@ -139,13 +139,13 @@ TEST(Queue, el_connection) {
         EXPECT_TRUE(el.connect_sender());
     }
     {
-        elems_t<ipc::relat::multi, ipc::relat::multi, ipc::trans::unicast> el;
+        elems_t<thoth::relat::multi, thoth::relat::multi, thoth::trans::unicast> el;
         for (std::size_t i = 0; i < 10000; ++i) {
             ASSERT_TRUE(el.connect_sender());
         }
     }
     {
-        elems_t<ipc::relat::single, ipc::relat::single, ipc::trans::unicast> el;
+        elems_t<thoth::relat::single, thoth::relat::single, thoth::trans::unicast> el;
         auto cc = el.connect_receiver();
         EXPECT_NE(cc, 0);
         for (std::size_t i = 0; i < 10000; ++i) {
@@ -155,8 +155,8 @@ TEST(Queue, el_connection) {
         EXPECT_EQ(el.connect_receiver(), cc);
     }
     {
-        elems_t<ipc::relat::single, ipc::relat::multi, ipc::trans::broadcast> el;
-        for (std::size_t i = 0; i < (sizeof(ipc::circ::cc_t) * CHAR_BIT); ++i) {
+        elems_t<thoth::relat::single, thoth::relat::multi, thoth::trans::broadcast> el;
+        for (std::size_t i = 0; i < (sizeof(thoth::circ::cc_t) * CHAR_BIT); ++i) {
             ASSERT_NE(el.connect_receiver(), 0);
         }
         for (std::size_t i = 0; i < 10000; ++i) {
@@ -167,21 +167,21 @@ TEST(Queue, el_connection) {
 
 TEST(Queue, connection) {
     {
-        elems_t<ipc::relat::single, ipc::relat::single, ipc::trans::unicast> el;
-        queue_t<ipc::relat::single, ipc::relat::single, ipc::trans::unicast> que{&el};
+        elems_t<thoth::relat::single, thoth::relat::single, thoth::trans::unicast> el;
+        queue_t<thoth::relat::single, thoth::relat::single, thoth::trans::unicast> que{&el};
         // sending
         for (std::size_t i = 0; i < 10000; ++i) {
             ASSERT_TRUE(que.ready_sending());
         }
         for (std::size_t i = 0; i < 10000; ++i) {
-            queue_t<ipc::relat::single, ipc::relat::single, ipc::trans::unicast> que{&el};
+            queue_t<thoth::relat::single, thoth::relat::single, thoth::trans::unicast> que{&el};
             ASSERT_FALSE(que.ready_sending());
         }
         for (std::size_t i = 0; i < 10000; ++i) {
             que.shut_sending();
         }
         {
-            queue_t<ipc::relat::single, ipc::relat::single, ipc::trans::unicast> que{&el};
+            queue_t<thoth::relat::single, thoth::relat::single, thoth::trans::unicast> que{&el};
             EXPECT_TRUE(que.ready_sending());
         }
         // receiving
@@ -189,7 +189,7 @@ TEST(Queue, connection) {
             ASSERT_TRUE(que.connect());
         }
         for (std::size_t i = 0; i < 10000; ++i) {
-            queue_t<ipc::relat::single, ipc::relat::single, ipc::trans::unicast> que{&el};
+            queue_t<thoth::relat::single, thoth::relat::single, thoth::trans::unicast> que{&el};
             ASSERT_FALSE(que.connect());
         }
         EXPECT_TRUE(que.disconnect());
@@ -197,42 +197,42 @@ TEST(Queue, connection) {
             ASSERT_FALSE(que.disconnect());
         }
         {
-            queue_t<ipc::relat::single, ipc::relat::single, ipc::trans::unicast> que{&el};
+            queue_t<thoth::relat::single, thoth::relat::single, thoth::trans::unicast> que{&el};
             EXPECT_TRUE(que.connect());
         }
         for (std::size_t i = 0; i < 10000; ++i) {
-            queue_t<ipc::relat::single, ipc::relat::single, ipc::trans::unicast> que{&el};
+            queue_t<thoth::relat::single, thoth::relat::single, thoth::trans::unicast> que{&el};
             ASSERT_FALSE(que.connect());
         }
     }
     {
-        elems_t<ipc::relat::multi, ipc::relat::multi, ipc::trans::broadcast> el;
-        queue_t<ipc::relat::multi, ipc::relat::multi, ipc::trans::broadcast> que{&el};
+        elems_t<thoth::relat::multi, thoth::relat::multi, thoth::trans::broadcast> el;
+        queue_t<thoth::relat::multi, thoth::relat::multi, thoth::trans::broadcast> que{&el};
         // sending
         for (std::size_t i = 0; i < 10000; ++i) {
             ASSERT_TRUE(que.ready_sending());
         }
         for (std::size_t i = 0; i < 10000; ++i) {
-            queue_t<ipc::relat::multi, ipc::relat::multi, ipc::trans::broadcast> que{&el};
+            queue_t<thoth::relat::multi, thoth::relat::multi, thoth::trans::broadcast> que{&el};
             ASSERT_TRUE(que.ready_sending());
         }
         for (std::size_t i = 0; i < 10000; ++i) {
             que.shut_sending();
         }
         for (std::size_t i = 0; i < 10000; ++i) {
-            queue_t<ipc::relat::multi, ipc::relat::multi, ipc::trans::broadcast> que{&el};
+            queue_t<thoth::relat::multi, thoth::relat::multi, thoth::trans::broadcast> que{&el};
             ASSERT_TRUE(que.ready_sending());
         }
         // receiving
         for (std::size_t i = 0; i < 10000; ++i) {
             ASSERT_TRUE(que.connect());
         }
-        for (std::size_t i = 1; i < (sizeof(ipc::circ::cc_t) * CHAR_BIT); ++i) {
-            queue_t<ipc::relat::multi, ipc::relat::multi, ipc::trans::broadcast> que{&el};
+        for (std::size_t i = 1; i < (sizeof(thoth::circ::cc_t) * CHAR_BIT); ++i) {
+            queue_t<thoth::relat::multi, thoth::relat::multi, thoth::trans::broadcast> que{&el};
             ASSERT_TRUE(que.connect());
         }
         for (std::size_t i = 0; i < 10000; ++i) {
-            queue_t<ipc::relat::multi, ipc::relat::multi, ipc::trans::broadcast> que{&el};
+            queue_t<thoth::relat::multi, thoth::relat::multi, thoth::trans::broadcast> que{&el};
             ASSERT_FALSE(que.connect());
         }
         ASSERT_TRUE(que.disconnect());
@@ -240,71 +240,71 @@ TEST(Queue, connection) {
             ASSERT_FALSE(que.disconnect());
         }
         {
-            queue_t<ipc::relat::multi, ipc::relat::multi, ipc::trans::broadcast> que{&el};
+            queue_t<thoth::relat::multi, thoth::relat::multi, thoth::trans::broadcast> que{&el};
             ASSERT_TRUE(que.connect());
         }
         for (std::size_t i = 0; i < 10000; ++i) {
-            queue_t<ipc::relat::multi, ipc::relat::multi, ipc::trans::broadcast> que{&el};
+            queue_t<thoth::relat::multi, thoth::relat::multi, thoth::trans::broadcast> que{&el};
             ASSERT_FALSE(que.connect());
         }
     }
 }
 
 TEST(Queue, prod_cons_1v1_unicast) {
-    test_sr(elems_t<ipc::relat::single, ipc::relat::single, ipc::trans::unicast>{}, 1, 1, "ssu");
-    test_sr(elems_t<ipc::relat::single, ipc::relat::multi , ipc::trans::unicast>{}, 1, 1, "smu");
-    test_sr(elems_t<ipc::relat::multi , ipc::relat::multi , ipc::trans::unicast>{}, 1, 1, "mmu");
+    test_sr(elems_t<thoth::relat::single, thoth::relat::single, thoth::trans::unicast>{}, 1, 1, "ssu");
+    test_sr(elems_t<thoth::relat::single, thoth::relat::multi , thoth::trans::unicast>{}, 1, 1, "smu");
+    test_sr(elems_t<thoth::relat::multi , thoth::relat::multi , thoth::trans::unicast>{}, 1, 1, "mmu");
 }
 
 TEST(Queue, prod_cons_1v1_broadcast) {
-    test_sr(elems_t<ipc::relat::single, ipc::relat::multi , ipc::trans::broadcast>{}, 1, 1, "smb");
-    test_sr(elems_t<ipc::relat::multi , ipc::relat::multi , ipc::trans::broadcast>{}, 1, 1, "mmb");
+    test_sr(elems_t<thoth::relat::single, thoth::relat::multi , thoth::trans::broadcast>{}, 1, 1, "smb");
+    test_sr(elems_t<thoth::relat::multi , thoth::relat::multi , thoth::trans::broadcast>{}, 1, 1, "mmb");
 }
 
 TEST(Queue, prod_cons_1vN_unicast) {
     for (int i = 1; i <= ThreadMax; ++i) {
-        test_sr(elems_t<ipc::relat::single, ipc::relat::multi , ipc::trans::unicast>{}, 1, i, "smu");
+        test_sr(elems_t<thoth::relat::single, thoth::relat::multi , thoth::trans::unicast>{}, 1, i, "smu");
     }
     for (int i = 1; i <= ThreadMax; ++i) {
-        test_sr(elems_t<ipc::relat::multi , ipc::relat::multi , ipc::trans::unicast>{}, 1, i, "mmu");
+        test_sr(elems_t<thoth::relat::multi , thoth::relat::multi , thoth::trans::unicast>{}, 1, i, "mmu");
     }
 }
 
 TEST(Queue, prod_cons_1vN_broadcast) {
     for (int i = 1; i <= ThreadMax; ++i) {
-        test_sr(elems_t<ipc::relat::single, ipc::relat::multi , ipc::trans::broadcast>{}, 1, i, "smb");
+        test_sr(elems_t<thoth::relat::single, thoth::relat::multi , thoth::trans::broadcast>{}, 1, i, "smb");
     }
     for (int i = 1; i <= ThreadMax; ++i) {
-        test_sr(elems_t<ipc::relat::multi , ipc::relat::multi , ipc::trans::broadcast>{}, 1, i, "mmb");
+        test_sr(elems_t<thoth::relat::multi , thoth::relat::multi , thoth::trans::broadcast>{}, 1, i, "mmb");
     }
 }
 
 TEST(Queue, prod_cons_NvN_unicast) {
     for (int i = 1; i <= ThreadMax; ++i) {
-        test_sr(elems_t<ipc::relat::multi , ipc::relat::multi , ipc::trans::unicast>{}, 1, i, "mmu");
+        test_sr(elems_t<thoth::relat::multi , thoth::relat::multi , thoth::trans::unicast>{}, 1, i, "mmu");
     }
     for (int i = 1; i <= ThreadMax; ++i) {
-        test_sr(elems_t<ipc::relat::multi , ipc::relat::multi , ipc::trans::unicast>{}, i, 1, "mmu");
+        test_sr(elems_t<thoth::relat::multi , thoth::relat::multi , thoth::trans::unicast>{}, i, 1, "mmu");
     }
     for (int i = 1; i <= ThreadMax; ++i) {
-        test_sr(elems_t<ipc::relat::multi , ipc::relat::multi , ipc::trans::unicast>{}, i, i, "mmu");
+        test_sr(elems_t<thoth::relat::multi , thoth::relat::multi , thoth::trans::unicast>{}, i, i, "mmu");
     }
 }
 
 TEST(Queue, prod_cons_NvN_broadcast) {
     for (int i = 1; i <= ThreadMax; ++i) {
-        test_sr(elems_t<ipc::relat::multi , ipc::relat::multi , ipc::trans::broadcast>{}, 1, i, "mmb");
+        test_sr(elems_t<thoth::relat::multi , thoth::relat::multi , thoth::trans::broadcast>{}, 1, i, "mmb");
     }
     for (int i = 1; i <= ThreadMax; ++i) {
-        test_sr(elems_t<ipc::relat::multi , ipc::relat::multi , ipc::trans::broadcast>{}, i, 1, "mmb");
+        test_sr(elems_t<thoth::relat::multi , thoth::relat::multi , thoth::trans::broadcast>{}, i, 1, "mmb");
     }
     for (int i = 1; i <= ThreadMax; ++i) {
-        test_sr(elems_t<ipc::relat::multi , ipc::relat::multi , ipc::trans::broadcast>{}, i, i, "mmb");
+        test_sr(elems_t<thoth::relat::multi , thoth::relat::multi , thoth::trans::broadcast>{}, i, i, "mmb");
     }
 }
 
 TEST(Queue, clear) {
-    queue_t<ipc::relat::single, ipc::relat::single, ipc::trans::unicast> que{"test-queue-clear"};
+    queue_t<thoth::relat::single, thoth::relat::single, thoth::trans::unicast> que{"test-queue-clear"};
     EXPECT_TRUE(ipc_ut::expect_exist("test-queue-clear", true));
     que.clear();
     EXPECT_TRUE(ipc_ut::expect_exist("test-queue-clear", false));

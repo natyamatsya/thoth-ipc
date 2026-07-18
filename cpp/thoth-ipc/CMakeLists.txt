@@ -39,7 +39,7 @@ option(THOTH_IPC_NOTIFY_FIFO
     "Force the portable POSIX FIFO notify backend even on macOS (default there is libnotify). No effect off Apple."
     OFF)
 option(THOTH_IPC_STDEXEC
-    "Opt-in Layer 2: ipc::async_recv() senders/receivers (P2300) receive API + a process-global reactor. Requires C++23 and stdexec (provided via find_package, else fetched). Implies THOTH_IPC_NOTIFY_FD."
+    "Opt-in Layer 2: thoth::async_recv() senders/receivers (P2300) receive API + a process-global reactor. Requires C++23 and stdexec (provided via find_package, else fetched). Implies THOTH_IPC_NOTIFY_FD."
     OFF)
 # Windows only: the named-object namespace for all shared kernel objects (shm,
 # mutexes, semaphores, notify events). Default "Local" (session-local
@@ -106,7 +106,7 @@ set(THOTH_IPC_PROJECT_DIR     ${PROJECT_SOURCE_DIR})
 # Unicode Support
 add_definitions(-DUNICODE -D_UNICODE)
 
-# Layer 2 (ipc::async_recv) needs Layer 1's readiness fd and the stdexec library.
+# Layer 2 (thoth::async_recv) needs Layer 1's readiness fd and the stdexec library.
 # Dependency is injectable: an ambient stdexec (e.g. from vcpkg/Conan/a parent
 # build) is used if find_package locates it; otherwise it is fetched at the ref
 # Sourcetrail pins. Either way the consumer never has to hard-vendor it.

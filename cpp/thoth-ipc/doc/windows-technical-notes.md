@@ -20,7 +20,7 @@ the symptom, root cause, and the fix applied.
 MSVC's default (permissive) mode eagerly evaluates default template parameters
 even when SFINAE should suppress instantiation. The recursion chain:
 
-1. `monotonic_buffer_resource` has a constructor taking `ipc::span<ipc::byte>`.
+1. `monotonic_buffer_resource` has a constructor taking `thoth::span<thoth::byte>`.
    MSVC checks whether `bytes_allocator` can convert to `span<byte>`.
 2. `span(U&&)` checks `is_continuous_container<bytes_allocator>`, which calls
    `countof(std::declval<bytes_allocator>())`.
@@ -204,7 +204,7 @@ in `demo/audio_realtime/host.cpp` and `demo/audio_service/host.cpp`.
 The demo host files used C++20 designated initializers:
 
 ```cpp
-ipc::proto::service_group group(registry, {
+thoth::proto::service_group group(registry, {
     .service_name = "rt_audio",
     .executable   = service_bin,
     .replicas     = 2,
@@ -219,12 +219,12 @@ MSVC does not support designated initializers in C++17 mode, even with
 Replaced with C++17-compatible field-by-field assignment:
 
 ```cpp
-ipc::proto::service_group_config cfg;
+thoth::proto::service_group_config cfg;
 cfg.service_name = "rt_audio";
 cfg.executable   = service_bin;
 cfg.replicas     = 2;
 cfg.auto_respawn = true;
-ipc::proto::service_group group(registry, cfg);
+thoth::proto::service_group group(registry, cfg);
 ```
 
 ---
@@ -349,7 +349,7 @@ with a namespace prefix, default **`Local\`** (session-local `BaseNamedObjects`)
 switchable to `Global\` (services / cross-session) at build time:
 
 - C++: CMake `THOTH_IPC_WIN_OBJ_NAMESPACE` → `THOTH_IPC_WIN_OBJ_NS` macro →
-  `ipc::detail::win_object_name()` in `win/to_tchar.h`, applied at the three Win32
+  `thoth::detail::win_object_name()` in `win/to_tchar.h`, applied at the three Win32
   name sites (`shm_win.cpp`, `win/mutex.h`, `win/semaphore.h`).
 - Rust: the `win-global` feature → `platform::windows::win_object_name()`.
 

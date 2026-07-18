@@ -8,7 +8,7 @@
 #include "thoth-ipc/buffer.h"
 #include "thoth-ipc/shm.h"
 
-namespace ipc {
+namespace thoth {
 
 using handle_t = void*;
 using buff_t   = buffer;
@@ -39,37 +39,37 @@ enum : unsigned {
 
 template <typename Flag>
 struct THOTH_IPC_EXPORT chan_impl {
-    static ipc::handle_t init_first();
+    static thoth::handle_t init_first();
 
-    static bool connect   (ipc::handle_t * ph, char const * name, unsigned mode);
-    static bool connect   (ipc::handle_t * ph, prefix, char const * name, unsigned mode);
-    static bool reconnect (ipc::handle_t * ph, unsigned mode);
-    static void disconnect(ipc::handle_t h);
-    static void destroy   (ipc::handle_t h);
+    static bool connect   (thoth::handle_t * ph, char const * name, unsigned mode);
+    static bool connect   (thoth::handle_t * ph, prefix, char const * name, unsigned mode);
+    static bool reconnect (thoth::handle_t * ph, unsigned mode);
+    static void disconnect(thoth::handle_t h);
+    static void destroy   (thoth::handle_t h);
 
-    static char const * name(ipc::handle_t h);
+    static char const * name(thoth::handle_t h);
 
     // Release memory without waiting for the connection to disconnect.
-    static void release(ipc::handle_t h) noexcept;
+    static void release(thoth::handle_t h) noexcept;
 
     // Force cleanup of all shared memory storage that handles depend on.
-    static void clear(ipc::handle_t h) noexcept;
+    static void clear(thoth::handle_t h) noexcept;
     static void clear_storage(char const * name) noexcept;
     static void clear_storage(prefix, char const * name) noexcept;
 
-    static std::size_t recv_count   (ipc::handle_t h);
-    static bool        wait_for_recv(ipc::handle_t h, std::size_t r_count, std::uint64_t tm);
+    static std::size_t recv_count   (thoth::handle_t h);
+    static bool        wait_for_recv(thoth::handle_t h, std::size_t r_count, std::uint64_t tm);
 
-    static bool   send(ipc::handle_t h, void const * data, std::size_t size, std::uint64_t tm);
-    static buff_t recv(ipc::handle_t h, std::uint64_t tm);
+    static bool   send(thoth::handle_t h, void const * data, std::size_t size, std::uint64_t tm);
+    static buff_t recv(thoth::handle_t h, std::uint64_t tm);
 
-    static bool   try_send(ipc::handle_t h, void const * data, std::size_t size, std::uint64_t tm);
-    static buff_t try_recv(ipc::handle_t h);
+    static bool   try_send(thoth::handle_t h, void const * data, std::size_t size, std::uint64_t tm);
+    static buff_t try_recv(thoth::handle_t h);
 
     // Opt-in Layer 1: readiness handle for this (receiver) channel. Returns
-    // ipc::invalid_wait_handle unless libipc was built with THOTH_IPC_NOTIFY_FD and
+    // thoth::invalid_wait_handle unless libipc was built with THOTH_IPC_NOTIFY_FD and
     // the handle is connected as a receiver.
-    static wait_handle_t native_wait_handle(ipc::handle_t h) noexcept;
+    static wait_handle_t native_wait_handle(thoth::handle_t h) noexcept;
 };
 
 template <typename Flag>
@@ -77,18 +77,18 @@ class chan_wrapper {
 private:
     using detail_t = chan_impl<Flag>;
 
-    ipc::handle_t h_ = detail_t::init_first();
-    unsigned mode_   = ipc::sender;
+    thoth::handle_t h_ = detail_t::init_first();
+    unsigned mode_   = thoth::sender;
     bool connected_  = false;
 
 public:
     chan_wrapper() noexcept = default;
 
-    explicit chan_wrapper(char const * name, unsigned mode = ipc::sender)
+    explicit chan_wrapper(char const * name, unsigned mode = thoth::sender)
         : connected_{this->connect(name, mode)} {
     }
 
-    chan_wrapper(prefix pref, char const * name, unsigned mode = ipc::sender)
+    chan_wrapper(prefix pref, char const * name, unsigned mode = thoth::sender)
         : connected_{this->connect(pref, name, mode)} {
     }
 
@@ -138,7 +138,7 @@ public:
         detail_t::clear_storage(pref, name);
     }
 
-    ipc::handle_t handle() const noexcept {
+    thoth::handle_t handle() const noexcept {
         return h_;
     }
 
@@ -157,12 +157,12 @@ public:
     /**
      * Building handle, then try connecting with name & mode flags.
     */
-    bool connect(char const * name, unsigned mode = ipc::sender | ipc::receiver) {
+    bool connect(char const * name, unsigned mode = thoth::sender | thoth::receiver) {
         if (name == nullptr || name[0] == '\0') return false;
         detail_t::disconnect(h_); // clear old connection
         return connected_ = detail_t::connect(&h_, name, mode_ = mode);
     }
-    bool connect(prefix pref, char const * name, unsigned mode = ipc::sender | ipc::receiver) {
+    bool connect(prefix pref, char const * name, unsigned mode = thoth::sender | thoth::receiver) {
         if (name == nullptr || name[0] == '\0') return false;
         detail_t::disconnect(h_); // clear old connection
         return connected_ = detail_t::connect(&h_, pref, name, mode_ = mode);
@@ -235,7 +235,7 @@ public:
      * Signalled whenever a message is enqueued for this channel; register it
      * with a reactor (epoll / kqueue / QSocketNotifier / WaitForMultipleObjects)
      * to multiplex many channels on one thread instead of blocking in recv().
-     * Returns ipc::invalid_wait_handle unless built with THOTH_IPC_NOTIFY_FD and
+     * Returns thoth::invalid_wait_handle unless built with THOTH_IPC_NOTIFY_FD and
      * connected as a receiver. The handle is owned by this channel and stays
      * valid until disconnect/destruction — do not close it.
      */
@@ -245,7 +245,7 @@ public:
 };
 
 template <relat Rp, relat Rc, trans Ts>
-using chan = chan_wrapper<ipc::wr<Rp, Rc, Ts>>;
+using chan = chan_wrapper<thoth::wr<Rp, Rc, Ts>>;
 
 /**
  * \class route
@@ -266,4 +266,4 @@ using route = chan<relat::single, relat::multi, trans::broadcast>;
 */
 using channel = chan<relat::multi, relat::multi, trans::broadcast>;
 
-} // namespace ipc
+} // namespace thoth

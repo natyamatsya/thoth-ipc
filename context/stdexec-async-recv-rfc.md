@@ -21,9 +21,9 @@ over this draft:
   with a **named-FIFO** fallback (Linux, or macOS via `THOTH_IPC_NOTIFY_FIFO`). The FIFO path
   is per reader-connection-slot to honour broadcast. Gated by `THOTH_IPC_NOTIFY_FD`; exposed as
   `native_wait_handle()`.
-- **Layer 2.** `ipc::async_recv(route&, Scheduler)` (gated `THOTH_IPC_STDEXEC`, implies
+- **Layer 2.** `thoth::async_recv(route&, Scheduler)` (gated `THOTH_IPC_STDEXEC`, implies
   `THOTH_IPC_NOTIFY_FD`) + a process-global `kqueue`/`epoll` reactor thread. The reactor is
-  injectable via a **C++23 concept** (`reactor_like`), not a vtable. `ipc::buffer`'s move
+  injectable via a **C++23 concept** (`reactor_like`), not a vtable. `thoth::buffer`'s move
   ctor was made `noexcept` so `buff_t` can flow through P2300 completions. stdexec is a
   `find_package`-or-`FetchContent` dependency.
 - **Pending:** the Windows named-event backend (Layer 1 is a hard error there for now) and
@@ -42,7 +42,7 @@ execution framework (schedulers + structured cancellation). Two layers:
 
 ## Motivation
 
-- `ipc::route`/`ipc::channel::recv(timeout)` blocks on the sync primitive (macOS
+- `thoth::route`/`thoth::channel::recv(timeout)` blocks on the sync primitive (macOS
   `__ulock_wait`, Linux futex, Windows event). To *react* to messages, a consumer must
   dedicate a thread to the blocking `recv` loop.
 - The only non-blocking primitive is `try_recv()`, which forces **polling** (perpetual idle
@@ -87,10 +87,10 @@ Build-gated (`THOTH_IPC_STDEXEC`). A **single process-global reactor** (one `epo
 thread for *all* async channels — made possible by Layer 1's fd) drives sender completions:
 
 ```cpp
-// Sender whose value completion is ipc::buff_t and whose stop completion honours the
+// Sender whose value completion is thoth::buff_t and whose stop completion honours the
 // receiver's stop_token. Completion is scheduled on `on`.
 template <stdexec::scheduler Scheduler>
-sender-of<ipc::buff_t> async_recv(ipc::route& channel, Scheduler on);
+sender-of<thoth::buff_t> async_recv(thoth::route& channel, Scheduler on);
 ```
 
 - **Cancellation:** the sender observes the receiver's `stop_token`; `request_stop`
@@ -105,8 +105,8 @@ Replaces the per-controller `jthread` + manual `inplace_stop_source`:
 ```cpp
 // AgentControlController reader loop — no dedicated thread:
 exec::repeat_effect_until(
-    ipc::async_recv(m_cmd, schedulers->io())
-      | stdexec::then([this](ipc::buff_t b){ onCommandBytes(std::move(b)); }),
+    thoth::async_recv(m_cmd, schedulers->io())
+      | stdexec::then([this](thoth::buff_t b){ onCommandBytes(std::move(b)); }),
     [this]{ return m_stop.stop_requested(); });
 ```
 

@@ -21,7 +21,7 @@ pub enum ShmOpenMode {
 
 /// A named, inter-process shared memory region.
 ///
-/// Binary-compatible with `ipc::shm::handle` from the C++ thoth_ipc library.
+/// Binary-compatible with `thoth::shm::handle` from the C++ thoth_ipc library.
 /// The memory layout includes a trailing `atomic<int32_t>` reference counter
 /// that is shared between all processes mapping the same segment.
 pub struct ShmHandle {

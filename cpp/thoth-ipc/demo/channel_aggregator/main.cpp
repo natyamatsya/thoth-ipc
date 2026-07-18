@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
-// Multi-writer ipc::channel fan-in aggregator.
+// Multi-writer thoth::channel fan-in aggregator.
 //
 // Usage (run the collector first, then one or more producers):
 //   channel_aggregator collect <total>
 //   channel_aggregator produce <id> <count>
 //
-// N producer processes each send() into ONE shared ipc::channel; a single
+// N producer processes each send() into ONE shared thoth::channel; a single
 // collector recv()s the merged, correctly-reassembled stream and tallies it by
-// producer. This is the pattern a single-writer ipc::route cannot express — a
+// producer. This is the pattern a single-writer thoth::route cannot express — a
 // channel has multiple committing writers. The wire format is byte-exact across
 // the C++, Rust, Swift and Zig ports, so producers and the collector can be any
 // mix of languages (see the repo README).
@@ -26,14 +26,14 @@ namespace {
 constexpr char const channel__[] = "ipc-aggregator";
 
 int collect(std::size_t total) {
-    ipc::channel ch { channel__, ipc::receiver };
+    thoth::channel ch { channel__, thoth::receiver };
     std::cout << "[collector] ready on '" << channel__ << "', expecting " << total
               << " messages from any number of producers" << std::endl;
 
     std::map<std::string, std::size_t> tally;
     std::size_t got = 0;
     while (got < total) {
-        ipc::buff_t buf = ch.recv(10000); // 10s per-message timeout
+        thoth::buff_t buf = ch.recv(10000); // 10s per-message timeout
         if (buf.empty()) {
             std::cerr << "[collector] timed out with " << got << "/" << total
                       << " received" << std::endl;
@@ -56,7 +56,7 @@ int collect(std::size_t total) {
 }
 
 int produce(std::string const &id, std::size_t count) {
-    ipc::channel ch { channel__, ipc::sender };
+    thoth::channel ch { channel__, thoth::sender };
     // A channel send reaches no one without a receiver — wait for the collector.
     if (!ch.wait_for_recv(1, 5000)) {
         std::cerr << "[producer " << id << "] no collector within 5s — start the collector first"

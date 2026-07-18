@@ -54,28 +54,28 @@ func runSyncBackend(
     print(  "║  Backend: \(tag)\(String(repeating: " ", count: max(0, 42 - tag.count)))║")
     print(  "╚══════════════════════════════════════════════════════╝")
 
-    printHeader("ipc::route — 1 sender, N receivers (random 2–256 bytes × 100 000)")
+    printHeader("thoth::route — 1 sender, N receivers (random 2–256 bytes × 100 000)")
     printTableHeader(col1: "Receivers")
     var n = 1
     while n <= maxThreads {
         printTableRow(label: n, stats: routeFn(n, 100_000, 2, 256)); n *= 2
     }
 
-    printHeader("ipc::channel — 1-N (random 2–256 bytes × 100 000)")
+    printHeader("thoth::channel — 1-N (random 2–256 bytes × 100 000)")
     printTableHeader(col1: "Receivers")
     n = 1
     while n <= maxThreads {
         printTableRow(label: n, stats: chanFn("1-N", n, 100_000, 2, 256)); n *= 2
     }
 
-    printHeader("ipc::channel — N-1 (random 2–256 bytes × 100 000)")
+    printHeader("thoth::channel — N-1 (random 2–256 bytes × 100 000)")
     printTableHeader(col1: "Senders")
     n = 1
     while n <= maxThreads {
         printTableRow(label: n, stats: chanFn("N-1", n, 100_000, 2, 256)); n *= 2
     }
 
-    printHeader("ipc::channel — N-N (random 2–256 bytes × 100 000)")
+    printHeader("thoth::channel — N-N (random 2–256 bytes × 100 000)")
     printTableHeader(col1: "Threads")
     n = 1
     while n <= maxThreads {

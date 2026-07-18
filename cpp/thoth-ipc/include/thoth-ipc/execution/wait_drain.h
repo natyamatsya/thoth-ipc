@@ -10,13 +10,13 @@
 
 #if defined(THOTH_IPC_NOTIFY_FD)
 
-#include "thoth-ipc/ipc.h" // ipc::wait_handle_t
+#include "thoth-ipc/ipc.h" // thoth::wait_handle_t
 
 #if !defined(THOTH_IPC_OS_WIN)
 #  include <unistd.h>
 #endif
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 
 inline void drain_wait_handle(wait_handle_t h) noexcept {
@@ -30,6 +30,6 @@ inline void drain_wait_handle(wait_handle_t h) noexcept {
 }
 
 } // namespace detail
-} // namespace ipc
+} // namespace thoth
 
 #endif // THOTH_IPC_NOTIFY_FD

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
-// Adaptive backoff — mirrors C++ `ipc::yield(k)` and Rust `adaptive_yield`.
+// Adaptive backoff — mirrors C++ `thoth::yield(k)` and Rust `adaptive_yield`.
 //
 // k < 4:   busy spin (no-op)
 // k < 16:  CPU pause hint

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Cross-language ASYNC round-trip harness (C++ endpoint, Layer 2). Same uniform
-// CLI as xlang_ipc, but the reader uses ipc::async_recv() — the stdexec sender +
+// CLI as xlang_ipc, but the reader uses thoth::async_recv() — the stdexec sender +
 // process-global reactor woken by the Layer-1 notify fd — instead of a blocking
 // recv(). Built only when THOTH_IPC_STDEXEC (which implies THOTH_IPC_NOTIFY_FD) is on.
 //
@@ -34,7 +34,7 @@ std::vector<char> pattern(std::size_t n) {
 }
 
 int do_write(const char* name, int count, std::size_t size) {
-    ipc::route w{name, ipc::sender};
+    thoth::route w{name, thoth::sender};
     if (!w.valid()) { std::fprintf(stderr, "[cpp-async] connect(sender) failed\n"); return 3; }
     if (!w.wait_for_recv(1, 5000)) { std::fprintf(stderr, "[cpp-async] no receiver within 5s\n"); return 2; }
     auto msg = pattern(size);
@@ -46,9 +46,9 @@ int do_write(const char* name, int count, std::size_t size) {
 }
 
 int do_recv(const char* name, int count, std::size_t size) {
-    ipc::route r{name, ipc::receiver};
+    thoth::route r{name, thoth::receiver};
     if (!r.valid()) { std::fprintf(stderr, "[cpp-async] connect(receiver) failed\n"); return 3; }
-    if (r.native_wait_handle() == ipc::invalid_wait_handle) {
+    if (r.native_wait_handle() == thoth::invalid_wait_handle) {
         std::fprintf(stderr, "[cpp-async] no readiness handle (build without THOTH_IPC_NOTIFY_FD?)\n");
         return 8;
     }
@@ -56,14 +56,14 @@ int do_recv(const char* name, int count, std::size_t size) {
     auto sched = pool.get_scheduler();
     auto want = pattern(size);
     for (int i = 0; i < count; ++i) {
-        auto outcome = stdexec::sync_wait(ipc::async_recv(r, sched));
+        auto outcome = stdexec::sync_wait(thoth::async_recv(r, sched));
         if (!outcome) { std::fprintf(stderr, "[cpp-async] recv %d cancelled\n", i); return 5; }
-        ipc::recv_result const& rr = std::get<0>(*outcome);
+        thoth::recv_result const& rr = std::get<0>(*outcome);
         if (!rr.has_value()) {
             std::fprintf(stderr, "[cpp-async] recv %d errc=%d\n", i, int(rr.error()));
             return 6;
         }
-        ipc::buff_t const& b = rr.value();
+        thoth::buff_t const& b = rr.value();
         if (b.size() != size) {
             std::fprintf(stderr, "[cpp-async] recv %d wrong size: got %zu want %zu\n", i, b.size(), size);
             return 6;
@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
     }
     std::string verb = argv[1];
     const char* name = argv[2];
-    if (verb == "clear") { ipc::route::clear_storage(name); return 0; }
+    if (verb == "clear") { thoth::route::clear_storage(name); return 0; }
     // Built with THOTH_IPC_STDEXEC (⇒ THOTH_IPC_NOTIFY_FD): posts notify + async_recv.
     if (verb == "caps") { std::printf("notify async\n"); return 0; }
     if (argc < 5) { std::fprintf(stderr, "write/aread need <count> <size>\n"); return 1; }

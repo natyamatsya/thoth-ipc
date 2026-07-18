@@ -16,7 +16,7 @@
 #include "thoth-ipc/imp/span.h"
 #include "thoth-ipc/imp/detect_plat.h"
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \brief The conventional way to obtain demangled symbol name.
@@ -43,4 +43,4 @@ std::string nameof() noexcept {
   }
 }
 
-} // namespace ipc
+} // namespace thoth

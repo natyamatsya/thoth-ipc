@@ -17,7 +17,7 @@
 #include "thoth-ipc/imp/span.h"
 #include "thoth-ipc/imp/export.h"
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \class class THOTH_IPC_EXPORT fmt_context
@@ -40,13 +40,13 @@ public:
   bool append(span<char const> const &str) noexcept;
 };
 
-/// \brief Supports custom fmt_to methods for ipc::fmt.
+/// \brief Supports custom fmt_to methods for thoth::fmt.
 namespace detail_tag_invoke {
 
 class fmt_to_t {
   template <typename A1>
   bool get_result(fmt_context &ctx, A1 && a1) const {
-    return ipc::tag_invoke(fmt_to_t{}, ctx, std::forward<A1>(a1));
+    return thoth::tag_invoke(fmt_to_t{}, ctx, std::forward<A1>(a1));
   }
 
   template <typename A1, typename... A>
@@ -66,4 +66,4 @@ public:
 
 constexpr detail_tag_invoke::fmt_to_t fmt_to{};
 
-} // namespace ipc
+} // namespace thoth

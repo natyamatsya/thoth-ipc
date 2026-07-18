@@ -31,32 +31,32 @@ block-beta
 
 ### `thoth-ipc/proto/message.h`
 
-- **`ipc::proto::message<T>`** — wraps a received `ipc::buff_t`. Call `root()`
+- **`thoth::proto::message<T>`** — wraps a received `thoth::buff_t`. Call `root()`
   for zero-copy access to the FlatBuffer root table. Supports `verify()` for
   untrusted data, `operator bool` for empty checks, and `operator->` for
   direct field access.
 
-- **`ipc::proto::builder`** — wraps `flatbuffers::FlatBufferBuilder`. Use
+- **`thoth::proto::builder`** — wraps `flatbuffers::FlatBufferBuilder`. Use
   `fbb()` to build messages, then `finish(offset)` to finalize. Pass the
   builder directly to `send()`.
 
 ### `thoth-ipc/proto/typed_channel.h`
 
-`ipc::proto::typed_channel<T>` — a typed wrapper around `ipc::channel`.
+`thoth::proto::typed_channel<T>` — a typed wrapper around `thoth::channel`.
 
 ```cpp
 #include "my_protocol_generated.h"
 #include "thoth-ipc/proto/typed_channel.h"
 
 // Sender
-ipc::proto::typed_channel<MyMsg> ch("my_channel", ipc::sender);
-ipc::proto::builder b;
+thoth::proto::typed_channel<MyMsg> ch("my_channel", thoth::sender);
+thoth::proto::builder b;
 auto off = CreateMyMsg(b.fbb(), /* fields */);
 b.finish(off);
 ch.send(b);
 
 // Receiver
-ipc::proto::typed_channel<MyMsg> ch("my_channel", ipc::receiver);
+thoth::proto::typed_channel<MyMsg> ch("my_channel", thoth::receiver);
 auto msg = ch.recv();       // blocking
 auto msg = ch.try_recv();   // non-blocking
 auto msg = ch.recv(1000);   // 1s timeout
@@ -69,8 +69,8 @@ if (msg) {
 
 ### `thoth-ipc/proto/typed_route.h`
 
-`ipc::proto::typed_route<T>` — same API as `typed_channel`, but wraps
-`ipc::route` (single-writer, broadcast to N readers).
+`thoth::proto::typed_route<T>` — same API as `typed_channel`, but wraps
+`thoth::route` (single-writer, broadcast to N readers).
 
 ### `thoth-ipc/proto/codecs/*.h`
 
@@ -81,7 +81,7 @@ if (msg) {
 
 ### `thoth-ipc/proto/codecs/secure_codec.h`
 
-`ipc::proto::secure_codec<InnerCodec, CipherPolicy>` — an opt-in codec
+`thoth::proto::secure_codec<InnerCodec, CipherPolicy>` — an opt-in codec
 decorator that applies `CipherPolicy::seal/open` around an existing typed codec
 (`InnerCodec`).
 
@@ -113,10 +113,10 @@ struct my_cipher {
 };
 
 using secure_capnp_codec =
-    ipc::proto::secure_codec<ipc::proto::capnp_codec, my_cipher>;
+    thoth::proto::secure_codec<thoth::proto::capnp_codec, my_cipher>;
 
 using secure_route =
-    ipc::proto::typed_route_codec<MyMsg, secure_capnp_codec>;
+    thoth::proto::typed_route_codec<MyMsg, secure_capnp_codec>;
 ```
 
 For production crypto backends, a stable C ABI is exposed in
@@ -182,5 +182,5 @@ for non-secure users.
 - **Schema evolution** — FlatBuffers supports adding fields without breaking
   existing readers. Control messages can evolve independently of the transport.
 - **Raw data path** — for bulk data (audio buffers, video frames), use plain
-  `ipc::route::send(ptr, size)` with a trivially-copyable header struct.
+  `thoth::route::send(ptr, size)` with a trivially-copyable header struct.
   Reserve FlatBuffers for control/metadata messages.

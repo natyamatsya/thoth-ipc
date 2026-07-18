@@ -148,7 +148,7 @@ fn current_pid() -> i32 {
 /// Any process that opens a `ServiceRegistry` with the same domain sees the
 /// same set of registered services.
 ///
-/// Port of `ipc::proto::service_registry` from the C++ thoth_ipc library.
+/// Port of `thoth::proto::service_registry` from the C++ thoth_ipc library.
 pub struct ServiceRegistry {
     _shm: ShmHandle,
     data: *mut RegistryData,

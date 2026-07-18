@@ -5,7 +5,7 @@
 
 #include "a0/empty.h"
 
-namespace ipc {
+namespace thoth {
 namespace detail {
 namespace sync {
 
@@ -15,7 +15,7 @@ public:
     using sync_t = SyncT;
 
 protected:
-    ipc::shm::handle shm_;
+    thoth::shm::handle shm_;
     sync_t *h_ = nullptr;
 
     sync_t *acquire_handle(char const *name) {
@@ -70,10 +70,10 @@ public:
     }
 
     static void clear_storage(char const *name) noexcept {
-        ipc::shm::handle::clear_storage(name);
+        thoth::shm::handle::clear_storage(name);
     }
 };
 
 } // namespace sync
 } // namespace detail
-} // namespace ipc
+} // namespace thoth

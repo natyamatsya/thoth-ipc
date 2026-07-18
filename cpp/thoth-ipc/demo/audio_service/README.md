@@ -130,7 +130,7 @@ host: done
 
 ## Key Concepts Demonstrated
 
-- **Typed channels** — `ipc::proto::typed_channel<audio::ControlMsg>` for
+- **Typed channels** — `thoth::proto::typed_channel<audio::ControlMsg>` for
   compile-time type safety on IPC messages
 - **FlatBuffers unions** — `ControlPayload` and `ReplyPayload` for
   polymorphic messages over a single channel

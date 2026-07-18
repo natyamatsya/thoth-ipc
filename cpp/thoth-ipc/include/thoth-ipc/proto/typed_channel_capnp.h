@@ -6,11 +6,11 @@
 #include "thoth-ipc/proto/codecs/capnp_codec.h"
 #include "thoth-ipc/proto/typed_channel_codec.h"
 
-namespace ipc {
+namespace thoth {
 namespace proto {
 
 template <capnp_wire_message T>
 using typed_channel_capnp = typed_channel_codec<T, capnp_codec>;
 
 } // namespace proto
-} // namespace ipc
+} // namespace thoth

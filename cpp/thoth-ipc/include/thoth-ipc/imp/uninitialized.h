@@ -17,7 +17,7 @@
 #include "thoth-ipc/imp/detect_plat.h"
 #include "thoth-ipc/imp/generic.h"
 
-namespace ipc {
+namespace thoth {
 
 /**
  * \brief Creates an object at a given address, like 'construct_at' in c++20
@@ -163,4 +163,4 @@ auto uninitialized_move_n(InputIt first, Size count, NoThrowForwardIt d_first)
 #endif
 }
 
-} // namespace ipc
+} // namespace thoth

@@ -5,7 +5,7 @@
 
 #include "thoth-ipc/imp/export.h"
 
-namespace ipc {
+namespace thoth {
 namespace shm {
 
 using id_t = void*;
@@ -93,5 +93,5 @@ private:
 };
 
 } // namespace shm
-} // namespace ipc
+} // namespace thoth
 
