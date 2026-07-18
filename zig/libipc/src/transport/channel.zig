@@ -341,10 +341,12 @@ pub const ChanInner = struct {
     }
 };
 
-/// clearStorage: unlink the ring, the per-channel AC_CONN__ msg-id counter, and
-/// the prefix-global chunk shms for the standard message sizes (mirrors Swift
-/// clearStorageImplSync). The CA_CONN__ cc_id counter is prefix-global and
-/// persistent — never cleared (matches C++).
+/// clearStorage: unlink this channel's ring and its per-channel AC_CONN__ msg-id
+/// counter. The CA_CONN__ cc_id counter and the CHUNK_INFO__<size> chunk pools
+/// are prefix-global (shared by every channel of this prefix), so a per-channel
+/// clear must NOT unlink them — byte-exact with C++ route::clear_storage, which
+/// clears neither. (Unlinking a live shared chunk pool splits a concurrent
+/// channel's writer and reader across inodes; see the secure-scenario flake.)
 pub fn clearStorage(prefix: []const u8, name: []const u8) void {
     var rbuf: [256]u8 = undefined;
     shm.ShmHandle.clearStorage(shmname.ringName(&rbuf, prefix, name));
@@ -352,9 +354,4 @@ pub fn clearStorage(prefix: []const u8, name: []const u8) void {
     shm.ShmHandle.clearStorage(shmname.acConnName(&abuf, prefix, name));
     var lbuf: [256]u8 = undefined;
     shm.ShmHandle.clearStorage(liveness.livenessName(&lbuf, prefix, name));
-    const sizes = [_]usize{ 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 65536 };
-    for (sizes) |ps| {
-        var nbuf: [256]u8 = undefined;
-        shm.ShmHandle.clearStorage(shmname.chunkShmName(&nbuf, prefix, chunk.calcChunkSize(ps)));
-    }
 }

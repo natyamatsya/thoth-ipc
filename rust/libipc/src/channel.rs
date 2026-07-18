@@ -1252,12 +1252,14 @@ impl Route {
         Waiter::clear_storage(&format!("{full_prefix}WT_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}RD_CONN__{name}"));
         Waiter::clear_storage(&format!("{full_prefix}CC_CONN__{name}"));
-        // Remove any chunk-storage shm segments. chunk_prefix matches the _prefix field:
-        // {full_prefix}{name}_ so each channel's chunk SHMs are isolated.
-        let chunk_prefix = format!("{full_prefix}{name}_");
-        for &payload_size in &[128usize, 256, 512, 1024, 2048, 4096, 8192, 16384, 65536] {
-            cs::clear_chunk_shm(&chunk_prefix, cs::calc_chunk_size(payload_size));
-        }
+        // NB: the CHUNK_INFO__<size> pools are prefix-global (byte-exact with the
+        // C++ read path `{full_prefix}CHUNK_INFO__<size>`, no channel name), so
+        // they are shared by every channel of this prefix and must NOT be unlinked
+        // by a per-channel clear — matching C++ route::clear_storage, which does
+        // not touch them. (Unlinking a live shared pool splits a concurrent
+        // channel's writer and reader across inodes — see the secure-scenario
+        // flake investigation. The prior code cleared "{name}_CHUNK_INFO__…",
+        // a per-channel name that is never created, so it was already a no-op.)
         // Remove any Layer-1 FIFO notify nodes (no-op for the macOS libnotify backend).
         #[cfg(feature = "notify")]
         crate::notify::clear_storage(prefix, name);

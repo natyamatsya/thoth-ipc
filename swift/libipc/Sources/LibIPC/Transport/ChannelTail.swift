@@ -63,9 +63,10 @@ func clearStorageImplSync(prefix: String, name: String) {
     ShmHandle.clearStorage(name: "\(fp)CC_CONN__\(name)_WAITER_COND_")
     ShmHandle.clearStorage(name: "\(fp)CC_CONN__\(name)_WAITER_LOCK_")
     ShmHandle.clearStorage(name: livenessName(prefix, name))
-    for ps in [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 65536] {
-        clearChunkShm(prefix: prefix, chunkSize: calcChunkSize(ps))
-    }
+    // NB: the CHUNK_INFO__<size> pools are prefix-global (shared by every channel
+    // of this prefix), so a per-channel clear must NOT unlink them — byte-exact
+    // with C++ route::clear_storage, which does not. Unlinking a live shared pool
+    // splits a concurrent channel's writer and reader across inodes.
 }
 
 func clearStorageImpl(prefix: String, name: String) async {
@@ -76,9 +77,8 @@ func clearStorageImpl(prefix: String, name: String) async {
     await Waiter.clearStorage(name: "\(fp)RD_CONN__\(name)")
     await Waiter.clearStorage(name: "\(fp)CC_CONN__\(name)")
     ShmHandle.clearStorage(name: livenessName(prefix, name))
-    for ps in [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 65536] {
-        clearChunkShm(prefix: prefix, chunkSize: calcChunkSize(ps))
-    }
+    // Prefix-global chunk pools are not cleared per-channel (see the sync
+    // variant above and C++ route::clear_storage).
 }
 
 // MARK: - Route
