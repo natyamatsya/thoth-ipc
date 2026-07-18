@@ -88,7 +88,7 @@ are byte-exact across C++/Rust/Swift ([`xlang-channel-abi.md`](xlang-channel-abi
 overlaying a table on them would break that contract. A new segment is purely
 additive and independently versioned:
 
-- **Name** `make_public_abi_prefix(prefix, "LV_CONN__", name)` = `"{prefix}__IPC_SHM__LV_CONN__{name}"`
+- **Name** `make_public_abi_prefix(prefix, "LV_CONN__", name)` = `"{prefix}__THOTH_SHM__LV_CONN__{name}"`
   (same convention as `QU_CONN__` etc.), reached via `conn_info_head` alongside the
   existing waiters.
 - **Layout** — one `slot_owner` per `cc_` bit, indexed by bit position
@@ -220,7 +220,7 @@ Reaping a slot must also reclaim its **Layer-1 notify** state
 ([`xlang-channel-abi.md`](xlang-channel-abi.md) §8), or the readiness plumbing
 leaks in parallel with `cc_`:
 
-- **FIFO backend** — the dead receiver's `<dir>/ipcntf_<hash>.<slot>` node lingers
+- **FIFO backend** — the dead receiver's `<dir>/thothntf_<hash>.<slot>` node lingers
   (it is only `unlink`ed on clean disconnect). `notify_clear_slot(bit)` unlinks it.
 - **libnotify backend** — self-heals: process death drops the fd registration; no
   action needed.

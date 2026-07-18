@@ -7,6 +7,18 @@ Notable changes to thoth-ipc. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Branded the shm-name wire namespace: `__IPC_SHM__` → `__THOTH_SHM__`,
+  `ipc.ntf.` → `thoth.ntf.`, `ipcntf_` → `thothntf_`.** These are the byte-exact
+  shm object-name / libnotify-key identifiers all four ports must agree on; they
+  now say which library owns the memory (and avoid collision with other generic
+  `IPC` users). **Wire/shm-breaking** — an old-name build won't rendezvous with a
+  new one — but all ports move together, so the matrix stays byte-exact. The
+  notify hash recomputes accordingly (`fnv1a_64("__THOTH_SHM__NOTIFY__xchan")` =
+  `098e889ce378ae04`), cascading through the goldens, generated modules, the C++
+  compile-time `static_assert`, and the port tests. Verified three ways: the xlang
+  matrix, the naming gate (C++-built-name + template + FNV, both targets), and the
+  C++ hash `static_assert`. (The `_CONN__` tags and the `"LISA"` SyncAbi magic are
+  generic/derived, not `ipc`-branded — left unchanged.)
 - **`make_prefix` → `make_public_abi_prefix`, decoupled from the `fmt` library.**
   The shm-name builder (part of the byte-exact cross-language wire contract) was
   renamed to flag its significance and reimplemented as plain `std::string`
@@ -23,7 +35,7 @@ Notable changes to thoth-ipc. The format follows
   `data_length=64`, `align_size` per-target, `chunk_size=1024`). The `abi` checker
   resolves each template and diffs it against the golden, and **independently
   recomputes** the notify `fnv1a_64` in Rust to validate `notify_hash_xchan` — so
-  the shm-name contract (`__IPC_SHM__…`, `ipc.ntf.…`) can't drift silently in the
+  the shm-name contract (`__THOTH_SHM__…`, `thoth.ntf.…`) can't drift silently in the
   spec. Runs as part of `cargo run -p abi -- check` (both targets in CI). The ring
   golden is per-target (`…__64__8` vs `…__64__16`). Per-port name-builder
   agreement remains behaviourally matrix-verified.

@@ -131,8 +131,8 @@ func ringShmSize() -> Int { ringShmSizeBytes }
 // min(dataLength, alignof(max_align_t)) = 8 on Apple arm64 (16 on x86-64).
 let ringAlign = 8
 
-// Byte-exact object names (C++ make_public_abi_prefix: prefix + "__IPC_SHM__" + TAG + ...).
-@inline(__always) func fullPrefix(_ prefix: String) -> String { "\(prefix)__IPC_SHM__" }
+// Byte-exact object names (C++ make_public_abi_prefix: prefix + "__THOTH_SHM__" + TAG + ...).
+@inline(__always) func fullPrefix(_ prefix: String) -> String { "\(prefix)__THOTH_SHM__" }
 func ringName(_ prefix: String, _ name: String) -> String {
     "\(fullPrefix(prefix))QU_CONN__\(name)__\(dataLength)__\(ringAlign)"
 }

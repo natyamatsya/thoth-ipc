@@ -76,7 +76,7 @@ int main() {
         std::string nid = make_public_abi_prefix(pfx, "NOTIFY__", nm);
         char hex[17] = {};
         posix_::detail::to_hex(posix_::detail::fnv1a_64(nid.data(), nid.size()), hex);
-        std::printf("  \"name:notify_key\": \"ipc.ntf.%.*s\",\n", 16, hex);
+        std::printf("  \"name:notify_key\": \"thoth.ntf.%.*s\",\n", 16, hex);
     }
 
     std::printf("  \"route_ep_mask\": \"0x%016llx\",\n", static_cast<unsigned long long>(RouteP::ep_mask));

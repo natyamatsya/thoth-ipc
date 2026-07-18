@@ -14,7 +14,7 @@
 //     `notify_register_file_descriptor(key, ...)` in ANY process. Multicast — one
 //     post wakes every registered reader — so a single key per channel honours
 //     broadcast. This is the default on Apple.
-//   * POSIX  -> named FIFO `<dir>/ipcntf_<hash>.<slot>`: point-to-point, so
+//   * POSIX  -> named FIFO `<dir>/thothntf_<hash>.<slot>`: point-to-point, so
 //     broadcast is honoured by poking every connected reader slot's FIFO.
 //
 // This module currently implements only the SOURCE (writer) side; the sink
@@ -38,10 +38,10 @@ pub const INVALID_WAIT_HANDLE: WaitHandle = -1;
 pub const INVALID_WAIT_HANDLE: WaitHandle = 0;
 
 /// Short, service-/filesystem-safe channel identity: 16-hex FNV-1a-64 of
-/// `make_public_abi_prefix(prefix, "NOTIFY__", name)` = `"{prefix}__IPC_SHM__NOTIFY__{name}"`.
+/// `make_public_abi_prefix(prefix, "NOTIFY__", name)` = `"{prefix}__THOTH_SHM__NOTIFY__{name}"`.
 /// Byte-exact with C++ `thoth::detail::notify_hash`.
 fn notify_hash(prefix: &str, name: &str) -> String {
-    let id = format!("{prefix}__IPC_SHM__NOTIFY__{name}");
+    let id = format!("{prefix}__THOTH_SHM__NOTIFY__{name}");
     let hash = fnv1a_64(id.as_bytes());
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut buf = [0u8; 16];
@@ -83,7 +83,7 @@ mod backend {
     /// libnotify service key for a channel (one per channel — posts are multicast).
     /// Byte-exact with C++ `notify_key`.
     fn notify_key(prefix: &str, name: &str) -> String {
-        format!("ipc.ntf.{}", notify_hash(prefix, name))
+        format!("thoth.ntf.{}", notify_hash(prefix, name))
     }
 
     /// Reader side: an fd that libnotify writes a token to on every matching post.
@@ -228,7 +228,7 @@ mod backend {
         }
     }
 
-    /// Deterministic FIFO path shared by both processes: `<dir>/ipcntf_<hash>.<slot>`.
+    /// Deterministic FIFO path shared by both processes: `<dir>/thothntf_<hash>.<slot>`.
     /// Directory is `/tmp` by default, overridable via `THOTH_IPC_NOTIFY_DIR`. Byte-exact
     /// with C++ `notify_fifo_path`.
     fn fifo_path(prefix: &str, name: &str, slot: usize) -> String {
@@ -236,7 +236,7 @@ mod backend {
             .ok()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "/tmp".to_string());
-        format!("{dir}/ipcntf_{}.{slot}", notify_hash(prefix, name))
+        format!("{dir}/thothntf_{}.{slot}", notify_hash(prefix, name))
     }
 
     #[cfg(target_vendor = "apple")]
@@ -483,11 +483,11 @@ mod backend {
     }
 
     /// Deterministic, cross-process AND cross-language event name:
-    /// `<ns>ipcntf_<hash>_<slot>`, where `<ns>` is the Windows object namespace
+    /// `<ns>thothntf_<hash>_<slot>`, where `<ns>` is the Windows object namespace
     /// prefix (default `Local\`, from `win_object_name`). Byte-exact with the C++
     /// `notify_event_name`; returned as a NUL-terminated UTF-16 buffer.
     fn event_name(prefix: &str, name: &str, slot: usize) -> Vec<u16> {
-        let logical = format!("ipcntf_{}_{}", notify_hash(prefix, name), slot);
+        let logical = format!("thothntf_{}_{}", notify_hash(prefix, name), slot);
         crate::platform::windows::win_object_name(&logical)
             .encode_utf16()
             .chain(std::iter::once(0))
@@ -627,23 +627,23 @@ mod tests {
     // cross-language async wakeup silently stops working.
     #[test]
     fn notify_hash_matches_cpp_golden() {
-        assert_eq!(notify_hash("", "xchan"), "d7484adebb2d170d");
+        assert_eq!(notify_hash("", "xchan"), "098e889ce378ae04");
         assert_eq!(notify_hash("app", "st.agent.cmd"), "ad223836b598bfaa");
     }
 
-    // Pin the Windows named-Event assembly `<ns>ipcntf_<hash>_<slot>`. The C++
+    // Pin the Windows named-Event assembly `<ns>thothntf_<hash>_<slot>`. The C++
     // WINEVENT backend composes the identical name, so a Rust send()'s SetEvent
     // and a C++ async_recv()'s wait target the same kernel object.
     #[cfg(windows)]
     #[test]
     fn windows_event_name_assembly() {
-        let logical = format!("ipcntf_{}_{}", notify_hash("", "xchan"), 3);
-        assert_eq!(logical, "ipcntf_d7484adebb2d170d_3");
+        let logical = format!("thothntf_{}_{}", notify_hash("", "xchan"), 3);
+        assert_eq!(logical, "thothntf_098e889ce378ae04_3");
         let qualified = crate::platform::windows::win_object_name(&logical);
         #[cfg(not(feature = "win-global"))]
-        assert_eq!(qualified, "Local\\ipcntf_d7484adebb2d170d_3");
+        assert_eq!(qualified, "Local\\thothntf_098e889ce378ae04_3");
         #[cfg(feature = "win-global")]
-        assert_eq!(qualified, "Global\\ipcntf_d7484adebb2d170d_3");
+        assert_eq!(qualified, "Global\\thothntf_098e889ce378ae04_3");
     }
 
     // End-to-end: a source SetEvent wakes the sink's auto-reset Event, and the

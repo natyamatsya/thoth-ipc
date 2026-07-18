@@ -96,14 +96,14 @@ inline int notify_slot_of(thoth::circ::cc_t bit) noexcept {
 }
 
 // Deterministic, cross-process AND cross-language event name:
-//   <ns>ipcntf_<16-hex hash>_<slot>
+//   <ns>thothntf_<16-hex hash>_<slot>
 // where <ns> is the Windows object namespace prefix (default Local\, via
 // win_object_name). Byte-exact with the Rust WINEVENT backend. Returns a TCHAR
 // string (narrow or wide per the build's UNICODE setting) for ::CreateEvent /
 // ::OpenEvent; ASCII names map to the same kernel object either way.
 inline auto notify_event_name(std::string const &prefix,
                               std::string const &name, int slot) {
-    std::string id = "ipcntf_" + notify_hash(prefix, name) + "_" + std::to_string(slot);
+    std::string id = "thothntf_" + notify_hash(prefix, name) + "_" + std::to_string(slot);
     return to_tchar(win_object_name(id));
 }
 
@@ -201,7 +201,7 @@ namespace detail {
 
 // libnotify service key for a channel (one per channel — posts are multicast).
 inline std::string notify_key(std::string const &prefix, std::string const &name) {
-    return "ipc.ntf." + notify_hash(prefix, name);
+    return "thoth.ntf." + notify_hash(prefix, name);
 }
 
 // Reader side: an fd that libnotify writes a token to on every matching post.
@@ -296,7 +296,7 @@ inline int notify_slot_of(thoth::circ::cc_t bit) noexcept {
     return (bit == 0) ? -1 : __builtin_ctz(static_cast<unsigned>(bit));
 }
 
-// Deterministic FIFO path shared by both processes: <dir>/ipcntf_<hash>.<slot>.
+// Deterministic FIFO path shared by both processes: <dir>/thothntf_<hash>.<slot>.
 // Directory is /tmp by default (a path both peers agree on), overridable via
 // THOTH_IPC_NOTIFY_DIR for sandboxed/multi-user setups.
 inline std::string notify_fifo_path(std::string const &prefix,
@@ -305,7 +305,7 @@ inline std::string notify_fifo_path(std::string const &prefix,
     std::string base = (dir != nullptr && dir[0] != '\0') ? dir : "/tmp";
     std::string out;
     out.reserve(base.size() + 32);
-    out.append(base).append("/ipcntf_").append(notify_hash(prefix, name));
+    out.append(base).append("/thothntf_").append(notify_hash(prefix, name));
     out.push_back('.');
     out.append(std::to_string(slot));
     return out;

@@ -43,8 +43,8 @@ public enum ABI {
     public static let sipc_magic: String = "SIPC"
     /// secure envelope v1 version
     public static let sipc_version: UInt8 = 1
-    /// golden fnv1a_64("__IPC_SHM__NOTIFY__xchan") for (prefix="", name="xchan")
-    public static let notify_hash_xchan: String = "d7484adebb2d170d"
+    /// golden fnv1a_64("__THOTH_SHM__NOTIFY__xchan") for (prefix="", name="xchan")
+    public static let notify_hash_xchan: String = "098e889ce378ae04"
     /// cross-process sync sidecar shm-name suffix for a mutex; full name = <channel-name> + this suffix (byte-exact across all ports)
     public static let sync_abi_suffix_mutex: String = "__thoth_ipc_sync_abi_mutex"
     /// cross-process sync sidecar shm-name suffix for a condition variable; full name = <channel-name> + this suffix (byte-exact across all ports)

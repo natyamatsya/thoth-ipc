@@ -37,7 +37,7 @@ const PBI_START_TVUSEC_OFF: usize = 128; // uint64 in proc_bsdinfo
 extern "c" fn proc_pidinfo(pid: c_int, flavor: c_int, arg: u64, buffer: *anyopaque, buffersize: c_int) c_int;
 
 pub fn livenessName(buf: []u8, prefix: []const u8, name: []const u8) []const u8 {
-    return std.fmt.bufPrint(buf, "{s}__IPC_SHM__LV_CONN__{s}", .{ prefix, name }) catch unreachable;
+    return std.fmt.bufPrint(buf, "{s}__THOTH_SHM__LV_CONN__{s}", .{ prefix, name }) catch unreachable;
 }
 
 inline fn slotIndex(bit: u32) usize {

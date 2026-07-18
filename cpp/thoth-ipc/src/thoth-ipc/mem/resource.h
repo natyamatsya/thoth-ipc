@@ -41,7 +41,7 @@ inline void abi_name_append(std::string &out, T v) { out += std::to_string(v); }
 } // namespace detail
 
 /// \brief Build a **public wire-ABI** shm object name:
-/// `<prefix>__IPC_SHM__<tag><args...>`. These names are part of the byte-exact
+/// `<prefix>__THOTH_SHM__<tag><args...>`. These names are part of the byte-exact
 /// cross-language contract (see abi/abi.json `names[]`) — every port must produce
 /// identical bytes for the same inputs. Header-only (plain std::string concat +
 /// std::to_string for integers, no dependency on the `fmt` library) so tools like
@@ -50,7 +50,7 @@ template <typename A1, typename... A>
 inline std::string make_public_abi_prefix(A1 &&prefix, A &&...args) {
   std::string out;
   detail::abi_name_append(out, std::forward<A1>(prefix));
-  out += "__IPC_SHM__";
+  out += "__THOTH_SHM__";
   (detail::abi_name_append(out, std::forward<A>(args)), ...);
   return out;
 }

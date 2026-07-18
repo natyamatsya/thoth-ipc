@@ -383,8 +383,8 @@ FIFO-per-slot design, which is already broadcast-correct):
   signaled — the level-triggered behaviour the fd backends have).
 - Each reader waits on its own slot's Event; the wait auto-resets it, so
   `drain()` is a no-op.
-- Event name (a cross-process **and** cross-language ABI): `<ns>ipcntf_<16-hex
-  FNV-1a of "{prefix}__IPC_SHM__NOTIFY__{name}">_<slot>`. Byte-exact between C++
+- Event name (a cross-process **and** cross-language ABI): `<ns>thothntf_<16-hex
+  FNV-1a of "{prefix}__THOTH_SHM__NOTIFY__{name}">_<slot>`. Byte-exact between C++
   (`notify.h` `THOTH_IPC_NOTIFY_BACKEND_WINEVENT`) and Rust (`notify.rs`
   `#[cfg(windows)]`). C++ uses TCHAR-generic `::CreateEvent` + `get_sa()`.
 

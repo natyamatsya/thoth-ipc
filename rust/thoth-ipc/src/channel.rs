@@ -378,9 +378,9 @@ struct ChanInner {
 
 impl ChanInner {
     fn open(prefix: &str, name: &str, mode: Mode, multi: bool) -> io::Result<Self> {
-        // Byte-exact with C++ make_public_abi_prefix: prefix + "__IPC_SHM__" + TAG + name;
+        // Byte-exact with C++ make_public_abi_prefix: prefix + "__THOTH_SHM__" + TAG + name;
         // the ring additionally carries the __<DataSize>__<AlignSize> geometry.
-        let full_prefix = format!("{prefix}__IPC_SHM__");
+        let full_prefix = format!("{prefix}__THOTH_SHM__");
         // chunk_prefix includes the channel name so each channel has isolated chunk storage.
         let chunk_prefix = format!("{full_prefix}{name}_");
         let ring_name = format!("{full_prefix}QU_CONN__{name}__{DATA_LENGTH}__{RING_ALIGN}");
@@ -388,7 +388,7 @@ impl ChanInner {
         let rd_name = format!("{full_prefix}RD_CONN__{name}");
         let cc_name = format!("{full_prefix}CC_CONN__{name}");
         // cc_id endpoint-identity counter is PREFIX-GLOBAL (no channel name) —
-        // byte-exact with C++ cc_acc(prefix) = "__IPC_SHM__CA_CONN__". A
+        // byte-exact with C++ cc_acc(prefix) = "__THOTH_SHM__CA_CONN__". A
         // per-channel counter would collide a C++ sender's cc_id with a Rust
         // receiver's and the receiver would drop every message as "self".
         let cc_id_name = format!("{full_prefix}CA_CONN__");
@@ -542,7 +542,7 @@ impl ChanInner {
         if !self.chunk_shm.contains_key(&chunk_size) {
             // Prefix-global chunk-shm name (no channel name), byte-exact with
             // C++ make_public_abi_prefix(prefix, "CHUNK_INFO__", chunk_size).
-            let full_prefix = format!("{}__IPC_SHM__", self.prefix);
+            let full_prefix = format!("{}__THOTH_SHM__", self.prefix);
             let shm = cs::open_chunk_shm(&full_prefix, chunk_size).ok()?;
             self.chunk_shm.insert(chunk_size, shm);
         }
@@ -1242,7 +1242,7 @@ impl Route {
 
     /// Remove all backing storage with a prefix.
     pub fn clear_storage_with_prefix(prefix: &str, name: &str) {
-        let full_prefix = format!("{prefix}__IPC_SHM__");
+        let full_prefix = format!("{prefix}__THOTH_SHM__");
         ShmHandle::clear_storage(&format!("{full_prefix}QU_CONN__{name}__{DATA_LENGTH}__{RING_ALIGN}"));
         // NB: the cc_id counter CA_CONN__ is prefix-global (no channel name) and
         // intentionally persistent, like C++ cc_acc — never cleared here. The

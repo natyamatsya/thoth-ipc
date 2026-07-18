@@ -6,7 +6,7 @@
 // large (>64B) messages can be read by a Swift receiver — see
 // context/xlang-channel-abi.md §6c.
 //
-// Chunk shm layout for a given `chunkSize` (name __IPC_SHM__CHUNK_INFO__<size>):
+// Chunk shm layout for a given `chunkSize` (name __THOTH_SHM__CHUNK_INFO__<size>):
 //   [ chunk_info_t (40B) ] [ chunk of chunkSize bytes ] × chunkMaxCount
 // chunk_info_t: id_pool { next_[32]@0; cursor_@32; prepared_@33 } + os_unfair_lock@36.
 // chunk: conns (UInt32) @0, payload @ make_align(8,4)=8.

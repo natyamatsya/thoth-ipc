@@ -22,7 +22,7 @@ name longer than this. Linux has no practical limit (usually 255).
 The library composes hierarchical names such as:
 
 ```text
-/__IPC_SHM__QU_CONN__my_channel__64__8
+/__THOTH_SHM__QU_CONN__my_channel__64__8
 ```
 
 These routinely reach 40–60 characters.
@@ -34,7 +34,7 @@ A compile-time opt-in hashing layer (`src/thoth-ipc/platform/posix/shm_name.h`):
 - When a name exceeds the limit, it is shortened to
   `/<prefix>_<16-hex-FNV-1a-hash>` (exactly 31 chars).
 - The prefix preserves a debuggable fragment of the original name
-  (e.g. `__IPC_SHM__QU_CO`).
+  (e.g. `__THOTH_SHM__QU_CO`).
 - When `THOTH_IPC_SHM_NAME_MAX=0`, the function reduces to a simple `/` prefixer
   that the compiler inlines away — **zero cost on Linux/FreeBSD/QNX**.
 

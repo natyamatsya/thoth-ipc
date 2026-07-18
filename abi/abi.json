@@ -29,7 +29,7 @@
     { "name": "syncabi_backend_ulock", "type": "u32", "value": 2,          "description": "SyncAbi backend id: apple_ulock" },
     { "name": "sipc_magic",            "type": "string", "value": "SIPC",  "description": "secure envelope v1 magic" },
     { "name": "sipc_version",          "type": "u8",  "value": 1,          "description": "secure envelope v1 version" },
-    { "name": "notify_hash_xchan",     "type": "string", "value": "d7484adebb2d170d", "description": "golden fnv1a_64(\"__IPC_SHM__NOTIFY__xchan\") for (prefix=\"\", name=\"xchan\")" },
+    { "name": "notify_hash_xchan",     "type": "string", "value": "098e889ce378ae04", "description": "golden fnv1a_64(\"__THOTH_SHM__NOTIFY__xchan\") for (prefix=\"\", name=\"xchan\")" },
     { "name": "sync_abi_suffix_mutex",     "type": "string", "value": "__thoth_ipc_sync_abi_mutex",     "description": "cross-process sync sidecar shm-name suffix for a mutex; full name = <channel-name> + this suffix (byte-exact across all ports)" },
     { "name": "sync_abi_suffix_condition", "type": "string", "value": "__thoth_ipc_sync_abi_condition", "description": "cross-process sync sidecar shm-name suffix for a condition variable; full name = <channel-name> + this suffix (byte-exact across all ports)" }
   ],
@@ -112,11 +112,11 @@
   ],
 
   "names": [
-    { "name": "ring",       "template": "{prefix}__IPC_SHM__QU_CONN__{name}__{data_length}__{align_size}", "golden": { "apple_arm64": "__IPC_SHM__QU_CONN__xchan__64__8", "x86_64": "__IPC_SHM__QU_CONN__xchan__64__16" }, "description": "route AND channel ring (distinguished by layout, not name)" },
-    { "name": "cc_id",      "template": "{prefix}__IPC_SHM__CA_CONN__",                                     "golden": "__IPC_SHM__CA_CONN__",             "description": "prefix-global endpoint identity counter" },
-    { "name": "msg_id",     "template": "{prefix}__IPC_SHM__AC_CONN__{name}",                              "golden": "__IPC_SHM__AC_CONN__xchan",        "description": "per-channel shared message-id counter" },
-    { "name": "liveness",   "template": "{prefix}__IPC_SHM__LV_CONN__{name}",                              "golden": "__IPC_SHM__LV_CONN__xchan",        "description": "dead-connection reaper owner table" },
-    { "name": "chunk",      "template": "{prefix}__IPC_SHM__CHUNK_INFO__{chunk_size}",                     "golden": "__IPC_SHM__CHUNK_INFO__1024",      "description": "large-message chunk storage (per prefix+chunk_size)" },
-    { "name": "notify_key", "template": "ipc.ntf.{notify_hash}",                                           "golden": "ipc.ntf.d7484adebb2d170d",         "description": "libnotify service key; notify_hash = 16-hex fnv1a_64({prefix}__IPC_SHM__NOTIFY__{name})" }
+    { "name": "ring",       "template": "{prefix}__THOTH_SHM__QU_CONN__{name}__{data_length}__{align_size}", "golden": { "apple_arm64": "__THOTH_SHM__QU_CONN__xchan__64__8", "x86_64": "__THOTH_SHM__QU_CONN__xchan__64__16" }, "description": "route AND channel ring (distinguished by layout, not name)" },
+    { "name": "cc_id",      "template": "{prefix}__THOTH_SHM__CA_CONN__",                                     "golden": "__THOTH_SHM__CA_CONN__",             "description": "prefix-global endpoint identity counter" },
+    { "name": "msg_id",     "template": "{prefix}__THOTH_SHM__AC_CONN__{name}",                              "golden": "__THOTH_SHM__AC_CONN__xchan",        "description": "per-channel shared message-id counter" },
+    { "name": "liveness",   "template": "{prefix}__THOTH_SHM__LV_CONN__{name}",                              "golden": "__THOTH_SHM__LV_CONN__xchan",        "description": "dead-connection reaper owner table" },
+    { "name": "chunk",      "template": "{prefix}__THOTH_SHM__CHUNK_INFO__{chunk_size}",                     "golden": "__THOTH_SHM__CHUNK_INFO__1024",      "description": "large-message chunk storage (per prefix+chunk_size)" },
+    { "name": "notify_key", "template": "thoth.ntf.{notify_hash}",                                           "golden": "thoth.ntf.098e889ce378ae04",         "description": "libnotify service key; notify_hash = 16-hex fnv1a_64({prefix}__THOTH_SHM__NOTIFY__{name})" }
   ]
 }

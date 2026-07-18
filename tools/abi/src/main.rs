@@ -117,7 +117,7 @@ fn check_naming(abi: &Value, target: &str, dumped: &serde_json::Map<String, Valu
     }
 
     // Independent check of the notify_hash golden: hash make_public_abi_prefix("", "NOTIFY__", "xchan").
-    let notify_id = "__IPC_SHM__NOTIFY__xchan";
+    let notify_id = "__THOTH_SHM__NOTIFY__xchan";
     let computed = format!("{:016x}", fnv1a_64(notify_id.as_bytes()));
     let fnv_ok = computed == notify_hash;
     if !fnv_ok {

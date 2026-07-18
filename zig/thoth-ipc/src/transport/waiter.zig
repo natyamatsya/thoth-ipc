@@ -23,11 +23,11 @@ const ShmHandle = shm.ShmHandle;
 pub const Waiter = struct {
     cond: ShmHandle,
 
-    /// Open the condition shm named `<prefix>__IPC_SHM__<tag><name>_WAITER_COND_`
+    /// Open the condition shm named `<prefix>__THOTH_SHM__<tag><name>_WAITER_COND_`
     /// (create-or-open, zeroed). `tag` is "RD_CONN__" / "WT_CONN__" / "CC_CONN__".
     pub fn open(prefix: []const u8, name: []const u8, tag: []const u8) shm.ShmError!Waiter {
         var buf: [256]u8 = undefined;
-        const cond_name = std.fmt.bufPrint(&buf, "{s}__IPC_SHM__{s}{s}_WAITER_COND_", .{ prefix, tag, name }) catch unreachable;
+        const cond_name = std.fmt.bufPrint(&buf, "{s}__THOTH_SHM__{s}{s}_WAITER_COND_", .{ prefix, tag, name }) catch unreachable;
         return .{ .cond = try ShmHandle.acquire(cond_name, 8, .create_or_open) };
     }
 

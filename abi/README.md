@@ -121,33 +121,40 @@ cpp-ipc v1.4.1 and proven across four ports). This is the global contract versio
 *above* the per-subsystem wire versions already embedded at runtime (the
 `SyncAbi` stamp's `1.0`, the SIPC envelope's `version: 1`).
 
-## Next steps
+## Status & next steps
 
-1. Extend the migrated ports beyond the transport core to the sync/secure
-   surface. Done so far: `syncabi_magic`/`syncabi_backend_ulock`, `sipc_magic`/
-   `sipc_version`, and the sync sidecar shm-name suffixes
-   (`sync_abi_suffix_mutex`/`_condition`) — all now generated and re-sourced by
-   every port. Still hand-written: the codec/alg enums and `liveness_slot_*`.
-2. Grow `abi.json` + dumper coverage (`msg_t` offsets via a small introspection
-   shim, SIPC / SyncAbi framing).
-2a. **Naming-template checks — done, and C++ is a checked peer.** Each `names[]`
-   template carries a `golden` (its resolution for the canonical binding
-   `prefix=""`, `name="xchan"`, `data_length=64`, `align_size` per-target,
-   `chunk_size=1024`). The gate now does three things: (a) resolves the template
-   and diffs it against the golden (spec self-consistency); (b) diffs the name
-   **C++ actually builds** — `dump_abi.cpp` calls the real
-   `make_public_abi_prefix` (header-only, so no library link) and the checker
-   compares its output to the golden; and (c) **independently recomputes** the
-   notify `fnv1a_64` in Rust. C++ additionally `static_assert`s the notify hash at
-   compile time (`fnv1a_64` is now `constexpr`). Per-port Rust/Swift/Zig
-   name-builder agreement stays behaviourally matrix-verified.
-3. **Per-target generation — done.** `abi.json` stores align-dependent values as
-   per-target maps `{apple_arm64, x86_64}` (only `route_elem.size`,
-   `route_ring.size`, `chunk_header_size` actually differ — 8- vs 16-align). The
-   generator **deduplicates**: identical-across-targets values emit one constant;
-   differing ones emit `#[cfg]` (Rust) / `#if` (C++) variants (Swift/Zig are
-   macOS-arm64-only, single value). The conformance probe uses the runtime
-   `AlignSize`, so `cargo run -p abi -- check --target x86_64` cross-compiles the
-   dumper (`-arch`, Rosetta) and gate-checks the x86_64 layout too — both targets
-   pass 20/20. CI runs both on an Apple-Silicon runner (the `abi-conformance` job:
-   apple_arm64 natively + x86_64 via cross-compile), so neither target can drift.
+**Done — the data + naming surface is statically gated, per-target:**
+
+- **Coverage.** The semantic gate diffs **20** values against `abi.json` (transport
+  ring/elem sizes, `rc_` masks, `msg_t`/`chunk_*`, `liveness_slot`, `ring_header`);
+  everything else is a compile-time `static_assert` checked-peer. The enums
+  (`codec_id`, `secure_alg`), the sync/secure constants (`syncabi_*`, `sipc_*`), and
+  the sync sidecar suffixes are all generated and re-sourced by every port.
+- **Per-target (align 8 vs 16).** Align-dependent values are per-target maps; the
+  generator **deduplicates** (one constant when targets agree, `#[cfg]`/`#if`
+  variants when they differ). The probe uses the runtime `AlignSize`, and the
+  `abi-conformance` CI job gate-checks **both** targets on one Apple-Silicon runner
+  (apple_arm64 native + x86_64 cross-compile under Rosetta), 20/20 each.
+- **Naming.** Every `names[]` template has a per-target `golden`. The gate resolves
+  the template, diffs the name **C++ actually builds** (`make_public_abi_prefix`,
+  header-only), and independently recomputes the notify `fnv1a_64` in Rust — and
+  C++ `static_assert`s the hash at compile time. (The wire-name namespace is
+  `__THOTH_SHM__…` / `thoth.ntf.…`.)
+
+**Remaining**, roughly in priority order:
+
+1. **Per-port name-builder golden tests.** The naming gate makes *C++* a checked
+   peer for shm names, but the Rust/Swift/Zig builders are still only
+   matrix-verified. Generate the `names[]` goldens into each module and add a unit
+   test asserting `name_builder(canonical) == golden` — closing the loop for all
+   four ports (the last hand-maintained wire surface without a static gate).
+2. **shm-name shortening.** The goldens are all *logical* names; the POSIX
+   shortening (`/<truncated>_<hex>` FNV path for names over `SHM_NAME_MAX`) is
+   matrix-only. Add a long-name binding whose golden exercises it — the dumper can
+   emit the shortened form now that the builder is header-only.
+3. **`msg_t` field offsets.** Its size is gated, but the field offsets stay
+   matrix-only: `msg_t` is non-standard-layout, so `offsetof` is ill-formed. Cover
+   them with a small standard-layout mirror or an introspection shim.
+4. **Native x86_64 / Windows.** x86_64 is verified by Rosetta cross-compile today;
+   a native Linux run would drop the emulation, and a Windows target entry would
+   pin its object-namespace prefix.

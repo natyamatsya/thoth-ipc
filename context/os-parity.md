@@ -93,7 +93,7 @@ All three layers landed and are matrix-verified on `windows-latest`/MSVC (sync
    Windows row). C++ `liveness.h` + Rust `liveness.rs` (fixing the Rust
    `self_pid==0` bug).
 2. **Notify (Layer 1):** a named auto-reset Event per reader slot
-   (`Local\ipcntf_<hash>_<slot>`) — `SetEvent` on enqueue, the sink waits on its
+   (`Local\thothntf_<hash>_<slot>`) — `SetEvent` on enqueue, the sink waits on its
    `HANDLE`. C++ `notify.h` `WINEVENT` backend + Rust `notify.rs` Windows backend.
 3. **Reactor + async (Layer 2):** a thin registry over the Win32 thread pool
    (`RegisterWaitForSingleObject` / `UnregisterWaitEx`) in `reactor.cpp`; the

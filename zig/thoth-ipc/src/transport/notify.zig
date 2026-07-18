@@ -5,8 +5,8 @@
 // enqueue; an async receiver registers a readiness fd and wakes on the post. The
 // service key is byte-exact across languages so a Zig sender wakes a C++/Rust/
 // Swift async receiver and vice versa:
-//   key = "ipc.ntf." + 16-hex(fnv1a_64("{prefix}__IPC_SHM__NOTIFY__{name}"))
-// Golden: ("","xchan") -> d7484adebb2d170d (unit-tested in shmname.zig).
+//   key = "thoth.ntf." + 16-hex(fnv1a_64("{prefix}__THOTH_SHM__NOTIFY__{name}"))
+// Golden: ("","xchan") -> 098e889ce378ae04 (unit-tested in shmname.zig).
 
 const std = @import("std");
 const shmname = @import("../platform/shmname.zig");
@@ -23,9 +23,9 @@ extern "c" fn notify_cancel(token: c_int) u32;
 /// Build the libnotify service key for (prefix, name) into `buf`, NUL-terminated.
 fn serviceKey(buf: []u8, prefix: []const u8, name: []const u8) [:0]const u8 {
     var sbuf: [256]u8 = undefined;
-    const s = std.fmt.bufPrint(&sbuf, "{s}__IPC_SHM__NOTIFY__{s}", .{ prefix, name }) catch unreachable;
+    const s = std.fmt.bufPrint(&sbuf, "{s}__THOTH_SHM__NOTIFY__{s}", .{ prefix, name }) catch unreachable;
     const hash = shmname.fnv1a64(s);
-    const key = std.fmt.bufPrint(buf, "ipc.ntf.{x:0>16}\x00", .{hash}) catch unreachable;
+    const key = std.fmt.bufPrint(buf, "thoth.ntf.{x:0>16}\x00", .{hash}) catch unreachable;
     return key[0 .. key.len - 1 :0];
 }
 
@@ -79,5 +79,5 @@ pub const Sink = struct {
 test "service key matches the golden notify hash" {
     var buf: [64]u8 = undefined;
     const key = serviceKey(&buf, "", "xchan");
-    try std.testing.expectEqualStrings("ipc.ntf.d7484adebb2d170d", key);
+    try std.testing.expectEqualStrings("thoth.ntf.098e889ce378ae04", key);
 }

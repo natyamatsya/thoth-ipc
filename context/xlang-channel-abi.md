@@ -23,18 +23,18 @@ header (below).
 
 ## 1. Object names (per channel)
 
-C++ `make_public_abi_prefix(prefix, TAG, name, …) = prefix + "__IPC_SHM__" + TAG + name + …`;
+C++ `make_public_abi_prefix(prefix, TAG, name, …) = prefix + "__THOTH_SHM__" + TAG + name + …`;
 POSIX names then get `/` prefixed and, when > `THOTH_IPC_SHM_NAME_MAX` (31 on macOS),
 FNV-1a-shortened to `/<first-13-chars>_<16-hex>`.
 
 | object | logical name | notes |
 |---|---|---|
-| ring | `__IPC_SHM__QU_CONN__<name>__<DataSize>__<AlignSize>` | DataSize=64, AlignSize=8/16 |
-| rd waiter | `__IPC_SHM__RD_CONN__<name>` | Waiter appends `_WAITER_COND_` / `_WAITER_LOCK_` |
-| wt waiter | `__IPC_SHM__WT_CONN__<name>` | |
-| cc waiter | `__IPC_SHM__CC_CONN__<name>` | |
-| cc-id counter | `__IPC_SHM__CA_CONN__<name>` | shared `atomic<u32>` |
-| notify (Layer 1) | key `ipc.ntf.<16-hex FNV-1a of __IPC_SHM__NOTIFY__<name>>` | libnotify (macOS) |
+| ring | `__THOTH_SHM__QU_CONN__<name>__<DataSize>__<AlignSize>` | DataSize=64, AlignSize=8/16 |
+| rd waiter | `__THOTH_SHM__RD_CONN__<name>` | Waiter appends `_WAITER_COND_` / `_WAITER_LOCK_` |
+| wt waiter | `__THOTH_SHM__WT_CONN__<name>` | |
+| cc waiter | `__THOTH_SHM__CC_CONN__<name>` | |
+| cc-id counter | `__THOTH_SHM__CA_CONN__<name>` | shared `atomic<u32>` |
+| notify (Layer 1) | key `thoth.ntf.<16-hex FNV-1a of __THOTH_SHM__NOTIFY__<name>>` | libnotify (macOS) |
 
 ## 2. Ring shm layout — `elem_array<broadcast, DataSize=80, AlignSize=8>`
 
@@ -135,13 +135,13 @@ match them verbatim.
 Two shared `atomic<u32>` counters, distinct from the ring:
 
 - **`cc_id_` (endpoint identity)** — from `cc_acc(prefix)` = shm
-  `__IPC_SHM__CA_CONN__` (**prefix-global, NO channel name**), `fetch_add(1)+1`
+  `__THOTH_SHM__CA_CONN__` (**prefix-global, NO channel name**), `fetch_add(1)+1`
   (never 0). Written into every `msg_t.cc_id_`; a receiver drops a fragment when
   `msg.cc_id_ == its own cc_id_` (self-message filter). **A port must draw
   `cc_id` from this exact prefix-global counter** — a per-channel counter makes a
   C++ sender and a port receiver collide on `cc_id` and the receiver silently
   drops every message.
-- **`id_` (message id)** — from `__IPC_SHM__AC_CONN__<name>` (per-channel),
+- **`id_` (message id)** — from `__THOTH_SHM__AC_CONN__<name>` (per-channel),
   `fetch_add(1)`. Groups fragments of one message in the receiver's reassembly
   cache. Irrelevant for single-fragment (≤64 B) messages.
 
@@ -175,7 +175,7 @@ Byte-exact chunk-storage layout (Apple arm64):
 - **`calc_chunk_size(size)`** = `ceil((8 + size) / 1024) * 1024`
   (= `make_align(8, align_chunk_size(make_align(8, sizeof(atomic<cc_t>)=4) + size))`,
   `large_msg_align = 1024`). The chunk-shm name embeds this, so it must match.
-- **shm name** `__IPC_SHM__CHUNK_INFO__<chunk_size>` — **per (prefix, chunk_size)**,
+- **shm name** `__THOTH_SHM__CHUNK_INFO__<chunk_size>` — **per (prefix, chunk_size)**,
   NOT per channel. Size = `sizeof(chunk_info_t) + max_count·chunk_size`.
 - **`chunk_info_t`** = `{ id_pool pool_; spin_lock lock_; }`:
   `pool_` = `{ next_[max_count] (u8 each); cursor_ (u8); prepared_ (bool) }`
@@ -240,17 +240,17 @@ registers a readiness fd** — so for a port send to wake a C++ `async_recv`, th
 notify identity must be byte-exact.
 
 - **Channel identity hash** — `notify_hash(prefix, name)` = 16-lowercase-hex of
-  `fnv1a_64("{prefix}__IPC_SHM__NOTIFY__{name}")` (i.e. `make_public_abi_prefix(prefix,
-  "NOTIFY__", name)`). Golden: `("", "xchan") → d7484adebb2d170d`;
+  `fnv1a_64("{prefix}__THOTH_SHM__NOTIFY__{name}")` (i.e. `make_public_abi_prefix(prefix,
+  "NOTIFY__", name)`). Golden: `("", "xchan") → 098e889ce378ae04`;
   `("app", "st.agent.cmd") → ad223836b598bfaa`.
 - **macOS backend — libnotify** (default on Apple): service key
-  `"ipc.ntf." + notify_hash`. Sender `notify_post(key)` (multicast — one post
+  `"thoth.ntf." + notify_hash`. Sender `notify_post(key)` (multicast — one post
   wakes every registered reader, honouring 1→N/N→N broadcast). Reader
   `notify_register_file_descriptor(key, &fd, 0, &tok)` → an fd that receives a
   token int per post; drain by reading ints until `EAGAIN`.
 - **POSIX backend — named FIFO** (Linux; Apple with `THOTH_IPC_NOTIFY_FIFO` /
   Rust `notify_fifo`): per reader **slot** `s ∈ 0..31`, path
-  `<dir>/ipcntf_<notify_hash>.<s>` (`dir` = `$THOTH_IPC_NOTIFY_DIR` or `/tmp`).
+  `<dir>/thothntf_<notify_hash>.<s>` (`dir` = `$THOTH_IPC_NOTIFY_DIR` or `/tmp`).
   FIFO is point-to-point, so a sender pokes every connected slot except its own;
   a receiver owns the FIFO for its connection slot (`s = ctz(connected_id)`).
 - **native_wait_handle()** returns the reader's fd (or the invalid handle if the
@@ -282,7 +282,7 @@ any language's reaper may check any language's owner, the table **and** the toke
 formula are cross-language ABI.
 
 - **Segment** `make_public_abi_prefix(prefix, "LV_CONN__", name)` =
-  `"{prefix}__IPC_SHM__LV_CONN__{name}"`, size **512 B**.
+  `"{prefix}__THOTH_SHM__LV_CONN__{name}"`, size **512 B**.
 - **`slot_owner`** (one per `cc_` bit, indexed by `ctz(bit)`), **16 B**:
   `pid` (int32) `@0`, `start_tok` (uint64) `@8`. Array `slot_owner[32]`.
 - **`start_token(pid)`** — a stable id of *this* incarnation of a PID (defeats PID

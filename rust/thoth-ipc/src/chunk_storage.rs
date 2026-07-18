@@ -12,7 +12,7 @@
 // sender keeps fragmenting instead — C++ recv reassembles — so acquire_storage is
 // present for symmetry but unused by the current send path.)
 //
-// Chunk shm layout for a given `chunk_size` (name __IPC_SHM__CHUNK_INFO__<size>):
+// Chunk shm layout for a given `chunk_size` (name __THOTH_SHM__CHUNK_INFO__<size>):
 //   [ chunk_info_t (40B) ] [ chunk_t of chunk_size bytes ] × MAX_COUNT
 // chunk_info_t: id_pool { next_[32]; cursor_; prepared_ } + spin_lock @36.
 // chunk_t: conns (AtomicU32) @0, payload @ make_align(8,4)=8.
@@ -180,7 +180,7 @@ fn chunk_cache() -> &'static std::sync::Mutex<crate::platform::posix::ShmCache> 
 // ---------------------------------------------------------------------------
 
 /// Chunk-shm name, byte-exact with C++ make_public_abi_prefix(prefix, "CHUNK_INFO__", chunk_size).
-/// `full_prefix` must be the prefix-global `"{prefix}__IPC_SHM__"` (NO channel name).
+/// `full_prefix` must be the prefix-global `"{prefix}__THOTH_SHM__"` (NO channel name).
 fn chunk_shm_name(full_prefix: &str, chunk_size: usize) -> String {
     format!("{full_prefix}CHUNK_INFO__{chunk_size}")
 }

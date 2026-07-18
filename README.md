@@ -160,7 +160,7 @@ route — field 1 varint `seq`, field 2 bytes `payload`, no protobuf library
 needed) and the **secure AEAD envelope** (SIPC v1 framing with AES-256-GCM and
 ChaCha20-Poly1305 done in pure Zig `std.crypto` — a standardized algorithm is
 byte-identical to the OpenSSL-backed ports, so no C crypto is linked). It also has the **Layer-1 notify readiness** for async receive: a sender posts
-on the libnotify service keyed by `fnv1a_64("<prefix>__IPC_SHM__NOTIFY__<name>")`,
+on the libnotify service keyed by `fnv1a_64("<prefix>__THOTH_SHM__NOTIFY__<name>")`,
 and an `aread` receiver wakes on that fd. Like the other ports, Zig targets the
 single-writer `thoth::route`, and it joins **every cross-language matrix
 scenario** — `sync`, `fanout`, `reap`, `primitives`, `typed`,

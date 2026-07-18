@@ -52,8 +52,8 @@ inline constexpr std::uint32_t syncabi_backend_ulock = 2;
 inline constexpr const char* sipc_magic = "SIPC";
 /// secure envelope v1 version
 inline constexpr std::uint8_t sipc_version = 1;
-/// golden fnv1a_64("__IPC_SHM__NOTIFY__xchan") for (prefix="", name="xchan")
-inline constexpr const char* notify_hash_xchan = "d7484adebb2d170d";
+/// golden fnv1a_64("__THOTH_SHM__NOTIFY__xchan") for (prefix="", name="xchan")
+inline constexpr const char* notify_hash_xchan = "098e889ce378ae04";
 /// cross-process sync sidecar shm-name suffix for a mutex; full name = <channel-name> + this suffix (byte-exact across all ports)
 inline constexpr const char* sync_abi_suffix_mutex = "__thoth_ipc_sync_abi_mutex";
 /// cross-process sync sidecar shm-name suffix for a condition variable; full name = <channel-name> + this suffix (byte-exact across all ports)

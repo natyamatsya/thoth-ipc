@@ -82,39 +82,39 @@ pub fn makeShmName(buf: []u8, name: []const u8) []const u8 {
 }
 
 // --- Byte-exact logical object names (C++ make_public_abi_prefix) ----------------------
-// make_public_abi_prefix(prefix, TAG, name) = prefix + "__IPC_SHM__" + TAG + name.
+// make_public_abi_prefix(prefix, TAG, name) = prefix + "__THOTH_SHM__" + TAG + name.
 // The default channel prefix is "" (see Swift Route.connect / Rust).
 
-/// Ring: __IPC_SHM__QU_CONN__<name>__<DataSize>__<AlignSize>.
+/// Ring: __THOTH_SHM__QU_CONN__<name>__<DataSize>__<AlignSize>.
 pub fn ringName(buf: []u8, prefix: []const u8, name: []const u8) []const u8 {
-    return std.fmt.bufPrint(buf, "{s}__IPC_SHM__QU_CONN__{s}__{d}__{d}", .{
+    return std.fmt.bufPrint(buf, "{s}__THOTH_SHM__QU_CONN__{s}__{d}__{d}", .{
         prefix, name, layout.data_length, layout.align_size,
     }) catch unreachable;
 }
 
-/// cc_id endpoint-identity counter: __IPC_SHM__CA_CONN__ — PREFIX-GLOBAL (no
+/// cc_id endpoint-identity counter: __THOTH_SHM__CA_CONN__ — PREFIX-GLOBAL (no
 /// channel name), matching C++ cc_acc. A per-channel counter makes a C++ sender
 /// and a Zig receiver collide on cc_id and the receiver silently drops messages.
 pub fn ccIdName(buf: []u8, prefix: []const u8) []const u8 {
-    return std.fmt.bufPrint(buf, "{s}__IPC_SHM__CA_CONN__", .{prefix}) catch unreachable;
+    return std.fmt.bufPrint(buf, "{s}__THOTH_SHM__CA_CONN__", .{prefix}) catch unreachable;
 }
 
-/// Multi-writer channel message-id counter: __IPC_SHM__AC_CONN__<name> — shared
+/// Multi-writer channel message-id counter: __THOTH_SHM__AC_CONN__<name> — shared
 /// per-channel (C++ AC_CONN__), so two concurrent writers never collide in a
 /// receiver's reassembly cache. Cleared by clearStorage (unlike CA_CONN__).
 pub fn acConnName(buf: []u8, prefix: []const u8, name: []const u8) []const u8 {
-    return std.fmt.bufPrint(buf, "{s}__IPC_SHM__AC_CONN__{s}", .{ prefix, name }) catch unreachable;
+    return std.fmt.bufPrint(buf, "{s}__THOTH_SHM__AC_CONN__{s}", .{ prefix, name }) catch unreachable;
 }
 
-/// Chunk storage: __IPC_SHM__CHUNK_INFO__<chunk_size> — prefix-global.
+/// Chunk storage: __THOTH_SHM__CHUNK_INFO__<chunk_size> — prefix-global.
 pub fn chunkShmName(buf: []u8, prefix: []const u8, chunk_size: usize) []const u8 {
-    return std.fmt.bufPrint(buf, "{s}__IPC_SHM__CHUNK_INFO__{d}", .{ prefix, chunk_size }) catch unreachable;
+    return std.fmt.bufPrint(buf, "{s}__THOTH_SHM__CHUNK_INFO__{d}", .{ prefix, chunk_size }) catch unreachable;
 }
 
 test "fnv1a64 golden (notify hash input)" {
     // Golden from context/xlang-channel-abi.md §8: ("","xchan") notify hash.
-    const h = fnv1a64("__IPC_SHM__NOTIFY__xchan");
-    try std.testing.expectEqual(@as(u64, 0xd7484adebb2d170d), h);
+    const h = fnv1a64("__THOTH_SHM__NOTIFY__xchan");
+    try std.testing.expectEqual(@as(u64, 0x098e889ce378ae04), h);
 }
 
 test "makeShmName passthrough short" {
@@ -126,7 +126,7 @@ test "makeShmName passthrough short" {
 test "makeShmName shortens over 31 on macOS" {
     if (shm_name_max == 0) return;
     var buf: [256]u8 = undefined;
-    const long = "__IPC_SHM__QU_CONN__mychannel__64__8"; // > 31 with leading '/'
+    const long = "__THOTH_SHM__QU_CONN__mychannel__64__8"; // > 31 with leading '/'
     const out = makeShmName(&buf, long);
     try std.testing.expect(out.len <= shm_name_max);
     try std.testing.expect(out[0] == '/');

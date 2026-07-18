@@ -8,7 +8,7 @@
 // wakes an fd from `notify_register_file_descriptor(key, ...)` in ANY process,
 // multicast (one post wakes every registered reader), one key per channel.
 //
-// The key is `"ipc.ntf." + 16-hex FNV-1a-64 of "{prefix}__IPC_SHM__NOTIFY__{name}"`.
+// The key is `"thoth.ntf." + 16-hex FNV-1a-64 of "{prefix}__THOTH_SHM__NOTIFY__{name}"`.
 
 import Darwin
 import ThothIPCShim
@@ -20,7 +20,7 @@ func notifyHash(_ prefix: String, _ name: String) -> String {
 
 /// libnotify service key for a channel (multicast; one per channel).
 func notifyKey(_ prefix: String, _ name: String) -> String {
-    "ipc.ntf.\(notifyHash(prefix, name))"
+    "thoth.ntf.\(notifyHash(prefix, name))"
 }
 
 /// Writer side: post the channel's key; libnotify multicasts to all readers.

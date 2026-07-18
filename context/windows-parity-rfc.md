@@ -108,7 +108,7 @@ multicast:
     without racing, and would wake all N readers on every post. Per-slot also
     matches the owner/slot model and `ctz(connected_id)` indexing.
 - **Naming (a Windows-internal C++↔Rust ABI):**
-  `Local\ipcntf_<16-hex FNV-1a of "{prefix}__IPC_SHM__NOTIFY__{name}">_<slot>`,
+  `Local\thothntf_<16-hex FNV-1a of "{prefix}__THOTH_SHM__NOTIFY__{name}">_<slot>`,
   `slot = ctz(connected_id)`, `slot ∈ 0..31`. Same hash as the POSIX backends
   (`fnv1a_64`); C++ and Rust on Windows must agree byte-for-byte.
 - **C++ (`notify.h`):** replace the `#error` with a

@@ -29,11 +29,11 @@ inline constexpr void to_hex(std::uint64_t val, char *buf) noexcept {
 }
 
 // Compile-time checked peer for the xlang notify-hash golden (abi::notify_hash_xchan
-// = "d7484adebb2d170d"): the FNV-1a-64 of the canonical notify id
-// make_public_abi_prefix("", "NOTIFY__", "xchan") == "__IPC_SHM__NOTIFY__xchan".
+// = "098e889ce378ae04"): the FNV-1a-64 of the canonical notify id
+// make_public_abi_prefix("", "NOTIFY__", "xchan") == "__THOTH_SHM__NOTIFY__xchan".
 // Now that fnv1a_64 is constexpr, C++ verifies the golden with no running test.
-static_assert(fnv1a_64("__IPC_SHM__NOTIFY__xchan", sizeof("__IPC_SHM__NOTIFY__xchan") - 1)
-                  == 0xd7484adebb2d170dULL,
+static_assert(fnv1a_64("__THOTH_SHM__NOTIFY__xchan", sizeof("__THOTH_SHM__NOTIFY__xchan") - 1)
+                  == 0x098e889ce378ae04ULL,
               "notify_hash drift for (prefix=\"\", name=\"xchan\")");
 
 /// \brief Produce a POSIX shm-safe name (with leading '/').
