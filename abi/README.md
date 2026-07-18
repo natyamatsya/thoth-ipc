@@ -25,7 +25,12 @@ for the parallel channel work and
 | [`abi.schema.json`](abi.schema.json) | JSON Schema for `abi.json` — the **structural** gate + editor validation |
 | [`dump_abi.cpp`](dump_abi.cpp) | tiny C++ probe that emits the *deployed* ABI values (`sizeof`/masks/constants) as JSON |
 | [`../tools/abi`](../tools/abi) | Rust `check` + `generate` — validates `abi.json` and emits per-language modules |
-| [`generated/`](generated/) | generated Rust / Swift / C++ modules (`abi.{rs,swift,hpp}`), not yet consumed by their ports |
+| [`EXAMPLE.md`](EXAMPLE.md) | **hands-on walkthrough** — trace one constant through all four ports and watch the gates catch a deliberate mistake |
+
+The generated modules live in each port's own tree (`rust/…/abi_generated.rs`,
+`swift/…/abi_generated.swift`, `zig/…/abi_generated.zig`,
+`cpp/…/abi_generated.hpp`) — every port consumes its own, so there is no longer a
+shared `generated/` directory.
 
 ## Three gates
 

@@ -358,6 +358,7 @@ Raw data: [performance.xlsx](performance.xlsx) &nbsp;|&nbsp; Benchmark source: [
 ## Documentation
 
 - **[Cross-Language Test Framework](tools/xlang-runner/README.md)** — the xlang matrix runner: scenarios, capability negotiation, expected-failure tracking, adding languages/scenarios
+- **[Language-neutral ABI](abi/README.md)** — `abi/abi.json` is the single source of truth the four ports are generated from and checked against (schema + C++ dump + staleness + matrix gates); see the [hands-on walkthrough](abi/EXAMPLE.md)
 - **[Cross-Language Channel ABI](context/xlang-channel-abi.md)** — the byte-exact wire spec the matrix verifies (ring layout, framing, notify, reaper)
 - **[Multi-writer `ipc::channel` RFC](context/xlang-channel-multiwriter-rfc.md)** — the multi-writer ABI + per-language roadmap (Zig → Rust → Swift), now complete: `ipc::channel` is cross-language byte-exact across all four ports
 - **[macOS Technical Notes](doc/macos-technical-notes.md)** — platform-specific implementation details for macOS (semaphores, mutexes, shared memory)

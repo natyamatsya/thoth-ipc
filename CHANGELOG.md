@@ -29,6 +29,11 @@ Notable changes to thoth-ipc. The format follows
   a Swift consumer draining C++/Rust/Zig/Swift producers at once through a 4-slot
   ring, exercising the sync primitives 0.4.0 made cross-language.
 
+- **ABI walkthrough** [`abi/EXAMPLE.md`](abi/EXAMPLE.md) — a hands-on tour that
+  traces one constant from `abi.json` into all four generated port modules and
+  shows the gates (schema / C++ dump / staleness / compile-time `static_assert`)
+  rejecting a deliberately-broken value, with copy-paste commands.
+
 ### Changed
 - `IpcMutex.openSync(name:)` (Swift) is now `public`, mirroring
   `Route.connectBlocking` — a blocking mutex open for non-async call sites.
