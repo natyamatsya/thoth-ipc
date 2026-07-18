@@ -21,6 +21,17 @@ Notable changes to thoth-ipc. The format follows
   language) per stage. `source`/`stage`/`sink` roles compose into
   `Zig → Rust → Swift → C++`, and the sink prints one line showing every language
   a message crossed (`item-0 [zig] -> rust -> swift -> [cpp sink]`).
+- **Cross-language bounded buffer demo** in all four ports
+  (`demo/bounded_buffer` / `demo_bounded_buffer`) with a launcher
+  [`cpp/libipc/demo/bounded_buffer/run.sh`](cpp/libipc/demo/bounded_buffer/run.sh) —
+  the classic producer/consumer over a shared-memory ring, coordinated by a named
+  mutex (guards `head`) + two counting semaphores (`empty`/`full`). Verified with
+  a Swift consumer draining C++/Rust/Zig/Swift producers at once through a 4-slot
+  ring, exercising the sync primitives 0.4.0 made cross-language.
+
+### Changed
+- `IpcMutex.openSync(name:)` (Swift) is now `public`, mirroring
+  `Route.connectBlocking` — a blocking mutex open for non-async call sites.
 
 ## [0.4.0] — 2026-07-18
 

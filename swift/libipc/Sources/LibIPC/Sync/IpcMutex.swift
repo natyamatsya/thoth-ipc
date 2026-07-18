@@ -55,8 +55,9 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
         return IpcMutex(cached: cached, abiGuard: abiGuard, name_: name, inCache: true, syncOpened: false)
     }
 
-    /// Open via the shared cache without an actor hop — for use from POSIX threads.
-    static func openSync(name: String) throws(IpcError) -> IpcMutex {
+    /// Open via the shared cache without an actor hop — safe from POSIX threads
+    /// and blocking (non-async) call sites, mirroring `Route.connectBlocking`.
+    public static func openSync(name: String) throws(IpcError) -> IpcMutex {
         let size = 8 // state(u32) + holder(u32)
         let cached: CachedShm
         let abiGuard = try SyncAbiGuard.openMutex(name: name)

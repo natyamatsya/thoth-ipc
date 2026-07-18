@@ -65,6 +65,9 @@ path = "src/bin/demo_channel_aggregator.rs"
 [[bin]]
 name = "demo_pipeline"
 path = "src/bin/demo_pipeline.rs"
+[[bin]]
+name = "demo_bounded_buffer"
+path = "src/bin/demo_bounded_buffer.rs"
 
 [[bin]]
 name = "demo_msg_que"

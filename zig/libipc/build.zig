@@ -47,6 +47,19 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(pipe);
 
+    // Cross-language bounded buffer (see demo/bounded_buffer): a shared shm ring
+    // coordinated by a named mutex + two counting semaphores.
+    const bbuf = b.addExecutable(.{
+        .name = "demo_bounded_buffer",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/demo_bounded_buffer.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+    b.installArtifact(bbuf);
+
     // `zig build test` runs the byte-exact ABI unit tests (name shortening,
     // calc_size, calc_chunk_size, FNV-1a golden vectors).
     const tests = b.addTest(.{

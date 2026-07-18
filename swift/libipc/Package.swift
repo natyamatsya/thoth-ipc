@@ -17,6 +17,7 @@ let package = Package(
         .executable(name: "demo-chat",      targets: ["DemoChat"]),
         .executable(name: "demo-channel-aggregator", targets: ["DemoChannelAggregator"]),
         .executable(name: "demo-pipeline",  targets: ["DemoPipeline"]),
+        .executable(name: "demo-bounded-buffer", targets: ["DemoBoundedBuffer"]),
         .executable(name: "demo-msg-que",   targets: ["DemoMsgQue"]),
         .executable(name: "bench-ipc",        targets: ["BenchIpc"]),
         .executable(name: "xlang-harness",    targets: ["XlangHarness"]),
@@ -91,6 +92,11 @@ let package = Package(
             name: "DemoPipeline",
             dependencies: ["LibIPC"],
             path: "Sources/Demos/DemoPipeline"
+        ),
+        .executableTarget(
+            name: "DemoBoundedBuffer",
+            dependencies: ["LibIPC"],
+            path: "Sources/Demos/DemoBoundedBuffer"
         ),
         .executableTarget(
             name: "DemoMsgQue",
