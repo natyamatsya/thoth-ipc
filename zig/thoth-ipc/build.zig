@@ -10,6 +10,15 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Importable module surface (`@import("thoth-ipc")`) for consumers such as
+    // sourcetrail_zig_indexer: ShmHandle / Mutex / makeShmName. See src/root.zig.
+    _ = b.addModule("thoth-ipc", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+
     const exe = b.addExecutable(.{
         .name = "xlang",
         .root_module = b.createModule(.{
