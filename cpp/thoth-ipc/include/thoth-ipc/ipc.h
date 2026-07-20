@@ -32,7 +32,9 @@ using wait_handle_t = int;   // file descriptor
 inline constexpr wait_handle_t invalid_wait_handle = -1;
 #endif
 
-enum : unsigned {
+// Named (rather than anonymous) so the enumerators have external linkage and
+// can be re-exported by the thoth.ipc module (modules/thoth.ipc.cppm).
+enum connect_mode : unsigned {
     sender,
     receiver
 };

@@ -107,6 +107,26 @@ if(NOT MSVC)
     $<$<NOT:$<OR:$<STREQUAL:${CMAKE_SYSTEM_NAME},Windows>,$<STREQUAL:${CMAKE_SYSTEM_NAME},QNX>,$<STREQUAL:${CMAKE_SYSTEM_NAME},Darwin>>>:rt>)
 endif()
 
+# Opt-in C++20 named module `thoth.ipc` (see doc/modules.md). The interface
+# unit re-exports the public surface of the headers; PUBLIC-linking thoth_ipc
+# gives the module TU (and importers) the identical include dirs and PUBLIC
+# compile definitions the headers were built with. CAUTION: if a PRIVATE
+# compile definition ever gates a declaration in a *public* header, the module
+# will diverge from the compiled library — keep such defines PUBLIC.
+if(THOTH_IPC_BUILD_MODULES)
+  add_library(thoth_ipc_module STATIC)
+  target_sources(thoth_ipc_module
+    PUBLIC
+      FILE_SET CXX_MODULES
+        BASE_DIRS ${THOTH_IPC_PROJECT_DIR}/modules
+        FILES ${THOTH_IPC_PROJECT_DIR}/modules/thoth.ipc.cppm)
+  target_link_libraries(thoth_ipc_module PUBLIC ${PROJECT_NAME})
+  target_compile_features(thoth_ipc_module PUBLIC cxx_std_23)
+  set_target_properties(thoth_ipc_module
+    PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+endif()
+
 install(
   TARGETS ${PROJECT_NAME}
   EXPORT thoth-ipc-targets
@@ -114,10 +134,21 @@ install(
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib)
 
+if(THOTH_IPC_BUILD_MODULES)
+  # Ships the module *source* (thoth.ipc.cppm); no BMI is installed --
+  # consumers of thoth-ipc::thoth_ipc_module recompile it (CMake >= 3.28).
+  install(
+    TARGETS thoth_ipc_module
+    EXPORT thoth-ipc-targets
+    ARCHIVE DESTINATION lib
+    FILE_SET CXX_MODULES DESTINATION modules/thoth-ipc)
+endif()
+
 install(EXPORT thoth-ipc-targets
 	FILE thoth-ipc-targets.cmake
 	NAMESPACE thoth-ipc::
 	DESTINATION share/thoth-ipc
+	CXX_MODULES_DIRECTORY .
 )
 
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/thoth-ipc-config.cmake.in"

@@ -10,7 +10,9 @@ namespace shm {
 
 using id_t = void*;
 
-enum : unsigned {
+// Named (rather than anonymous) so the enumerators have external linkage and
+// can be re-exported by the thoth.ipc module (modules/thoth.ipc.cppm).
+enum open_mode : unsigned {
     create = 0x01,
     open   = 0x02
 };

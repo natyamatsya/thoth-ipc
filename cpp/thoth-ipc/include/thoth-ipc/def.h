@@ -25,12 +25,14 @@ using uint_t = typename uint<N>::type;
 
 // constants
 
-enum : std::uint32_t {
+// Named (rather than anonymous) so the enumerators have external linkage and
+// can be re-exported by the thoth.ipc module (modules/thoth.ipc.cppm).
+enum constants : std::uint32_t {
   invalid_value   = (std::numeric_limits<std::uint32_t>::max)(),
   default_timeout = 100, // ms
 };
 
-enum : std::size_t {
+enum size_constants : std::size_t {
   central_cache_default_size = 1024 * 1024, ///< 1MB
   data_length     = 64,
   large_msg_limit = data_length,

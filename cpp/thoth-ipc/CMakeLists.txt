@@ -11,6 +11,26 @@ option(THOTH_IPC_BUILD_BENCHMARKS  "Build IPC benchmarks."                      
 option(THOTH_IPC_BUILD_SHARED_LIBS "Build shared libraries (DLLs)."                        OFF)
 option(THOTH_IPC_USE_STATIC_CRT    "Set to ON to build with static CRT on Windows (/MT)."  OFF)
 option(THOTH_IPC_CODECOV           "Build with unit test coverage."                        OFF)
+option(THOTH_IPC_BUILD_MODULES
+    "Build the opt-in C++20 named module 'thoth.ipc' (requires Ninja and clang >= 17 / gcc >= 14; module sources are installed, consumers compile them). See doc/modules.md."
+    OFF)
+
+if(NOT THOTH_IPC_BUILD_MODULES)
+    # Don't scan every TU for module dependencies when modules are off
+    # (faster, and keeps non-Ninja generators working).
+    set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+else()
+    if(NOT CMAKE_GENERATOR MATCHES "^Ninja")
+        message(FATAL_ERROR "THOTH_IPC_BUILD_MODULES requires the Ninja or 'Ninja Multi-Config' generator (got: ${CMAKE_GENERATOR}).")
+    endif()
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
+        message(FATAL_ERROR "THOTH_IPC_BUILD_MODULES needs Clang/AppleClang >= 17 (got ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}).")
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
+        message(FATAL_ERROR "THOTH_IPC_BUILD_MODULES needs GCC >= 14 (got ${CMAKE_CXX_COMPILER_VERSION}).")
+    elseif(MSVC)
+        message(WARNING "THOTH_IPC_BUILD_MODULES on MSVC is untested; proceeding.")
+    endif()
+endif()
 
 # Shorten POSIX shm/semaphore names via hashing when they exceed this limit.
 # Set to 0 to disable (zero cost). Auto-enabled on macOS (PSHMNAMLEN = 31).
@@ -133,6 +153,12 @@ if(THOTH_IPC_STDEXEC)
 endif()
 
 add_subdirectory(src)
+
+if (THOTH_IPC_BUILD_MODULES)
+    # Standalone smoke test proving `import thoth.ipc;` compiles and works;
+    # built whenever the module is (no gtest needed).
+    add_subdirectory(test/modules)
+endif()
 
 if (THOTH_IPC_BUILD_TESTS)
     include(FetchContent)
