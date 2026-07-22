@@ -97,7 +97,10 @@ if (THOTH_IPC_CODECOV AND NOT MSVC)
 endif()
 
 if (MSVC)
-    add_compile_options(/permissive-)
+    # /Zc:__cplusplus so __cplusplus reports the real standard (MSVC pins it to 199711L otherwise),
+    # which the C++-version gates depend on. The headers also fall back to _MSVC_LANG (see
+    # imp/detect_plat.h), so consumers that forget this flag still detect the standard correctly.
+    add_compile_options(/permissive- /Zc:__cplusplus)
     set(CompilerFlags
         CMAKE_CXX_FLAGS
         CMAKE_CXX_FLAGS_DEBUG

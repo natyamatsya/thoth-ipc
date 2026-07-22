@@ -22,7 +22,7 @@
 #   error "THOTH_IPC_CONSTEXPR_ has been defined."
 #endif
 
-#if __cplusplus >= 201703L
+#if THOTH_IPC_CPLUSPLUS >= 201703L
 
 #define THOTH_IPC_STBIND_(A, B, ...) auto [A, B] = __VA_ARGS__
 #define THOTH_IPC_CONSTEXPR_   constexpr
@@ -38,7 +38,7 @@
 
 #endif/*__cplusplus < 201703L*/
 
-#if __cplusplus >= 201703L
+#if THOTH_IPC_CPLUSPLUS >= 201703L
 
 
 // C++17 and later: std library already provides deduction guides
