@@ -450,8 +450,10 @@ fn targets(abi: &Value) -> Vec<String> {
 /// align-8 predicate, every other (align-16) target is its negation.
 fn rust_cfg(target: &str) -> &'static str {
     match target {
-        "apple_arm64" => "#[cfg(all(target_arch = \"aarch64\", target_vendor = \"apple\"))]",
-        _ => "#[cfg(not(all(target_arch = \"aarch64\", target_vendor = \"apple\")))]",
+        // align-8 class: apple_arm64 and any MSVC-ABI target (windows-msvc has 8-byte max align),
+        // mirroring the C++ `|| defined(_MSC_VER)` guard in emit_cpp.
+        "apple_arm64" => "#[cfg(any(all(target_arch = \"aarch64\", target_vendor = \"apple\"), target_env = \"msvc\"))]",
+        _ => "#[cfg(not(any(all(target_arch = \"aarch64\", target_vendor = \"apple\"), target_env = \"msvc\")))]",
     }
 }
 
@@ -474,7 +476,14 @@ fn emit_cpp(o: &mut String, prefix: &str, suffix: &str, ts: &[String], render: i
         o.push_str(&format!("{prefix} = {}{suffix};\n", render(&ts[0])));
     } else {
         let other = ts.iter().find(|t| *t != "apple_arm64").expect("need a non-apple target");
-        o.push_str("#if defined(__APPLE__) && defined(__aarch64__)\n");
+        // The align-8 class is `alignof(max_align_t) == 8`, not "Apple only": MSVC x64/arm64 has an
+        // 8-byte max_align (long double == double), so it selects the apple_arm64 (align-8) values.
+        // clang-cl defines _MSC_VER too; MinGW (align-16) does not. NOTE: for the POSIX-shortened
+        // `*_posix` shm-name goldens this also hands MSVC the macOS-shortened string, which is wrong
+        // in principle -- but POSIX shm names are #if'd out on Windows (it uses named kernel objects),
+        // so that constant is unused there. Formalizing a distinct windows_x64 abi target (align-8 +
+        // shm_name_max=0) is the proper follow-up.
+        o.push_str("#if (defined(__APPLE__) && defined(__aarch64__)) || defined(_MSC_VER)\n");
         o.push_str(&format!("{prefix} = {}{suffix};\n", render("apple_arm64")));
         o.push_str("#else\n");
         o.push_str(&format!("{prefix} = {}{suffix};\n", render(other)));

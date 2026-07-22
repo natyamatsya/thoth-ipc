@@ -95,10 +95,19 @@
 
 /// \brief C++ version.
 
-#if (__cplusplus >= 202002L) && !defined(THOTH_IPC_CPP_20)
+// MSVC reports __cplusplus as 199711L unless the consumer passes /Zc:__cplusplus; _MSVC_LANG always
+// reflects the /std: level. Consult it so the standard is detected correctly regardless of the
+// consumer's flags (the bundled flatbuffers/gtest use the same idiom).
+#if defined(_MSVC_LANG)
+# define THOTH_IPC_CPLUSPLUS _MSVC_LANG
+#else
+# define THOTH_IPC_CPLUSPLUS __cplusplus
+#endif
+
+#if (THOTH_IPC_CPLUSPLUS >= 202002L) && !defined(THOTH_IPC_CPP_20)
 # define THOTH_IPC_CPP_20
 #endif
-#if (__cplusplus >= 201703L) && !defined(THOTH_IPC_CPP_17)
+#if (THOTH_IPC_CPLUSPLUS >= 201703L) && !defined(THOTH_IPC_CPP_17)
 # define THOTH_IPC_CPP_17
 #endif
 #if /*(__cplusplus >= 201402L) &&*/ !defined(THOTH_IPC_CPP_14)

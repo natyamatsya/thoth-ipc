@@ -18,9 +18,9 @@ pub const large_msg_align: usize = 1024;
 /// chunk slots per chunk size (id_pool capacity)
 pub const large_msg_cache: usize = 32;
 /// per-chunk header = make_align(alignof(max_align_t), sizeof(atomic<cc_t>)=4); align-dependent
-#[cfg(all(target_arch = "aarch64", target_vendor = "apple"))]
+#[cfg(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc"))]
 pub const chunk_header_size: usize = 8;
-#[cfg(not(all(target_arch = "aarch64", target_vendor = "apple")))]
+#[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
 pub const chunk_header_size: usize = 16;
 /// sizeof(chunk_info_t)
 pub const chunk_info_size: usize = 40;
@@ -81,9 +81,9 @@ pub const ring_header_lc_off: usize = 4;
 pub const ring_header_constructed_off: usize = 8;
 pub const ring_header_cursor_off: usize = 64;
 pub const ring_header_epoch_off: usize = 128;
-#[cfg(all(target_arch = "aarch64", target_vendor = "apple"))]
+#[cfg(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc"))]
 pub const route_elem_size: usize = 88;
-#[cfg(not(all(target_arch = "aarch64", target_vendor = "apple")))]
+#[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
 pub const route_elem_size: usize = 96;
 pub const route_elem_data_off: usize = 0;
 pub const route_elem_rc_off: usize = 80;
@@ -91,9 +91,9 @@ pub const channel_elem_size: usize = 96;
 pub const channel_elem_data_off: usize = 0;
 pub const channel_elem_rc_off: usize = 80;
 pub const channel_elem_f_ct_off: usize = 88;
-#[cfg(all(target_arch = "aarch64", target_vendor = "apple"))]
+#[cfg(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc"))]
 pub const route_ring_size: usize = 22784;
-#[cfg(not(all(target_arch = "aarch64", target_vendor = "apple")))]
+#[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
 pub const route_ring_size: usize = 24832;
 pub const channel_ring_size: usize = 24832;
 pub const liveness_slot_size: usize = 16;
@@ -116,13 +116,13 @@ pub const syncabi_stamp_primitive_id_off: usize = 16;
 pub const syncabi_stamp_payload_size_off: usize = 20;
 
 // --- shm-name goldens (canonical binding — see abi/README.md) ---
-#[cfg(all(target_arch = "aarch64", target_vendor = "apple"))]
+#[cfg(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc"))]
 pub const name_golden_ring: &str = "__THOTH_SHM__QU_CONN__xchan__64__8";
-#[cfg(not(all(target_arch = "aarch64", target_vendor = "apple")))]
+#[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
 pub const name_golden_ring: &str = "__THOTH_SHM__QU_CONN__xchan__64__16";
-#[cfg(all(target_arch = "aarch64", target_vendor = "apple"))]
+#[cfg(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc"))]
 pub const name_golden_ring_posix: &str = "/__THOTH_SHM___7d090bf7fa85c547";
-#[cfg(not(all(target_arch = "aarch64", target_vendor = "apple")))]
+#[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
 pub const name_golden_ring_posix: &str = "/__THOTH_SHM__QU_CONN__xchan__64__16";
 pub const name_golden_cc_id: &str = "__THOTH_SHM__CA_CONN__";
 pub const name_golden_msg_id: &str = "__THOTH_SHM__AC_CONN__xchan";

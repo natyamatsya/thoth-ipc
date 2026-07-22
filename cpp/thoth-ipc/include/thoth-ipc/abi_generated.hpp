@@ -23,7 +23,7 @@ inline constexpr std::size_t large_msg_align = 1024;
 /// chunk slots per chunk size (id_pool capacity)
 inline constexpr std::size_t large_msg_cache = 32;
 /// per-chunk header = make_align(alignof(max_align_t), sizeof(atomic<cc_t>)=4); align-dependent
-#if defined(__APPLE__) && defined(__aarch64__)
+#if (defined(__APPLE__) && defined(__aarch64__)) || defined(_MSC_VER)
 inline constexpr std::size_t chunk_header_size = 8;
 #else
 inline constexpr std::size_t chunk_header_size = 16;
@@ -78,7 +78,7 @@ inline constexpr std::size_t ring_header_lc_off = 4;
 inline constexpr std::size_t ring_header_constructed_off = 8;
 inline constexpr std::size_t ring_header_cursor_off = 64;
 inline constexpr std::size_t ring_header_epoch_off = 128;
-#if defined(__APPLE__) && defined(__aarch64__)
+#if (defined(__APPLE__) && defined(__aarch64__)) || defined(_MSC_VER)
 inline constexpr std::size_t route_elem_size = 88;
 #else
 inline constexpr std::size_t route_elem_size = 96;
@@ -89,7 +89,7 @@ inline constexpr std::size_t channel_elem_size = 96;
 inline constexpr std::size_t channel_elem_data_off = 0;
 inline constexpr std::size_t channel_elem_rc_off = 80;
 inline constexpr std::size_t channel_elem_f_ct_off = 88;
-#if defined(__APPLE__) && defined(__aarch64__)
+#if (defined(__APPLE__) && defined(__aarch64__)) || defined(_MSC_VER)
 inline constexpr std::size_t route_ring_size = 22784;
 #else
 inline constexpr std::size_t route_ring_size = 24832;
@@ -115,12 +115,12 @@ inline constexpr std::size_t syncabi_stamp_primitive_id_off = 16;
 inline constexpr std::size_t syncabi_stamp_payload_size_off = 20;
 
 // --- shm-name goldens (canonical binding — see abi/README.md) ---
-#if defined(__APPLE__) && defined(__aarch64__)
+#if (defined(__APPLE__) && defined(__aarch64__)) || defined(_MSC_VER)
 inline constexpr const char* name_golden_ring = "__THOTH_SHM__QU_CONN__xchan__64__8";
 #else
 inline constexpr const char* name_golden_ring = "__THOTH_SHM__QU_CONN__xchan__64__16";
 #endif
-#if defined(__APPLE__) && defined(__aarch64__)
+#if (defined(__APPLE__) && defined(__aarch64__)) || defined(_MSC_VER)
 inline constexpr const char* name_golden_ring_posix = "/__THOTH_SHM___7d090bf7fa85c547";
 #else
 inline constexpr const char* name_golden_ring_posix = "/__THOTH_SHM__QU_CONN__xchan__64__16";
