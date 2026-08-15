@@ -28,8 +28,6 @@ inline constexpr std::size_t chunk_header_size = 8;
 #else
 inline constexpr std::size_t chunk_header_size = 16;
 #endif
-/// sizeof(chunk_info_t)
-inline constexpr std::size_t chunk_info_size = 40;
 /// route rc_: low 32 = connection bitmask
 inline constexpr std::uint64_t route_ep_mask = 0x00000000ffffffffull;
 /// route rc_: epoch increment (high 32)
@@ -95,6 +93,11 @@ inline constexpr std::size_t route_ring_size = 22784;
 inline constexpr std::size_t route_ring_size = 24832;
 #endif
 inline constexpr std::size_t channel_ring_size = 24832;
+inline constexpr std::size_t chunk_info_size = 40;
+inline constexpr std::size_t chunk_info_next_off = 0;
+inline constexpr std::size_t chunk_info_cursor_off = 32;
+inline constexpr std::size_t chunk_info_prepared_off = 33;
+inline constexpr std::size_t chunk_info_lock_off = 36;
 inline constexpr std::size_t liveness_slot_size = 16;
 inline constexpr std::size_t liveness_slot_pid_off = 0;
 inline constexpr std::size_t liveness_slot_start_tok_off = 8;

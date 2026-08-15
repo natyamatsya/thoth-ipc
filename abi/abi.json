@@ -1,122 +1,510 @@
 {
-  "version": "1.1.0",
-  "$schema": "./abi.schema.json",
-  "description": "thoth-ipc cross-language ABI — language-neutral source of truth. Structurally validated by abi.schema.json; semantically validated against the deployed C++ by abi/dump_abi.cpp via the `tools/abi` Rust checker; behaviourally validated by the xlang matrix. This is an initial slice (ring layouts + core constants); extend it as the codegen adopts more of the surface.",
-
-  "targets": {
-    "apple_arm64": { "align_size": 8, "shm_name_max": 31, "description": "macOS arm64 — the implemented target; AlignSize = min(64, alignof(max_align_t)) = 8; PSHMNAMLEN = 31" },
-    "x86_64":      { "align_size": 16, "shm_name_max": 0, "description": "x86-64 / Linux aarch64 — AlignSize = 16; shm_name_max = 0 (no shortening off macOS)" }
-  },
-
-  "constants": [
-    { "name": "data_length",      "type": "usize", "value": 64,   "description": "msg_t payload fragment size (large_msg_limit)" },
-    { "name": "ring_size",        "type": "usize", "value": 256,  "description": "ring slot count (block_[256])" },
-    { "name": "large_msg_align",  "type": "usize", "value": 1024, "description": "chunk-size alignment" },
-    { "name": "large_msg_cache",  "type": "usize", "value": 32,   "description": "chunk slots per chunk size (id_pool capacity)" },
-    { "name": "chunk_header_size","type": "usize", "value": { "apple_arm64": 8, "x86_64": 16 }, "description": "per-chunk header = make_align(alignof(max_align_t), sizeof(atomic<cc_t>)=4); align-dependent" },
-    { "name": "chunk_info_size",  "type": "usize", "value": 40,   "description": "sizeof(chunk_info_t)" },
-
-    { "name": "route_ep_mask", "type": "u64", "value": "0x00000000ffffffff", "description": "route rc_: low 32 = connection bitmask" },
-    { "name": "route_ep_incr", "type": "u64", "value": "0x0000000100000000", "description": "route rc_: epoch increment (high 32)" },
-
-    { "name": "chan_rc_mask", "type": "u64", "value": "0x00000000ffffffff", "description": "channel rc_: low 32 = per-reader bitmask" },
-    { "name": "chan_ep_mask", "type": "u64", "value": "0x00ffffffffffffff", "description": "channel rc_: low 56 = rc bits + internal read-gen" },
-    { "name": "chan_ep_incr", "type": "u64", "value": "0x0100000000000000", "description": "channel rc_: epoch increment (top byte)" },
-    { "name": "chan_ic_mask", "type": "u64", "value": "0xff000000ffffffff", "description": "channel rc_: invert-carry mask" },
-    { "name": "chan_ic_incr", "type": "u64", "value": "0x0000000100000000", "description": "channel rc_: internal read-generation increment (bits 32..)" },
-
-    { "name": "syncabi_magic",         "type": "u32", "value": 1279873857, "description": "SyncAbi stamp magic \"LISA\" (0x4C495341)" },
-    { "name": "syncabi_backend_ulock", "type": "u32", "value": 2,          "description": "SyncAbi backend id: apple_ulock" },
-    { "name": "sipc_magic",            "type": "string", "value": "SIPC",  "description": "secure envelope v1 magic" },
-    { "name": "sipc_version",          "type": "u8",  "value": 1,          "description": "secure envelope v1 version" },
-    { "name": "notify_hash_xchan",     "type": "string", "value": "098e889ce378ae04", "description": "golden fnv1a_64(\"__THOTH_SHM__NOTIFY__xchan\") for (prefix=\"\", name=\"xchan\")" },
-    { "name": "sync_abi_suffix_mutex",     "type": "string", "value": "__thoth_ipc_sync_abi_mutex",     "description": "cross-process sync sidecar shm-name suffix for a mutex; full name = <channel-name> + this suffix (byte-exact across all ports)" },
-    { "name": "sync_abi_suffix_condition", "type": "string", "value": "__thoth_ipc_sync_abi_condition", "description": "cross-process sync sidecar shm-name suffix for a condition variable; full name = <channel-name> + this suffix (byte-exact across all ports)" }
-  ],
-
-  "enums": [
-    { "name": "codec_id", "type": "u32", "description": "typed codec ids",
-      "values": [
-        { "name": "flatbuffers", "value": 1 },
-        { "name": "protobuf",    "value": 2 },
-        { "name": "capnp",       "value": 3 }
-      ] },
-    { "name": "secure_alg", "type": "u16", "description": "AEAD algorithm ids (SIPC envelope)",
-      "values": [
-        { "name": "aes256gcm",        "value": 1 },
-        { "name": "chacha20poly1305", "value": 2 }
-      ] }
-  ],
-
-  "structs": [
-    { "name": "msg_t", "size": 80, "align": 8, "description": "message framing inside a slot's data_ (msg_t<64,8>)",
-      "fields": [
-        { "name": "cc_id",   "offset": 0,  "type": "u32", "description": "sender identity (self-message filter)" },
-        { "name": "id",      "offset": 4,  "type": "u32", "description": "message id (fragments share it)" },
-        { "name": "remain",  "offset": 8,  "type": "i32", "description": "bytes remaining after this fragment" },
-        { "name": "storage", "offset": 12, "type": "u8",  "description": "payload is a storage_id (large-message path)" },
-        { "name": "payload", "offset": 16, "type": "bytes", "count": 64, "description": "payload fragment or storage_id" }
-      ] },
-
-    { "name": "ring_header", "size": 192, "align": 64, "description": "shared conn_head_base + cache-line-aligned prod_cons head; identical offsets for route and channel (block_ starts at size)",
-      "fields": [
-        { "name": "cc",          "offset": 0,   "type": "u32",  "atomic": true, "description": "connection bitmask" },
-        { "name": "lc",          "offset": 4,   "type": "lock", "description": "header lock: thoth::spin_lock = atomic<u32> test-and-set on every target (NOT os_unfair_lock; see context/xlang-channel-abi.md §2), 4 bytes" },
-        { "name": "constructed", "offset": 8,   "type": "u8",   "atomic": true, "description": "DCLP init flag" },
-        { "name": "cursor",      "offset": 64,  "type": "u32",  "atomic": true, "description": "route wt_ / channel ct_ (write cursor / commit index)" },
-        { "name": "epoch",       "offset": 128, "type": "u64",  "description": "writer epoch (atomic on channel, plain on route)" }
-      ] },
-
-    { "name": "route_elem", "size": { "apple_arm64": 88, "x86_64": 96 }, "align": 8, "description": "single-writer route slot (elem_t<80,AlignSize>); size is align-dependent",
-      "fields": [
-        { "name": "data", "offset": 0,  "type": "bytes", "count": 80, "description": "holds a msg_t" },
-        { "name": "rc",   "offset": 80, "type": "u64", "atomic": true, "description": "read-counter (bitmask + epoch)" }
-      ] },
-
-    { "name": "channel_elem", "size": 96, "align": 8, "description": "multi-writer channel slot (adds the f_ct_ commit flag)",
-      "fields": [
-        { "name": "data",  "offset": 0,  "type": "bytes", "count": 80, "description": "holds a msg_t" },
-        { "name": "rc",    "offset": 80, "type": "u64", "atomic": true, "description": "read-counter (3-region packing)" },
-        { "name": "f_ct",  "offset": 88, "type": "u64", "atomic": true, "description": "commit flag (~ct published / next-lap free)" }
-      ] },
-
-    { "name": "route_ring",   "size": { "apple_arm64": 22784, "x86_64": 24832 }, "align": 64, "description": "sizeof(elem_array<route,80,AlignSize>) — ftruncate target; align-dependent",   "fields": [] },
-    { "name": "channel_ring", "size": 24832, "align": 64, "description": "sizeof(elem_array<channel,80,AlignSize>) — ftruncate target; same on both align classes (the f_ct_ flag already makes the slot 96)", "fields": [] },
-
-    { "name": "liveness_slot", "size": 16, "align": 8, "description": "LV_CONN__ owner table entry (32 of them = 512 B)",
-      "fields": [
-        { "name": "pid",       "offset": 0, "type": "i32", "description": "owner pid, 0 = free" },
-        { "name": "start_tok", "offset": 8, "type": "u64", "description": "process incarnation token (defeats PID reuse)" }
-      ] },
-
-    { "name": "sipc_header", "size": 19, "align": 1, "description": "secure envelope v1 fixed header (all little-endian)",
-      "fields": [
-        { "name": "magic",       "offset": 0,  "type": "bytes", "count": 4, "description": "\"SIPC\"" },
-        { "name": "version",     "offset": 4,  "type": "u8" },
-        { "name": "alg_id",      "offset": 5,  "type": "u16" },
-        { "name": "key_id",      "offset": 7,  "type": "u32" },
-        { "name": "nonce_size",  "offset": 11, "type": "u16" },
-        { "name": "tag_size",    "offset": 13, "type": "u16" },
-        { "name": "ct_size",     "offset": 15, "type": "u32", "description": "ciphertext size" }
-      ] },
-
-    { "name": "syncabi_stamp", "size": 24, "align": 4, "description": "sync ABI guard sidecar (6 x u32)",
-      "fields": [
-        { "name": "magic",       "offset": 0,  "type": "u32", "atomic": true },
-        { "name": "ver_major",   "offset": 4,  "type": "u32" },
-        { "name": "ver_minor",   "offset": 8,  "type": "u32" },
-        { "name": "backend_id",  "offset": 12, "type": "u32" },
-        { "name": "primitive_id","offset": 16, "type": "u32", "description": "1=mutex, 2=condition" },
-        { "name": "payload_size","offset": 20, "type": "u32", "description": "8 (state+holder / seq+waiters)" }
-      ] }
-  ],
-
-  "names": [
-    { "name": "ring",       "template": "{prefix}__THOTH_SHM__QU_CONN__{name}__{data_length}__{align_size}", "golden": { "apple_arm64": "__THOTH_SHM__QU_CONN__xchan__64__8", "x86_64": "__THOTH_SHM__QU_CONN__xchan__64__16" }, "posix_golden": { "apple_arm64": "/__THOTH_SHM___7d090bf7fa85c547", "x86_64": "/__THOTH_SHM__QU_CONN__xchan__64__16" }, "description": "route AND channel ring (distinguished by layout, not name). posix_golden = make_shm_name(golden): the ring name (35 chars) exceeds macOS PSHMNAMLEN=31 so it shortens to /<13 body chars>_<16-hex fnv1a_64 of the /-name>; off macOS it just gets a leading /." },
-    { "name": "cc_id",      "template": "{prefix}__THOTH_SHM__CA_CONN__",                                     "golden": "__THOTH_SHM__CA_CONN__",             "description": "prefix-global endpoint identity counter" },
-    { "name": "msg_id",     "template": "{prefix}__THOTH_SHM__AC_CONN__{name}",                              "golden": "__THOTH_SHM__AC_CONN__xchan",        "description": "per-channel shared message-id counter" },
-    { "name": "liveness",   "template": "{prefix}__THOTH_SHM__LV_CONN__{name}",                              "golden": "__THOTH_SHM__LV_CONN__xchan",        "description": "dead-connection reaper owner table" },
-    { "name": "chunk",      "template": "{prefix}__THOTH_SHM__CHUNK_INFO__{chunk_size}",                     "golden": "__THOTH_SHM__CHUNK_INFO__1024",      "description": "large-message chunk storage (per prefix+chunk_size)" },
-    { "name": "notify_key", "template": "thoth.ntf.{notify_hash}",                                           "golden": "thoth.ntf.098e889ce378ae04",         "description": "libnotify service key; notify_hash = 16-hex fnv1a_64({prefix}__THOTH_SHM__NOTIFY__{name})" }
-  ]
+   "version": "1.1.0",
+   "$schema": "./abi.schema.json",
+   "description": "thoth-ipc cross-language ABI — language-neutral source of truth. Structurally validated by abi.schema.json; semantically validated against the deployed C++ by abi/dump_abi.cpp via the `tools/abi` Rust checker; behaviourally validated by the xlang matrix. This is an initial slice (ring layouts + core constants); extend it as the codegen adopts more of the surface.",
+   "targets": {
+      "apple_arm64": {
+         "align_size": 8,
+         "shm_name_max": 31,
+         "description": "macOS arm64 — the implemented target; AlignSize = min(64, alignof(max_align_t)) = 8; PSHMNAMLEN = 31"
+      },
+      "x86_64": {
+         "align_size": 16,
+         "shm_name_max": 0,
+         "description": "x86-64 / Linux aarch64 — AlignSize = 16; shm_name_max = 0 (no shortening off macOS)"
+      }
+   },
+   "constants": [
+      {
+         "name": "data_length",
+         "type": "usize",
+         "value": 64,
+         "description": "msg_t payload fragment size (large_msg_limit)"
+      },
+      {
+         "name": "ring_size",
+         "type": "usize",
+         "value": 256,
+         "description": "ring slot count (block_[256])"
+      },
+      {
+         "name": "large_msg_align",
+         "type": "usize",
+         "value": 1024,
+         "description": "chunk-size alignment"
+      },
+      {
+         "name": "large_msg_cache",
+         "type": "usize",
+         "value": 32,
+         "description": "chunk slots per chunk size (id_pool capacity)"
+      },
+      {
+         "name": "chunk_header_size",
+         "type": "usize",
+         "value": {
+            "apple_arm64": 8,
+            "x86_64": 16
+         },
+         "description": "per-chunk header = make_align(alignof(max_align_t), sizeof(atomic<cc_t>)=4); align-dependent"
+      },
+      {
+         "name": "route_ep_mask",
+         "type": "u64",
+         "value": "0x00000000ffffffff",
+         "description": "route rc_: low 32 = connection bitmask"
+      },
+      {
+         "name": "route_ep_incr",
+         "type": "u64",
+         "value": "0x0000000100000000",
+         "description": "route rc_: epoch increment (high 32)"
+      },
+      {
+         "name": "chan_rc_mask",
+         "type": "u64",
+         "value": "0x00000000ffffffff",
+         "description": "channel rc_: low 32 = per-reader bitmask"
+      },
+      {
+         "name": "chan_ep_mask",
+         "type": "u64",
+         "value": "0x00ffffffffffffff",
+         "description": "channel rc_: low 56 = rc bits + internal read-gen"
+      },
+      {
+         "name": "chan_ep_incr",
+         "type": "u64",
+         "value": "0x0100000000000000",
+         "description": "channel rc_: epoch increment (top byte)"
+      },
+      {
+         "name": "chan_ic_mask",
+         "type": "u64",
+         "value": "0xff000000ffffffff",
+         "description": "channel rc_: invert-carry mask"
+      },
+      {
+         "name": "chan_ic_incr",
+         "type": "u64",
+         "value": "0x0000000100000000",
+         "description": "channel rc_: internal read-generation increment (bits 32..)"
+      },
+      {
+         "name": "syncabi_magic",
+         "type": "u32",
+         "value": 1279873857,
+         "description": "SyncAbi stamp magic \"LISA\" (0x4C495341)"
+      },
+      {
+         "name": "syncabi_backend_ulock",
+         "type": "u32",
+         "value": 2,
+         "description": "SyncAbi backend id: apple_ulock"
+      },
+      {
+         "name": "sipc_magic",
+         "type": "string",
+         "value": "SIPC",
+         "description": "secure envelope v1 magic"
+      },
+      {
+         "name": "sipc_version",
+         "type": "u8",
+         "value": 1,
+         "description": "secure envelope v1 version"
+      },
+      {
+         "name": "notify_hash_xchan",
+         "type": "string",
+         "value": "098e889ce378ae04",
+         "description": "golden fnv1a_64(\"__THOTH_SHM__NOTIFY__xchan\") for (prefix=\"\", name=\"xchan\")"
+      },
+      {
+         "name": "sync_abi_suffix_mutex",
+         "type": "string",
+         "value": "__thoth_ipc_sync_abi_mutex",
+         "description": "cross-process sync sidecar shm-name suffix for a mutex; full name = <channel-name> + this suffix (byte-exact across all ports)"
+      },
+      {
+         "name": "sync_abi_suffix_condition",
+         "type": "string",
+         "value": "__thoth_ipc_sync_abi_condition",
+         "description": "cross-process sync sidecar shm-name suffix for a condition variable; full name = <channel-name> + this suffix (byte-exact across all ports)"
+      }
+   ],
+   "enums": [
+      {
+         "name": "codec_id",
+         "type": "u32",
+         "description": "typed codec ids",
+         "values": [
+            {
+               "name": "flatbuffers",
+               "value": 1
+            },
+            {
+               "name": "protobuf",
+               "value": 2
+            },
+            {
+               "name": "capnp",
+               "value": 3
+            }
+         ]
+      },
+      {
+         "name": "secure_alg",
+         "type": "u16",
+         "description": "AEAD algorithm ids (SIPC envelope)",
+         "values": [
+            {
+               "name": "aes256gcm",
+               "value": 1
+            },
+            {
+               "name": "chacha20poly1305",
+               "value": 2
+            }
+         ]
+      }
+   ],
+   "structs": [
+      {
+         "name": "msg_t",
+         "size": 80,
+         "align": 8,
+         "description": "message framing inside a slot's data_ (msg_t<64,8>)",
+         "fields": [
+            {
+               "name": "cc_id",
+               "offset": 0,
+               "type": "u32",
+               "description": "sender identity (self-message filter)"
+            },
+            {
+               "name": "id",
+               "offset": 4,
+               "type": "u32",
+               "description": "message id (fragments share it)"
+            },
+            {
+               "name": "remain",
+               "offset": 8,
+               "type": "i32",
+               "description": "bytes remaining after this fragment"
+            },
+            {
+               "name": "storage",
+               "offset": 12,
+               "type": "u8",
+               "description": "payload is a storage_id (large-message path)"
+            },
+            {
+               "name": "payload",
+               "offset": 16,
+               "type": "bytes",
+               "count": 64,
+               "description": "payload fragment or storage_id"
+            }
+         ]
+      },
+      {
+         "name": "ring_header",
+         "size": 192,
+         "align": 64,
+         "description": "shared conn_head_base + cache-line-aligned prod_cons head; identical offsets for route and channel (block_ starts at size)",
+         "fields": [
+            {
+               "name": "cc",
+               "offset": 0,
+               "type": "u32",
+               "atomic": true,
+               "description": "connection bitmask"
+            },
+            {
+               "name": "lc",
+               "offset": 4,
+               "type": "lock",
+               "description": "header lock: thoth::spin_lock = atomic<u32> test-and-set on every target (NOT os_unfair_lock; see context/xlang-channel-abi.md §2), 4 bytes"
+            },
+            {
+               "name": "constructed",
+               "offset": 8,
+               "type": "u8",
+               "atomic": true,
+               "description": "DCLP init flag"
+            },
+            {
+               "name": "cursor",
+               "offset": 64,
+               "type": "u32",
+               "atomic": true,
+               "description": "route wt_ / channel ct_ (write cursor / commit index)"
+            },
+            {
+               "name": "epoch",
+               "offset": 128,
+               "type": "u64",
+               "description": "writer epoch (atomic on channel, plain on route)"
+            }
+         ]
+      },
+      {
+         "name": "route_elem",
+         "size": {
+            "apple_arm64": 88,
+            "x86_64": 96
+         },
+         "align": 8,
+         "description": "single-writer route slot (elem_t<80,AlignSize>); size is align-dependent",
+         "fields": [
+            {
+               "name": "data",
+               "offset": 0,
+               "type": "bytes",
+               "count": 80,
+               "description": "holds a msg_t"
+            },
+            {
+               "name": "rc",
+               "offset": 80,
+               "type": "u64",
+               "atomic": true,
+               "description": "read-counter (bitmask + epoch)"
+            }
+         ]
+      },
+      {
+         "name": "channel_elem",
+         "size": 96,
+         "align": 8,
+         "description": "multi-writer channel slot (adds the f_ct_ commit flag)",
+         "fields": [
+            {
+               "name": "data",
+               "offset": 0,
+               "type": "bytes",
+               "count": 80,
+               "description": "holds a msg_t"
+            },
+            {
+               "name": "rc",
+               "offset": 80,
+               "type": "u64",
+               "atomic": true,
+               "description": "read-counter (3-region packing)"
+            },
+            {
+               "name": "f_ct",
+               "offset": 88,
+               "type": "u64",
+               "atomic": true,
+               "description": "commit flag (~ct published / next-lap free)"
+            }
+         ]
+      },
+      {
+         "name": "route_ring",
+         "size": {
+            "apple_arm64": 22784,
+            "x86_64": 24832
+         },
+         "align": 64,
+         "description": "sizeof(elem_array<route,80,AlignSize>) — ftruncate target; align-dependent",
+         "fields": []
+      },
+      {
+         "name": "channel_ring",
+         "size": 24832,
+         "align": 64,
+         "description": "sizeof(elem_array<channel,80,AlignSize>) — ftruncate target; same on both align classes (the f_ct_ flag already makes the slot 96)",
+         "fields": []
+      },
+      {
+         "name": "chunk_info",
+         "size": 40,
+         "align": 4,
+         "description": "CHUNK_INFO__<size> header: id_pool free list + the pool spin_lock. Chunks start at offset `size` (C++ `this + 1`).",
+         "fields": [
+            {
+               "name": "next",
+               "offset": 0,
+               "type": "bytes",
+               "count": 32,
+               "description": "id_pool free-list links, one u8 per slot (max_count = large_msg_cache)"
+            },
+            {
+               "name": "cursor",
+               "offset": 32,
+               "type": "u8",
+               "description": "id_pool head of the free list; == max_count means empty"
+            },
+            {
+               "name": "prepared",
+               "offset": 33,
+               "type": "u8",
+               "description": "id_pool prepared_ flag (bool); init() runs once when the pool reads all-zero"
+            },
+            {
+               "name": "lock",
+               "offset": 36,
+               "type": "lock",
+               "description": "thoth::spin_lock guarding the pool: atomic<u32> test-and-set, 1 = locked, on every target (see context/xlang-channel-abi.md §2)"
+            }
+         ]
+      },
+      {
+         "name": "liveness_slot",
+         "size": 16,
+         "align": 8,
+         "description": "LV_CONN__ owner table entry (32 of them = 512 B)",
+         "fields": [
+            {
+               "name": "pid",
+               "offset": 0,
+               "type": "i32",
+               "description": "owner pid, 0 = free"
+            },
+            {
+               "name": "start_tok",
+               "offset": 8,
+               "type": "u64",
+               "description": "process incarnation token (defeats PID reuse)"
+            }
+         ]
+      },
+      {
+         "name": "sipc_header",
+         "size": 19,
+         "align": 1,
+         "description": "secure envelope v1 fixed header (all little-endian)",
+         "fields": [
+            {
+               "name": "magic",
+               "offset": 0,
+               "type": "bytes",
+               "count": 4,
+               "description": "\"SIPC\""
+            },
+            {
+               "name": "version",
+               "offset": 4,
+               "type": "u8"
+            },
+            {
+               "name": "alg_id",
+               "offset": 5,
+               "type": "u16"
+            },
+            {
+               "name": "key_id",
+               "offset": 7,
+               "type": "u32"
+            },
+            {
+               "name": "nonce_size",
+               "offset": 11,
+               "type": "u16"
+            },
+            {
+               "name": "tag_size",
+               "offset": 13,
+               "type": "u16"
+            },
+            {
+               "name": "ct_size",
+               "offset": 15,
+               "type": "u32",
+               "description": "ciphertext size"
+            }
+         ]
+      },
+      {
+         "name": "syncabi_stamp",
+         "size": 24,
+         "align": 4,
+         "description": "sync ABI guard sidecar (6 x u32)",
+         "fields": [
+            {
+               "name": "magic",
+               "offset": 0,
+               "type": "u32",
+               "atomic": true
+            },
+            {
+               "name": "ver_major",
+               "offset": 4,
+               "type": "u32"
+            },
+            {
+               "name": "ver_minor",
+               "offset": 8,
+               "type": "u32"
+            },
+            {
+               "name": "backend_id",
+               "offset": 12,
+               "type": "u32"
+            },
+            {
+               "name": "primitive_id",
+               "offset": 16,
+               "type": "u32",
+               "description": "1=mutex, 2=condition"
+            },
+            {
+               "name": "payload_size",
+               "offset": 20,
+               "type": "u32",
+               "description": "8 (state+holder / seq+waiters)"
+            }
+         ]
+      }
+   ],
+   "names": [
+      {
+         "name": "ring",
+         "template": "{prefix}__THOTH_SHM__QU_CONN__{name}__{data_length}__{align_size}",
+         "golden": {
+            "apple_arm64": "__THOTH_SHM__QU_CONN__xchan__64__8",
+            "x86_64": "__THOTH_SHM__QU_CONN__xchan__64__16"
+         },
+         "posix_golden": {
+            "apple_arm64": "/__THOTH_SHM___7d090bf7fa85c547",
+            "x86_64": "/__THOTH_SHM__QU_CONN__xchan__64__16"
+         },
+         "description": "route AND channel ring (distinguished by layout, not name). posix_golden = make_shm_name(golden): the ring name (35 chars) exceeds macOS PSHMNAMLEN=31 so it shortens to /<13 body chars>_<16-hex fnv1a_64 of the /-name>; off macOS it just gets a leading /."
+      },
+      {
+         "name": "cc_id",
+         "template": "{prefix}__THOTH_SHM__CA_CONN__",
+         "golden": "__THOTH_SHM__CA_CONN__",
+         "description": "prefix-global endpoint identity counter"
+      },
+      {
+         "name": "msg_id",
+         "template": "{prefix}__THOTH_SHM__AC_CONN__{name}",
+         "golden": "__THOTH_SHM__AC_CONN__xchan",
+         "description": "per-channel shared message-id counter"
+      },
+      {
+         "name": "liveness",
+         "template": "{prefix}__THOTH_SHM__LV_CONN__{name}",
+         "golden": "__THOTH_SHM__LV_CONN__xchan",
+         "description": "dead-connection reaper owner table"
+      },
+      {
+         "name": "chunk",
+         "template": "{prefix}__THOTH_SHM__CHUNK_INFO__{chunk_size}",
+         "golden": "__THOTH_SHM__CHUNK_INFO__1024",
+         "description": "large-message chunk storage (per prefix+chunk_size)"
+      },
+      {
+         "name": "notify_key",
+         "template": "thoth.ntf.{notify_hash}",
+         "golden": "thoth.ntf.098e889ce378ae04",
+         "description": "libnotify service key; notify_hash = 16-hex fnv1a_64({prefix}__THOTH_SHM__NOTIFY__{name})"
+      }
+   ]
 }

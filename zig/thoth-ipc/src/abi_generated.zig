@@ -20,8 +20,6 @@ pub const large_msg_align: usize = 1024;
 pub const large_msg_cache: usize = 32;
 /// per-chunk header = make_align(alignof(max_align_t), sizeof(atomic<cc_t>)=4); align-dependent
 pub const chunk_header_size: usize = 8;
-/// sizeof(chunk_info_t)
-pub const chunk_info_size: usize = 40;
 /// route rc_: low 32 = connection bitmask
 pub const route_ep_mask: u64 = 0x00000000ffffffff;
 /// route rc_: epoch increment (high 32)
@@ -92,6 +90,12 @@ pub const channel_elem_f_ct_off: usize = 88;
 pub const route_ring_size: usize = 22784;
 /// sizeof(elem_array<channel,80,AlignSize>) — ftruncate target; same on both align classes (the f_ct_ flag already makes the slot 96)
 pub const channel_ring_size: usize = 24832;
+/// CHUNK_INFO__<size> header: id_pool free list + the pool spin_lock. Chunks start at offset `size` (C++ `this + 1`).
+pub const chunk_info_size: usize = 40;
+pub const chunk_info_next_off: usize = 0;
+pub const chunk_info_cursor_off: usize = 32;
+pub const chunk_info_prepared_off: usize = 33;
+pub const chunk_info_lock_off: usize = 36;
 /// LV_CONN__ owner table entry (32 of them = 512 B)
 pub const liveness_slot_size: usize = 16;
 pub const liveness_slot_pid_off: usize = 0;

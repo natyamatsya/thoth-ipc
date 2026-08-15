@@ -19,8 +19,6 @@ public enum ABI {
     public static let large_msg_cache: Int = 32
     /// per-chunk header = make_align(alignof(max_align_t), sizeof(atomic<cc_t>)=4); align-dependent
     public static let chunk_header_size: Int = 8
-    /// sizeof(chunk_info_t)
-    public static let chunk_info_size: Int = 40
     /// route rc_: low 32 = connection bitmask
     public static let route_ep_mask: UInt64 = 0x00000000ffffffff
     /// route rc_: epoch increment (high 32)
@@ -85,6 +83,11 @@ public enum ABI {
     public static let channel_elem_f_ct_off: Int = 88
     public static let route_ring_size: Int = 22784
     public static let channel_ring_size: Int = 24832
+    public static let chunk_info_size: Int = 40
+    public static let chunk_info_next_off: Int = 0
+    public static let chunk_info_cursor_off: Int = 32
+    public static let chunk_info_prepared_off: Int = 33
+    public static let chunk_info_lock_off: Int = 36
     public static let liveness_slot_size: Int = 16
     public static let liveness_slot_pid_off: Int = 0
     public static let liveness_slot_start_tok_off: Int = 8

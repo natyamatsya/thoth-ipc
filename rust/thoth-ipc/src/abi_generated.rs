@@ -22,8 +22,6 @@ pub const large_msg_cache: usize = 32;
 pub const chunk_header_size: usize = 8;
 #[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
 pub const chunk_header_size: usize = 16;
-/// sizeof(chunk_info_t)
-pub const chunk_info_size: usize = 40;
 /// route rc_: low 32 = connection bitmask
 pub const route_ep_mask: u64 = 0x00000000ffffffff;
 /// route rc_: epoch increment (high 32)
@@ -96,6 +94,11 @@ pub const route_ring_size: usize = 22784;
 #[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
 pub const route_ring_size: usize = 24832;
 pub const channel_ring_size: usize = 24832;
+pub const chunk_info_size: usize = 40;
+pub const chunk_info_next_off: usize = 0;
+pub const chunk_info_cursor_off: usize = 32;
+pub const chunk_info_prepared_off: usize = 33;
+pub const chunk_info_lock_off: usize = 36;
 pub const liveness_slot_size: usize = 16;
 pub const liveness_slot_pid_off: usize = 0;
 pub const liveness_slot_start_tok_off: usize = 8;

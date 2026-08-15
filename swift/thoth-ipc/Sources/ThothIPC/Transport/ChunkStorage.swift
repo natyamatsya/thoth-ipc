@@ -37,10 +37,10 @@ func calcChunkSize(_ size: Int) -> Int {
 
 // MARK: - chunk_info_t layout (byte-exact: id_pool + thoth::spin_lock)
 
-private let ciNextOffset     = 0   // next_[32]
-private let ciCursorOffset   = 32  // cursor_ (u8)
-private let ciPreparedOffset = 33  // prepared_ (bool)
-private let ciLockOffset     = 36  // thoth::spin_lock (atomic<u32> TAS)
+private let ciNextOffset     = ABI.chunk_info_next_off      // next_[32]
+private let ciCursorOffset   = ABI.chunk_info_cursor_off    // cursor_ (u8)
+private let ciPreparedOffset = ABI.chunk_info_prepared_off  // prepared_ (bool)
+private let ciLockOffset     = ABI.chunk_info_lock_off      // thoth::spin_lock (atomic<u32> TAS)
 /// sizeof(chunk_info_t) = 40; the chunk array starts here (C++ `this + 1`).
 let chunkInfoSize: Int = ABI.chunk_info_size
 

@@ -74,10 +74,10 @@ struct ChunkInfo {
 
 const _: () = {
     assert!(std::mem::size_of::<ChunkInfo>() == abi::chunk_info_size);
-    assert!(std::mem::offset_of!(ChunkInfo, next_) == 0);
-    assert!(std::mem::offset_of!(ChunkInfo, cursor_) == 32);
-    assert!(std::mem::offset_of!(ChunkInfo, prepared_) == 33);
-    assert!(std::mem::offset_of!(ChunkInfo, lock_) == 36);
+    assert!(std::mem::offset_of!(ChunkInfo, next_) == abi::chunk_info_next_off);
+    assert!(std::mem::offset_of!(ChunkInfo, cursor_) == abi::chunk_info_cursor_off);
+    assert!(std::mem::offset_of!(ChunkInfo, prepared_) == abi::chunk_info_prepared_off);
+    assert!(std::mem::offset_of!(ChunkInfo, lock_) == abi::chunk_info_lock_off);
 };
 
 impl ChunkInfo {

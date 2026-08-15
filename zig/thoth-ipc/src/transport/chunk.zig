@@ -18,9 +18,9 @@ pub const chunk_header_size: usize = abi.chunk_header_size;
 pub const chunk_info_size: usize = abi.chunk_info_size; // id_pool(34) + pad + lock
 
 // chunk_info_t field offsets.
-const ci_next_off: usize = 0; // next_[32] (u8 each)
-const ci_cursor_off: usize = 32; // cursor_ (u8)
-const ci_lock_off: usize = 36; // thoth::spin_lock (atomic<u32> TAS)
+const ci_next_off: usize = abi.chunk_info_next_off; // next_[32] (u8 each)
+const ci_cursor_off: usize = abi.chunk_info_cursor_off; // cursor_ (u8)
+const ci_lock_off: usize = abi.chunk_info_lock_off; // thoth::spin_lock (atomic<u32> TAS)
 
 /// ceil((chunk_header_size + size) / chunk_align) * chunk_align. The chunk-shm
 /// name embeds this, so it must match C++ calc_chunk_size exactly.
