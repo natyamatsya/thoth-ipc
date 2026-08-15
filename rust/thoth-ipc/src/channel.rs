@@ -1084,6 +1084,14 @@ impl ChanInner {
                 // Release our owner-table slot so a reaper never touches it.
                 let lv = self.liveness_shm.get() as *mut crate::liveness::ConnLiveness;
                 crate::liveness::clear_owner(lv, self.conn_id);
+                // Drop half-reassembled messages, as C++ disconnect_receiver()
+                // does (`recv_cache().clear()`). They are keyed by the sender's
+                // msg_id, so a partial left behind here is not just wasted memory:
+                // a later message reusing that id would be treated as its
+                // continuation and written at the stale fill offset, splicing two
+                // messages into one buffer. Nothing completes them after we are
+                // gone, so there is no reason to keep them.
+                self.recv_cache.clear();
                 // Wake any senders waiting for this receiver to drain.
                 let _ = self.wt_waiter.broadcast();
             }
