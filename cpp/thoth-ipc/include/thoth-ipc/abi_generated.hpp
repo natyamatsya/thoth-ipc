@@ -72,6 +72,7 @@ inline constexpr std::size_t msg_t_storage_off = 12;
 inline constexpr std::size_t msg_t_payload_off = 16;
 inline constexpr std::size_t ring_header_size = 192;
 inline constexpr std::size_t ring_header_cc_off = 0;
+// protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
 inline constexpr std::size_t ring_header_lc_off = 4;
 inline constexpr std::size_t ring_header_constructed_off = 8;
 inline constexpr std::size_t ring_header_cursor_off = 64;
@@ -94,9 +95,13 @@ inline constexpr std::size_t route_ring_size = 24832;
 #endif
 inline constexpr std::size_t channel_ring_size = 24832;
 inline constexpr std::size_t chunk_info_size = 40;
+// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
 inline constexpr std::size_t chunk_info_next_off = 0;
+// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
 inline constexpr std::size_t chunk_info_cursor_off = 32;
+// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
 inline constexpr std::size_t chunk_info_prepared_off = 33;
+// protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
 inline constexpr std::size_t chunk_info_lock_off = 36;
 inline constexpr std::size_t liveness_slot_size = 16;
 inline constexpr std::size_t liveness_slot_pid_off = 0;

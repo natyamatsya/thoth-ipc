@@ -226,6 +226,7 @@
                "name": "lc",
                "offset": 4,
                "type": "lock",
+               "protocol": "spinlock",
                "description": "header lock: thoth::spin_lock = atomic<u32> test-and-set on every target (NOT os_unfair_lock; see context/xlang-channel-abi.md §2), 4 bytes"
             },
             {
@@ -331,6 +332,7 @@
                "name": "next",
                "offset": 0,
                "type": "bytes",
+               "protocol": "idpool",
                "count": 32,
                "description": "id_pool free-list links, one u8 per slot (max_count = large_msg_cache)"
             },
@@ -338,18 +340,21 @@
                "name": "cursor",
                "offset": 32,
                "type": "u8",
+               "protocol": "idpool",
                "description": "id_pool head of the free list; == max_count means empty"
             },
             {
                "name": "prepared",
                "offset": 33,
                "type": "u8",
+               "protocol": "idpool",
                "description": "id_pool prepared_ flag (bool); init() runs once when the pool reads all-zero"
             },
             {
                "name": "lock",
                "offset": 36,
                "type": "lock",
+               "protocol": "spinlock",
                "description": "thoth::spin_lock guarding the pool: atomic<u32> test-and-set, 1 = locked, on every target (see context/xlang-channel-abi.md §2)"
             }
          ]
@@ -506,5 +511,6 @@
          "golden": "thoth.ntf.098e889ce378ae04",
          "description": "libnotify service key; notify_hash = 16-hex fnv1a_64({prefix}__THOTH_SHM__NOTIFY__{name})"
       }
-   ]
+   ],
+   "$protocol_note": "A field carrying `protocol` runs a coordination algorithm over its bytes that layout cannot express (a lock discipline, a free-list rule). The value names the conformance probe that must reproduce it in every port — see context/abi-consistency-review.md. tools/abi emits abi/protocols.txt from these, and the xlang runner fails if a listed probe has no case."
 }

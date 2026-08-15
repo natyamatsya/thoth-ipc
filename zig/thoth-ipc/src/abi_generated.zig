@@ -73,6 +73,7 @@ pub const msg_t_payload_off: usize = 16;
 /// shared conn_head_base + cache-line-aligned prod_cons head; identical offsets for route and channel (block_ starts at size)
 pub const ring_header_size: usize = 192;
 pub const ring_header_cc_off: usize = 0;
+/// protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
 pub const ring_header_lc_off: usize = 4;
 pub const ring_header_constructed_off: usize = 8;
 pub const ring_header_cursor_off: usize = 64;
@@ -92,9 +93,13 @@ pub const route_ring_size: usize = 22784;
 pub const channel_ring_size: usize = 24832;
 /// CHUNK_INFO__<size> header: id_pool free list + the pool spin_lock. Chunks start at offset `size` (C++ `this + 1`).
 pub const chunk_info_size: usize = 40;
+/// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
 pub const chunk_info_next_off: usize = 0;
+/// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
 pub const chunk_info_cursor_off: usize = 32;
+/// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
 pub const chunk_info_prepared_off: usize = 33;
+/// protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
 pub const chunk_info_lock_off: usize = 36;
 /// LV_CONN__ owner table entry (32 of them = 512 B)
 pub const liveness_slot_size: usize = 16;

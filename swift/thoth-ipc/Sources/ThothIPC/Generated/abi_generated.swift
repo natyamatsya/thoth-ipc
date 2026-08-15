@@ -70,6 +70,7 @@ public enum ABI {
     public static let msg_t_payload_off: Int = 16
     public static let ring_header_size: Int = 192
     public static let ring_header_cc_off: Int = 0
+    /// protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
     public static let ring_header_lc_off: Int = 4
     public static let ring_header_constructed_off: Int = 8
     public static let ring_header_cursor_off: Int = 64
@@ -84,9 +85,13 @@ public enum ABI {
     public static let route_ring_size: Int = 22784
     public static let channel_ring_size: Int = 24832
     public static let chunk_info_size: Int = 40
+    /// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
     public static let chunk_info_next_off: Int = 0
+    /// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
     public static let chunk_info_cursor_off: Int = 32
+    /// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
     public static let chunk_info_prepared_off: Int = 33
+    /// protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
     public static let chunk_info_lock_off: Int = 36
     public static let liveness_slot_size: Int = 16
     public static let liveness_slot_pid_off: Int = 0
