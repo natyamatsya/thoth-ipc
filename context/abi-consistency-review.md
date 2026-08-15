@@ -110,6 +110,13 @@ disagree about whether to rebuild the free list. Latent rather than live, but it
 is precisely the tier-3 class this review is about, and it had been sitting
 under a green 363-case matrix.
 
+**Follow-on.** The probes exposed a weakness in their own design: `idpool`
+bundled prepare, acquire and release, so the Zig port — which had only the
+receiving half of chunk storage — could not answer for `poolRelease`, which it
+did implement. Split out as `idpool-release` (seeded by writing the pool's
+bytes), and Zig's allocator half was then implemented for symmetry with Rust's,
+closing both remaining gaps. `conform` is 12/12 with no NOT IMPLEMENTED section.
+
 **Why recommendation 2 was declined.** Each SyncAbi stamp is its own shm object
 (`<name><sidecar_suffix>`), so covering the spin locks means a new segment per
 ring *and* per chunk pool, created and validated by the C++ reference as well —
