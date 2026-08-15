@@ -638,6 +638,15 @@ fn doCread(name: []const u8, count: usize, size: usize) u8 {
     return 0;
 }
 
+/// One pool-image line, in the format every port emits.
+fn poutPoolImage(step: []const u8, img: [chunk.chunk_info_size]u8) void {
+    var hex: [64]u8 = undefined;
+    for (0..32) |i| _ = std.fmt.bufPrint(hex[i * 2 ..][0..2], "{x:0>2}", .{img[i]}) catch {};
+    poutWide("step={s} next={s} cursor={x:0>2} prepared={x:0>2}", .{
+        step, hex[0..64], img[abi.chunk_info_cursor_off], img[abi.chunk_info_prepared_off],
+    });
+}
+
 fn runProbe(which: []const u8) u8 {
     if (std.mem.eql(u8, which, "spinlock")) {
         const v = chunk.probeSpinLock();
@@ -649,20 +658,24 @@ fn runProbe(which: []const u8) u8 {
     if (std.mem.eql(u8, which, "idpool-release")) {
         const images = chunk.probeIdPoolRelease();
         const steps = [_][]const u8{ "seeded", "after-release1", "after-release0" };
-        for (images, steps) |img, step| {
-            var hex: [64]u8 = undefined;
-            for (0..32) |i| _ = std.fmt.bufPrint(hex[i * 2 ..][0..2], "{x:0>2}", .{img[i]}) catch {};
-            poutWide("step={s} next={s} cursor={x:0>2} prepared={x:0>2}", .{
-                step, hex[0..64], img[abi.chunk_info_cursor_off], img[abi.chunk_info_prepared_off],
-            });
-        }
+        for (images, steps) |img, step| poutPoolImage(step, img);
         return 0;
     }
-    // prepare/acquire are the allocator half, which this port does not have —
-    // its sender fragments instead (see chunk.zig). Say so out loud so the
-    // runner records a gap rather than a pass.
-    if (std.mem.eql(u8, which, "idpool") or std.mem.eql(u8, which, "idpool-partial")) {
-        pout("unsupported reason=zig-port-has-no-chunk-allocator", .{});
+    if (std.mem.eql(u8, which, "idpool")) {
+        const t = chunk.probeIdPool();
+        poutPoolImage("zeroed", t.images[0]);
+        poutPoolImage("prepared", t.images[1]);
+        for (0..3) |i| pout("step=acquire id={d}", .{t.ids[i]});
+        poutPoolImage("after-acquire3", t.images[2]);
+        poutPoolImage("after-release1", t.images[3]);
+        pout("step=acquire id={d}", .{t.ids[3]});
+        poutPoolImage("after-reacquire", t.images[4]);
+        return 0;
+    }
+    if (std.mem.eql(u8, which, "idpool-partial")) {
+        const images = chunk.probeIdPoolPartial();
+        const steps = [_][]const u8{ "partial-before", "partial-after" };
+        for (images, steps) |img, step| poutPoolImage(step, img);
         return 0;
     }
     perr("unknown conformance probe '{s}'", .{which});
