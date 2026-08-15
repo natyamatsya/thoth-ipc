@@ -69,6 +69,13 @@ pub enum CaseKind {
         probes: Vec<Probe>,
         then_group: Option<(Vec<Proc>, Vec<Proc>)>,
     },
+    /// Run two harnesses' `probe` verb and require identical stdout. No channel,
+    /// no peer, no timing: this compares *implementations* of the primitives the
+    /// ABI cannot describe — what a lock writes while held, how the id_pool free
+    /// list evolves — against C++ as the reference. A subject that answers
+    /// `unsupported ...` is recorded as a gap rather than a pass.
+    /// See context/abi-consistency-review.md.
+    Conform { reference: Proc, subject: Proc },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -105,6 +112,7 @@ pub struct Plan {
 }
 
 pub const SCENARIOS: &[&str] = &[
+    "conform",
     "sync",
     "async",
     "fanout",
@@ -179,6 +187,42 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
         }
         langs
     };
+
+    // Conformance probes run first and cheapest: no channel, no peer, no
+    // timing. They compare *implementations* of the shared-memory primitives the
+    // ABI can only describe as opaque bytes, against the reference language.
+    if enabled("conform") {
+        let sc = &cfg.scenarios.conform;
+        match ready.get(&sc.reference) {
+            None => notes.push(PlanNote {
+                scenario: "conform".into(),
+                lang: sc.reference.clone(),
+                reason: "reference language absent — nothing to compare against".into(),
+            }),
+            Some(reference) => {
+                for probe in &sc.probes {
+                    for h in ready.values() {
+                        if h.name == reference.name {
+                            continue; // the reference cannot disagree with itself
+                        }
+                        cases.push(Case {
+                            scenario: "conform".into(),
+                            id: format!("{} vs {} {}", h.name, reference.name, probe),
+                            kind: CaseKind::Conform {
+                                reference: Proc::new(
+                                    reference,
+                                    vec!["conform".into(), probe.clone()],
+                                ),
+                                subject: Proc::new(h, vec!["conform".into(), probe.clone()]),
+                            },
+                            channel: String::new(), // no shm involved
+                            xfail: false,
+                        });
+                    }
+                }
+            }
+        }
+    }
 
     if enabled("sync") {
         let langs = participants("sync", Mode::Sync, &mut notes);

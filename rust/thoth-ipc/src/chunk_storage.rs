@@ -88,8 +88,15 @@ impl ChunkInfo {
 
     /// C++ id_pool::prepare()/init(): a fresh (zeroed) pool is "invalid" → build the
     /// free list `next_[i] = i+1`. Call under the lock.
+    ///
+    /// "Fresh" means the whole structure compares equal to a zeroed one — C++
+    /// `id_pool::invalid()` is a memcmp over all of it. Sampling only `next_[0]`
+    /// is not the same rule: a partially written pool (a torn init, say) reads as
+    /// fresh to that test and as used to C++, and the two would then disagree
+    /// about whether to rebuild the free list. Caught by the conformance probe
+    /// (`probe idpool-partial`), which is what it is for.
     fn prepare(&mut self) {
-        if self.prepared_ == 0 && self.cursor_ == 0 && self.next_[0] == 0 {
+        if self.prepared_ == 0 && self.cursor_ == 0 && self.next_.iter().all(|&b| b == 0) {
             for i in 0..MAX_COUNT {
                 self.next_[i] = (i + 1) as u8;
             }
@@ -289,4 +296,83 @@ fn chunk_payload_ptr(base: *mut u8, chunk_size: usize, id: StorageId) -> *mut u8
         let chunks_base = base.add(std::mem::size_of::<ChunkInfo>());
         chunks_base.add(chunk_size * id as usize).add(CHUNK_HEADER)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Conformance probe
+// ---------------------------------------------------------------------------
+
+/// Byte-level trace of the primitives whose *protocol* the ABI cannot express —
+/// what the pool lock writes while held, and how the free list evolves. Every
+/// port emits the same lines or one of them is wrong; C++ is the reference (see
+/// `context/abi-consistency-review.md`).
+///
+/// No shared memory and no peer: the point is to compare implementations, not to
+/// move data, and a local zeroed structure makes the trace deterministic.
+pub mod conform {
+    use super::{chunk_lock, chunk_unlock, ChunkInfo, MAX_COUNT};
+    use std::sync::atomic::Ordering;
+
+    fn dump(step: &str, info: &ChunkInfo, out: &mut Vec<String>) {
+        let next: String = info.next_.iter().map(|b| format!("{b:02x}")).collect();
+        out.push(format!(
+            "step={step} next={next} cursor={:02x} prepared={:02x}",
+            info.cursor_, info.prepared_
+        ));
+    }
+
+    fn zeroed() -> ChunkInfo {
+        // repr(C) over plain integers and an AtomicU32 — all-zero is a valid value
+        // and is exactly the state a freshly created shm segment is in.
+        unsafe { std::mem::zeroed() }
+    }
+
+    /// What the pool lock writes into its four bytes while held.
+    pub fn spinlock() -> Vec<String> {
+        let info = zeroed();
+        let mut out = Vec::new();
+        let raw = |i: &ChunkInfo| i.lock_.load(Ordering::Relaxed);
+        out.push(format!("step=init bytes={:08x}", raw(&info)));
+        unsafe { chunk_lock(&info) };
+        out.push(format!("step=locked bytes={:08x}", raw(&info)));
+        unsafe { chunk_unlock(&info) };
+        out.push(format!("step=unlocked bytes={:08x}", raw(&info)));
+        out
+    }
+
+    /// How the free list evolves across prepare / acquire / release.
+    pub fn idpool() -> Vec<String> {
+        let mut info = zeroed();
+        let mut out = Vec::new();
+        dump("zeroed", &info, &mut out);
+        info.prepare();
+        dump("prepared", &info, &mut out);
+        for _ in 0..3 {
+            let id = info.acquire();
+            out.push(format!("step=acquire id={id}"));
+        }
+        dump("after-acquire3", &info, &mut out);
+        info.release(1);
+        dump("after-release1", &info, &mut out);
+        let id = info.acquire();
+        out.push(format!("step=acquire id={id}"));
+        dump("after-reacquire", &info, &mut out);
+        out
+    }
+
+    /// A pool that is not all-zero but whose first link is: C++ decides "already
+    /// initialised" by comparing the *whole* structure against a zeroed one, so
+    /// init() must not run here.
+    pub fn idpool_partial() -> Vec<String> {
+        let mut info = zeroed();
+        info.next_[5] = 7;
+        let mut out = Vec::new();
+        dump("partial-before", &info, &mut out);
+        info.prepare();
+        dump("partial-after", &info, &mut out);
+        out
+    }
+
+    /// `MAX_COUNT` is part of the trace's shape; assert the ports agree on it.
+    pub const SLOTS: usize = MAX_COUNT;
 }

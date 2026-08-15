@@ -71,6 +71,15 @@ modes = ["async"]
 # Payload sizes exercise the single-fragment (<=64B), multi-fragment and
 # chunk-storage paths of the thoth::route wire — including the exact
 # data_length boundary (63/64/65) and a large chunk-storage payload.
+# Conformance probes (context/abi-consistency-review.md). No channel, no peer,
+# no timing — each port runs the primitive and its byte trace must equal the
+# reference's. This is the layer the ABI cannot describe and the round-trip
+# matrix cannot see: a lock algorithm or a free-list rule can be wrong in every
+# port while every payload still arrives intact.
+[scenarios.conform]
+probes = ["spinlock", "idpool", "idpool-partial"]
+reference = "cpp"
+
 [scenarios.sync]
 sizes = [40, 63, 64, 65, 200, 3000, 65536]
 count = 5

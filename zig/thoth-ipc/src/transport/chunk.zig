@@ -90,3 +90,28 @@ test "calcChunkSize matches C++ calc_chunk_size" {
     try std.testing.expectEqual(@as(usize, 66560), calcChunkSize(65536));
     try std.testing.expectEqual(@as(usize, 1024), calcChunkSize(65)); // 8+65=73 -> 1024
 }
+
+// --- Conformance probe -----------------------------------------------------
+//
+// Byte-level trace of the primitives whose *protocol* the ABI cannot express.
+// Every port emits the same lines or one of them is wrong; C++ is the reference
+// (see context/abi-consistency-review.md). No shared memory and no peer: a local
+// zeroed buffer is deterministic and is the state a fresh shm segment is in.
+//
+// Only `spinlock` is covered here. This port implements the receiving half of
+// chunk storage — recycle/poolRelease — and never allocates a chunk, so it has
+// no prepare/acquire to probe. The harness reports that as an explicit
+// `unsupported` line rather than skipping quietly.
+/// The three observations, in order: the field before locking, while held, and
+/// after release. Returned rather than printed so the harness owns formatting.
+pub fn probeSpinLock() [3]u32 {
+    var buf: [chunk_info_size]u8 align(8) = @splat(0);
+    const base: [*]u8 = &buf;
+    const lock = lockPtr(base);
+    const init_v = @atomicLoad(u32, lock, .monotonic);
+    layout.spinLock(lock);
+    const held_v = @atomicLoad(u32, lock, .monotonic);
+    layout.spinUnlock(lock);
+    const free_v = @atomicLoad(u32, lock, .monotonic);
+    return .{ init_v, held_v, free_v };
+}

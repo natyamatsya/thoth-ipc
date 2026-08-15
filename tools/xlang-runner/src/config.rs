@@ -90,6 +90,7 @@ pub struct LanguageConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct ScenariosConfig {
+    pub conform: ConformScenarioConfig,
     pub sync: PairScenarioConfig,
     #[serde(rename = "async")]
     pub async_: PairScenarioConfig,
@@ -99,6 +100,29 @@ pub struct ScenariosConfig {
     pub secure: SecureScenarioConfig,
     pub primitives: PrimitivesScenarioConfig,
     pub typed: TypedScenarioConfig,
+}
+
+/// Conformance probes: which primitive traces every port must reproduce, and
+/// which language is the reference they are compared against.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ConformScenarioConfig {
+    pub probes: Vec<String>,
+    /// The implementation of record. C++ is the one the ports were written from.
+    pub reference: String,
+}
+
+impl Default for ConformScenarioConfig {
+    fn default() -> Self {
+        Self {
+            probes: vec![
+                "spinlock".into(),
+                "idpool".into(),
+                "idpool-partial".into(),
+            ],
+            reference: "cpp".into(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

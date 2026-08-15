@@ -328,6 +328,59 @@ fn run_hold_probe(
     (ok, detail.trim().to_string())
 }
 
+/// Run one harness's `probe` verb and return its trimmed stdout.
+fn probe_stdout(proc: &Proc, cfg: &RunConfig) -> Result<String, String> {
+    let child = Command::new(&proc.endpoint.bin)
+        .args(&proc.args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let r = wait_collect(child, Duration::from_secs(cfg.pair_timeout_secs.min(15)))
+        .map_err(|e| e.to_string())?;
+    if r.timed_out {
+        return Err("timed out".into());
+    }
+    Ok(String::from_utf8_lossy(&r.stdout).trim().to_string())
+}
+
+/// Compare a port's primitive trace against the reference implementation's.
+/// Byte-for-byte: these traces are hex dumps of the same operations, so any
+/// difference is a protocol divergence, not noise.
+fn run_conform(reference: &Proc, subject: &Proc, cfg: &RunConfig) -> (bool, String) {
+    let want = match probe_stdout(reference, cfg) {
+        Ok(v) => v,
+        Err(e) => return (false, format!("reference {} failed: {e}", reference.endpoint.lang)),
+    };
+    let got = match probe_stdout(subject, cfg) {
+        Ok(v) => v,
+        Err(e) => return (false, format!("subject {} failed: {e}", subject.endpoint.lang)),
+    };
+    // A port that does not implement the primitive says so; that is a gap to
+    // report, not a silent pass and not a failure of the reference.
+    if got.starts_with("unsupported") {
+        return (true, format!("gap: {} {}", subject.endpoint.lang, got));
+    }
+    if got == want {
+        return (true, String::new());
+    }
+    let mut detail = format!(
+        "trace differs from {} reference\n",
+        reference.endpoint.lang
+    );
+    for (i, (w, g)) in want.lines().zip(got.lines()).enumerate() {
+        if w != g {
+            detail.push_str(&format!("  line {i}: want `{w}` got `{g}`\n"));
+        }
+    }
+    let (wn, gn) = (want.lines().count(), got.lines().count());
+    if wn != gn {
+        detail.push_str(&format!("  line count: want {wn} got {gn}\n"));
+    }
+    (false, detail)
+}
+
 fn run_once(case: &Case, cfg: &RunConfig) -> (bool, String) {
     match &case.kind {
         CaseKind::Group { readers, writers } => {
@@ -339,6 +392,7 @@ fn run_once(case: &Case, cfg: &RunConfig) -> (bool, String) {
             probes,
             then_group,
         } => run_hold_probe(holder, *kill_holder, probes, then_group, &case.channel, cfg),
+        CaseKind::Conform { reference, subject } => run_conform(reference, subject, cfg),
     }
 }
 

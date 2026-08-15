@@ -544,8 +544,25 @@ fn do_arecv_tokio(name: &str, count: usize, size: usize) -> i32 {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.len() >= 3 && args[1] == "conform" {
+        // Conformance probe: a byte trace of the primitives the ABI cannot
+        // describe, diffed against C++ by the runner. No peer, no shm.
+        let lines = match args[2].as_str() {
+            "spinlock" => thoth_ipc::conform::spinlock(),
+            "idpool" => thoth_ipc::conform::idpool(),
+            "idpool-partial" => thoth_ipc::conform::idpool_partial(),
+            other => {
+                eprintln!("unknown conformance probe '{other}'");
+                exit(2);
+            }
+        };
+        for line in lines {
+            println!("{line}");
+        }
+        exit(0);
+    }
     if args.len() < 3 {
-        eprintln!("usage: {} <write|read|clear> <name> [count] [size]", args[0]);
+        eprintln!("usage: {} <write|read|clear|conform> <name> [count] [size]", args[0]);
         exit(1);
     }
     let (verb, name) = (args[1].as_str(), args[2].as_str());

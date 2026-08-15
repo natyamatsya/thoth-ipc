@@ -47,6 +47,9 @@ pub use waiter::Waiter;
 pub mod circ;
 
 pub(crate) mod chunk_storage;
+/// Cross-language conformance probes (see `context/abi-consistency-review.md`).
+/// Re-exported so the xlang harness can emit the byte traces the runner diffs.
+pub use chunk_storage::conform;
 
 #[cfg(feature = "notify")]
 pub mod notify;

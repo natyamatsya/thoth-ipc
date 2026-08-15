@@ -28,6 +28,8 @@
 
 #include "thoth-ipc/ipc.h"
 #include "thoth-ipc/condition.h"
+#include "thoth-ipc/rw_lock.h"            // thoth::spin_lock (probe reference)
+#include "thoth-ipc/utility/id_pool.h"    // thoth::id_pool   (probe reference)
 #include "thoth-ipc/mutex.h"
 #include "thoth-ipc/proto/codecs/protobuf_codec.h"
 #include "thoth-ipc/proto/codecs/secure_codec.h"
@@ -393,11 +395,81 @@ int run_secure(const std::string& verb, const char* name, int count, std::size_t
     return 1;
 }
 
+// --- Conformance probe (scenario: conform) ---------------------------------
+//
+// Prints a byte-level trace of the shared-memory primitives whose *protocol*
+// the ABI cannot express: what a lock writes while held, and how the id_pool
+// free list evolves. Every port prints the same lines or one of them is wrong.
+//
+// Deliberately no shared memory and no peer: the point is to compare
+// implementations, not to move data, and a local buffer makes the trace
+// deterministic. C++ is the reference — these are the real thoth types.
+void probe_spinlock() {
+    thoth::spin_lock lk;
+    std::uint32_t raw = 0;
+    std::memcpy(&raw, &lk, sizeof(raw));
+    std::printf("step=init bytes=%08x\n", raw);
+    lk.lock();
+    std::memcpy(&raw, &lk, sizeof(raw));
+    std::printf("step=locked bytes=%08x\n", raw);
+    lk.unlock();
+    std::memcpy(&raw, &lk, sizeof(raw));
+    std::printf("step=unlocked bytes=%08x\n", raw);
+}
+
+void probe_idpool_dump(const char* step, const thoth::id_pool<>& pool) {
+    // Raw bytes so the trace is implementation-independent: next_[32], cursor_,
+    // prepared_ in layout order.
+    const auto* raw = reinterpret_cast<const unsigned char*>(&pool);
+    std::printf("step=%s next=", step);
+    for (std::size_t i = 0; i < thoth::id_pool<>::max_count; ++i) std::printf("%02x", raw[i]);
+    std::printf(" cursor=%02x prepared=%02x\n",
+                raw[thoth::id_pool<>::max_count], raw[thoth::id_pool<>::max_count + 1]);
+}
+
+void probe_idpool() {
+    thoth::id_pool<> pool{};
+    std::memset(&pool, 0, sizeof(pool));
+    probe_idpool_dump("zeroed", pool);
+    pool.prepare();
+    probe_idpool_dump("prepared", pool);
+    for (int i = 0; i < 3; ++i) {
+        const auto id = pool.acquire();
+        std::printf("step=acquire id=%d\n", static_cast<int>(id));
+    }
+    probe_idpool_dump("after-acquire3", pool);
+    pool.release(1);
+    probe_idpool_dump("after-release1", pool);
+    std::printf("step=acquire id=%d\n", static_cast<int>(pool.acquire()));
+    probe_idpool_dump("after-reacquire", pool);
+}
+
+// A pool that is NOT all-zero but whose first free-list link is: C++ decides
+// "already initialised" by memcmp against a zeroed pool, so init() must not
+// run here. A port that only samples next_[0]/cursor_/prepared_ disagrees.
+void probe_idpool_partial() {
+    thoth::id_pool<> pool{};
+    std::memset(&pool, 0, sizeof(pool));
+    auto* raw = reinterpret_cast<unsigned char*>(&pool);
+    raw[5] = 7;
+    probe_idpool_dump("partial-before", pool);
+    pool.prepare();
+    probe_idpool_dump("partial-after", pool);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
+    if (argc >= 3 && std::string(argv[1]) == "conform") {
+        const std::string which = argv[2];
+        if (which == "spinlock")      { probe_spinlock(); return 0; }
+        if (which == "idpool")        { probe_idpool(); return 0; }
+        if (which == "idpool-partial"){ probe_idpool_partial(); return 0; }
+        std::fprintf(stderr, "unknown conformance probe '%s'\n", which.c_str());
+        return 2;
+    }
     if (argc < 3) {
-        std::fprintf(stderr, "usage: %s <write|read|clear> <name> [count] [size]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s <write|read|clear|conform> <name> [count] [size]\n", argv[0]);
         return 1;
     }
     std::string verb = argv[1];

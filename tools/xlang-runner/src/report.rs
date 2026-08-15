@@ -67,6 +67,20 @@ pub fn summarize(results: &[CaseResult]) -> bool {
         }
     }
 
+    // A port that answers `unsupported` passes its case — it did not disagree
+    // with the reference — but a gap that only shows as a tick is the kind of
+    // silence this whole exercise exists to remove, so name them.
+    let gaps: Vec<_> = results
+        .iter()
+        .filter(|r| r.status == Status::Pass && r.detail.starts_with("gap: "))
+        .collect();
+    if !gaps.is_empty() {
+        println!("\nNOT IMPLEMENTED (passed by declaring the gap, not by matching):");
+        for g in &gaps {
+            println!("  {} | {}: {}", g.scenario, g.id, g.detail.trim_start_matches("gap: "));
+        }
+    }
+
     let failures: Vec<_> = results.iter().filter(|r| r.status == Status::Fail).collect();
     if failures.is_empty() {
         println!("\nAll strict cross-language pairings passed.");

@@ -84,6 +84,27 @@ private func spinUnlock(_ raw: UnsafeMutableRawPointer) {
 
 // MARK: - id_pool acquire / release (byte-exact with C++ id_pool)
 
+/// C++ id_pool::prepare()/init(): build the free list `next_[i] = i+1` when the
+/// pool is fresh. "Fresh" means the whole structure compares equal to a zeroed
+/// one — C++ `id_pool::invalid()` is a memcmp over all of it. Sampling only
+/// `next_[0]` is a different rule: a partially written pool reads as fresh to
+/// that test and as used to C++, and the two would then disagree about whether
+/// to rebuild the free list. Call under the lock.
+func chunkPrepare(_ base: UnsafeMutableRawPointer) {
+    let prepared = base.advanced(by: ciPreparedOffset).assumingMemoryBound(to: UInt8.self)
+    var untouched = prepared.pointee == 0 && ciCursorPtr(base).pointee == 0
+    if untouched {
+        for i in 0..<chunkMaxCount where ciNextPtr(base).advanced(by: i).pointee != 0 {
+            untouched = false
+            break
+        }
+    }
+    if untouched {
+        for i in 0..<chunkMaxCount { ciNextPtr(base).advanced(by: i).pointee = UInt8(i + 1) }
+    }
+    prepared.pointee = 1
+}
+
 private func chunkAcquire(_ base: UnsafeMutableRawPointer) -> StorageId {
     let cursor = ciCursorPtr(base).pointee
     guard cursor < UInt8(chunkMaxCount) else { return -1 }
@@ -159,12 +180,7 @@ func acquireStorage(shm: borrowing ShmHandle, chunkSize: Int, conns: UInt32) -> 
     let base = shm.ptr
     let lock = ciLockPtr(base)
     spinLock(lock)
-    // prepare(): a fresh (zeroed) pool is invalid → build the free list.
-    let prepared = base.advanced(by: ciPreparedOffset).assumingMemoryBound(to: UInt8.self)
-    if prepared.pointee == 0 && ciCursorPtr(base).pointee == 0 && ciNextPtr(base).pointee == 0 {
-        for i in 0..<chunkMaxCount { ciNextPtr(base).advanced(by: i).pointee = UInt8(i + 1) }
-    }
-    prepared.pointee = 1
+    chunkPrepare(base)
     let id = chunkAcquire(base)
     spinUnlock(lock)
     guard id >= 0 else { return nil }
@@ -177,4 +193,74 @@ func acquireStorage(shm: borrowing ShmHandle, chunkSize: Int, conns: UInt32) -> 
 /// Remove the chunk-storage shm segment for `chunkSize`.
 func clearChunkShm(prefix: String, chunkSize: Int) {
     ShmHandle.clearStorage(name: chunkShmName(prefix: prefix, chunkSize: chunkSize))
+}
+
+
+// MARK: - Conformance probe
+
+/// Byte-level trace of the primitives whose *protocol* the ABI cannot express —
+/// what the pool lock writes while held, and how the free list evolves. Every
+/// port emits the same lines or one of them is wrong; C++ is the reference. See
+/// context/abi-consistency-review.md.
+///
+/// No shared memory and no peer: a local zeroed buffer makes the trace
+/// deterministic, and it is the state a fresh shm segment is in anyway.
+public enum ChunkConform {
+    private static func withPool(_ body: (UnsafeMutableRawPointer) -> Void) {
+        let raw = UnsafeMutableRawPointer.allocate(byteCount: chunkInfoSize, alignment: 8)
+        raw.initializeMemory(as: UInt8.self, repeating: 0, count: chunkInfoSize)
+        defer { raw.deallocate() }
+        body(raw)
+    }
+
+    private static func dump(_ step: String, _ base: UnsafeMutableRawPointer) -> String {
+        var next = ""
+        for i in 0..<chunkMaxCount {
+            next += String(format: "%02x", ciNextPtr(base).advanced(by: i).pointee)
+        }
+        return String(format: "step=%@ next=%@ cursor=%02x prepared=%02x",
+                      step, next, ciCursorPtr(base).pointee,
+                      base.advanced(by: ciPreparedOffset).assumingMemoryBound(to: UInt8.self).pointee)
+    }
+
+    public static func spinlock() -> [String] {
+        var out: [String] = []
+        withPool { base in
+            let lock = base.advanced(by: ciLockOffset)
+            let raw = { lock.assumingMemoryBound(to: UInt32.self).pointee }
+            out.append(String(format: "step=init bytes=%08x", raw()))
+            spinLock(lock)
+            out.append(String(format: "step=locked bytes=%08x", raw()))
+            spinUnlock(lock)
+            out.append(String(format: "step=unlocked bytes=%08x", raw()))
+        }
+        return out
+    }
+
+    public static func idpool() -> [String] {
+        var out: [String] = []
+        withPool { base in
+            out.append(dump("zeroed", base))
+            chunkPrepare(base)
+            out.append(dump("prepared", base))
+            for _ in 0..<3 { out.append("step=acquire id=\(chunkAcquire(base))") }
+            out.append(dump("after-acquire3", base))
+            chunkRelease(base, id: 1)
+            out.append(dump("after-release1", base))
+            out.append("step=acquire id=\(chunkAcquire(base))")
+            out.append(dump("after-reacquire", base))
+        }
+        return out
+    }
+
+    public static func idpoolPartial() -> [String] {
+        var out: [String] = []
+        withPool { base in
+            ciNextPtr(base).advanced(by: 5).pointee = 7
+            out.append(dump("partial-before", base))
+            chunkPrepare(base)
+            out.append(dump("partial-after", base))
+        }
+        return out
+    }
 }

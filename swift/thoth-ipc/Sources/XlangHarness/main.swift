@@ -410,8 +410,23 @@ func runBlocking(_ body: @escaping @Sendable () async -> Int32) -> Int32 {
 func perr(_ s: String) { FileHandle.standardError.write(Data((s + "\n").utf8)) }
 
 let args = CommandLine.arguments
+if args.count >= 3, args[1] == "conform" {
+    // Conformance probe: a byte trace of the primitives the ABI cannot describe,
+    // diffed against C++ by the runner. No peer, no shm.
+    let lines: [String]
+    switch args[2] {
+    case "spinlock": lines = ChunkConform.spinlock()
+    case "idpool": lines = ChunkConform.idpool()
+    case "idpool-partial": lines = ChunkConform.idpoolPartial()
+    default:
+        FileHandle.standardError.write(Data("unknown conformance probe '\(args[2])'\n".utf8))
+        exit(2)
+    }
+    for line in lines { print(line) }
+    exit(0)
+}
 if args.count < 3 {
-    FileHandle.standardError.write(Data("usage: \(args[0]) <write|read|clear> <name> [count] [size]\n".utf8))
+    FileHandle.standardError.write(Data("usage: \(args[0]) <write|read|clear|conform> <name> [count] [size]\n".utf8))
     exit(1)
 }
 let verb = args[1], name = args[2]

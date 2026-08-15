@@ -43,7 +43,10 @@ target_link_libraries(${PROJECT_NAME} gtest gtest_main thoth_ipc)
 # Rust and Swift harnesses; driven by tools/xlang-runner. See
 # context/xlang-channel-abi.md.
 add_executable(xlang_ipc ${THOTH_IPC_PROJECT_DIR}/test/xlang/xlang.cpp)
-target_include_directories(xlang_ipc PRIVATE ${THOTH_IPC_PROJECT_DIR}/include)
+# `src` too: the conformance probe (verb `probe`) exercises the internal
+# primitives — thoth::spin_lock and thoth::id_pool — that the ports
+# reimplement and the ABI cannot describe.
+target_include_directories(xlang_ipc PRIVATE ${THOTH_IPC_PROJECT_DIR}/include ${THOTH_IPC_PROJECT_DIR}/src)
 target_link_libraries(xlang_ipc thoth_ipc)
 set_target_properties(xlang_ipc PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

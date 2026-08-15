@@ -14,6 +14,7 @@
 
 const std = @import("std");
 const channel = @import("transport/channel.zig");
+const chunk = @import("transport/chunk.zig");
 const notify = @import("transport/notify.zig");
 const ChannelInner = @import("transport/channel_multi.zig").ChannelInner;
 const Mutex = @import("sync/mutex.zig").Mutex;
@@ -626,6 +627,24 @@ fn doCread(name: []const u8, count: usize, size: usize) u8 {
     return 0;
 }
 
+fn runProbe(which: []const u8) u8 {
+    if (std.mem.eql(u8, which, "spinlock")) {
+        const v = chunk.probeSpinLock();
+        pout("step=init bytes={x:0>8}", .{v[0]});
+        pout("step=locked bytes={x:0>8}", .{v[1]});
+        pout("step=unlocked bytes={x:0>8}", .{v[2]});
+        return 0;
+    }
+    // This port has no chunk allocator to probe — see chunk.zig. Say so out
+    // loud so the runner records a gap rather than a pass.
+    if (std.mem.eql(u8, which, "idpool") or std.mem.eql(u8, which, "idpool-partial")) {
+        pout("unsupported reason=zig-port-has-no-chunk-allocator", .{});
+        return 0;
+    }
+    perr("unknown conformance probe '{s}'", .{which});
+    return 2;
+}
+
 pub fn main(m: std.process.Init.Minimal) void {
     // Collect argv (Zig 0.16 Args iterator) into a small fixed array.
     var storage: [8][:0]const u8 = undefined;
@@ -639,11 +658,17 @@ pub fn main(m: std.process.Init.Minimal) void {
     const argv = storage[0..argc];
 
     if (argv.len < 3) {
-        perr("usage: xlang <write|read|clear|caps> <name> [count] [size] [minrecv]", .{});
+        perr("usage: xlang <write|read|clear|caps|conform> <name> [count] [size] [minrecv]", .{});
         std.process.exit(1);
     }
     const verb = argv[1];
     const name = argv[2];
+
+    if (std.mem.eql(u8, verb, "conform")) {
+        // Conformance probe: a byte trace of the primitives the ABI cannot
+        // describe, diffed against C++ by the runner. No peer, no shm.
+        std.process.exit(runProbe(name));
+    }
 
     if (std.mem.eql(u8, verb, "clear")) {
         // Clear the ring plus the derived primitive objects (mutex <name>_m,
