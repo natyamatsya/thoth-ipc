@@ -27,7 +27,7 @@ pub const ep_incr: u64 = abi.route_ep_incr;
 
 // --- Ring header offsets (ABI §2) — shared by route (wt_) and channel (ct_) --
 pub const off_cc: usize = abi.ring_header_cc_off; // connections bitmask (atomic u32)
-pub const off_lc: usize = abi.ring_header_lc_off; // header lock (os_unfair_lock on Apple)
+pub const off_lc: usize = abi.ring_header_lc_off; // header lock (thoth::spin_lock, atomic<u32> TAS)
 pub const off_constructed: usize = abi.ring_header_constructed_off; // DCLP init flag
 pub const off_wt: usize = abi.ring_header_cursor_off; // route write cursor (channel: ct_)
 pub const off_epoch: usize = abi.ring_header_epoch_off; // writer epoch
@@ -56,16 +56,32 @@ comptime {
     std.debug.assert(msg_payload + data_length == 80); // sizeof(msg_t<64,8>)
 }
 
-// --- os_unfair_lock (Apple header lock) ------------------------------------
+// --- spin_lock (the in-shm header/chunk lock) ------------------------------
 //
-// The header `lc_` field (offset 4) is an os_unfair_lock in the C++ ABI, and a
-// C++ peer takes that same in-shm lock during DCLP init — so we must drive the
-// real Apple primitive, not a look-alike. This is the one place a C dependency
-// is unavoidable; std.c exposes the primitive and its lock/unlock functions.
+// `lc_` (offset 4) and `chunk_info_t::lock_` are both `thoth::spin_lock`
+// (cpp/thoth-ipc/include/thoth-ipc/rw_lock.h): exchange(1, acquire) spun until
+// it reads 0, released with store(0, release). No platform conditional — that
+// is the algorithm on Apple too, and a C++ peer takes these same bytes.
+//
+// This drove os_unfair_lock until 2026-08-15, on the strength of an ABI note
+// that turned out to be wrong; the comment here even insisted on "the real
+// Apple primitive, not a look-alike". thoth does have an os_unfair_lock
+// spin_lock, but it is a different type in a different namespace
+// (thoth::detail::sync), its own header calls it process-local, and neither
+// shared-memory structure uses it. Apple does not support that primitive across
+// processes: its contended path treats the field as a thread token to park on
+// and donate priority to, and a C++ peer stores 1 there.
 
-pub const os_unfair_lock = std.c.os_unfair_lock;
-pub const os_unfair_lock_lock = std.c.os_unfair_lock_lock;
-pub const os_unfair_lock_unlock = std.c.os_unfair_lock_unlock;
+pub inline fn spinLock(lock: *u32) void {
+    var k: u32 = 0;
+    while (@atomicRmw(u32, lock, .Xchg, 1, .acquire) != 0) {
+        adaptiveYield(&k);
+    }
+}
+
+pub inline fn spinUnlock(lock: *u32) void {
+    @atomicStore(u32, lock, 0, .release);
+}
 
 // --- Typed pointers into the mapped ring -----------------------------------
 
@@ -81,7 +97,7 @@ pub inline fn i32ptr(base: [*]u8, off: usize) *i32 {
 pub inline fn u64ptr(base: [*]u8, off: usize) *u64 {
     return @ptrCast(@alignCast(base + off));
 }
-pub inline fn lockPtr(base: [*]u8) *os_unfair_lock {
+pub inline fn lockPtr(base: [*]u8) *u32 {
     return @ptrCast(@alignCast(base + off_lc));
 }
 
@@ -121,8 +137,8 @@ pub inline fn readMsgHeader(sb: [*]u8) MsgHeader {
 pub fn initHeader(base: [*]u8) void {
     if (@atomicLoad(u8, u8ptr(base, off_constructed), .acquire) != 0) return;
     const lock = lockPtr(base);
-    os_unfair_lock_lock(lock);
-    defer os_unfair_lock_unlock(lock);
+    spinLock(lock);
+    defer spinUnlock(lock);
     if (@atomicLoad(u8, u8ptr(base, off_constructed), .acquire) == 0) {
         @atomicStore(u32, u32ptr(base, off_cc), 0, .release);
         @atomicStore(u8, u8ptr(base, off_constructed), 1, .release);

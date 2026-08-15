@@ -103,7 +103,7 @@ let chIcIncr: UInt64 = ABI.chan_ic_incr   // internal read-generation increment 
 // Ring header — byte-exact with the C++ elem_array head (conn_head_base + the
 // cache-line-aligned prod_cons head_). See context/xlang-channel-abi.md.
 //   0 connections  @0   == C++ conn_head_base::cc_
-//   4 lc           @4   == C++ conn_head_base::lc_ (os_unfair_lock)
+//   4 lc           @4   == C++ conn_head_base::lc_ (thoth::spin_lock, atomic<u32> TAS)
 //   8 constructed  @8   == C++ conn_head_base::constructed_ (DCLP flag)
 //  64 writeCursor  @64  == C++ head_.wt_   (alignas cache line)
 // 128 epoch        @128 == C++ head_.epoch_
@@ -113,7 +113,7 @@ let chIcIncr: UInt64 = ABI.chan_ic_incr   // internal read-generation increment 
 @_alignment(8)
 struct RingHeader {
     var connections: UInt32.AtomicRepresentation = .init(0)   // @0
-    var lc: os_unfair_lock = os_unfair_lock()                 // @4
+    var lc: UInt32.AtomicRepresentation = .init(0)            // @4
     var constructed: UInt8 = 0                                // @8
     var _padA: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     var writeCursor: UInt32.AtomicRepresentation = .init(0)   // @64
@@ -141,16 +141,24 @@ func ringName(_ prefix: String, _ name: String) -> String {
 func ccIdName(_ prefix: String) -> String { "\(fullPrefix(prefix))CA_CONN__" }
 func msgIdName(_ prefix: String, _ name: String) -> String { "\(fullPrefix(prefix))AC_CONN__\(name)" }
 
-/// C++ conn_head_base::init() DCLP via os_unfair_lock — so a C++ peer that sees
+/// C++ conn_head_base::init() DCLP under `lc_` — so a C++ peer that sees
 /// constructed_ == 0 does not re-zero the header and wipe our connection bit.
+///
+/// `lc_` is `thoth::spin_lock` (rw_lock.h): exchange(1, acquire) spun until it
+/// reads 0, released with store(0, release), on every target including Apple.
+/// This used the Apple unfair lock until 2026-08-15, following the ABI notes
+/// rather than the C++; see the note on spinLock in ChunkStorage.swift.
 func initHeader(_ hdr: UnsafeMutablePointer<RingHeader>) {
     if hdr.pointee.constructed != 0 { return }
-    os_unfair_lock_lock(&hdr.pointee.lc)
+    var k: UInt32 = 0
+    while ua32(&hdr.pointee.lc).exchange(1, ordering: .acquiring) != 0 {
+        adaptiveYieldSync(&k)
+    }
     if hdr.pointee.constructed == 0 {
         ua32(&hdr.pointee.connections).store(0, ordering: .relaxed)
         hdr.pointee.constructed = 1
     }
-    os_unfair_lock_unlock(&hdr.pointee.lc)
+    ua32(&hdr.pointee.lc).store(0, ordering: .releasing)
 }
 
 /// Guard the header layout against C++ drift (offsets from the spec).

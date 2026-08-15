@@ -20,7 +20,7 @@ pub const chunk_info_size: usize = abi.chunk_info_size; // id_pool(34) + pad + l
 // chunk_info_t field offsets.
 const ci_next_off: usize = 0; // next_[32] (u8 each)
 const ci_cursor_off: usize = 32; // cursor_ (u8)
-const ci_lock_off: usize = 36; // os_unfair_lock
+const ci_lock_off: usize = 36; // thoth::spin_lock (atomic<u32> TAS)
 
 /// ceil((chunk_header_size + size) / chunk_align) * chunk_align. The chunk-shm
 /// name embeds this, so it must match C++ calc_chunk_size exactly.
@@ -39,7 +39,7 @@ inline fn cursorPtr(base: [*]u8) *u8 {
 inline fn nextPtr(base: [*]u8, id: usize) *u8 {
     return @ptrCast(base + ci_next_off + id);
 }
-inline fn lockPtr(base: [*]u8) *layout.os_unfair_lock {
+inline fn lockPtr(base: [*]u8) *u32 {
     return @ptrCast(@alignCast(base + ci_lock_off));
 }
 inline fn connsPtr(base: [*]u8, chunk_size: usize, id: usize) *u32 {
@@ -78,9 +78,9 @@ pub fn recycle(base: [*]u8, chunk_size: usize, id: i32, conn_id: u32) void {
     }
     if (is_last) {
         const lock = lockPtr(base);
-        layout.os_unfair_lock_lock(lock);
+        layout.spinLock(lock);
         poolRelease(base, uid);
-        layout.os_unfair_lock_unlock(lock);
+        layout.spinUnlock(lock);
     }
 }
 

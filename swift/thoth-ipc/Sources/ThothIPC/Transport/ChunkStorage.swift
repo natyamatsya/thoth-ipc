@@ -8,7 +8,7 @@
 //
 // Chunk shm layout for a given `chunkSize` (name __THOTH_SHM__CHUNK_INFO__<size>):
 //   [ chunk_info_t (40B) ] [ chunk of chunkSize bytes ] × chunkMaxCount
-// chunk_info_t: id_pool { next_[32]@0; cursor_@32; prepared_@33 } + os_unfair_lock@36.
+// chunk_info_t: id_pool { next_[32]@0; cursor_@32; prepared_@33 } + spin_lock@36.
 // chunk: conns (UInt32) @0, payload @ make_align(8,4)=8.
 
 import Darwin.POSIX
@@ -35,12 +35,12 @@ func calcChunkSize(_ size: Int) -> Int {
     return (x + chunkAlign - 1) / chunkAlign * chunkAlign
 }
 
-// MARK: - chunk_info_t layout (byte-exact: id_pool + os_unfair_lock)
+// MARK: - chunk_info_t layout (byte-exact: id_pool + thoth::spin_lock)
 
 private let ciNextOffset     = 0   // next_[32]
 private let ciCursorOffset   = 32  // cursor_ (u8)
 private let ciPreparedOffset = 33  // prepared_ (bool)
-private let ciLockOffset     = 36  // os_unfair_lock
+private let ciLockOffset     = 36  // thoth::spin_lock (atomic<u32> TAS)
 /// sizeof(chunk_info_t) = 40; the chunk array starts here (C++ `this + 1`).
 let chunkInfoSize: Int = ABI.chunk_info_size
 
@@ -52,8 +52,34 @@ private func ciNextPtr(_ base: UnsafeMutableRawPointer) -> UnsafeMutablePointer<
 private func ciCursorPtr(_ base: UnsafeMutableRawPointer) -> UnsafeMutablePointer<UInt8> {
     base.advanced(by: ciCursorOffset).assumingMemoryBound(to: UInt8.self)
 }
-private func ciLockPtr(_ base: UnsafeMutableRawPointer) -> UnsafeMutablePointer<os_unfair_lock> {
-    base.advanced(by: ciLockOffset).assumingMemoryBound(to: os_unfair_lock.self)
+private func ciLockPtr(_ base: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
+    base.advanced(by: ciLockOffset)
+}
+
+/// C++ `thoth::spin_lock` (rw_lock.h) — `lc_.exchange(1, acquire)` spun until it
+/// reads 0, released with `store(0, release)`. It is that on every target, Apple
+/// included, and this lock lives in shared memory: a C++ peer takes the same four
+/// bytes, so the algorithm has to be identical.
+///
+/// This used the Apple unfair lock until 2026-08-15, following the ABI notes
+/// rather than the C++ — which has a *separate*, process-local wrapper under
+/// platform/apple/ that chunk_info_t does not use. Apple does not support that
+/// primitive on memory shared between processes: its contended path treats the
+/// field as a thread token to park on and donate priority to, and a C++ peer
+/// stores 1 there.
+private func spinLock(_ raw: UnsafeMutableRawPointer) {
+    var k: UInt32 = 0
+    raw.withMemoryRebound(to: UInt32.AtomicRepresentation.self, capacity: 1) { rep in
+        while UInt32.AtomicRepresentation.atomicExchange(1, at: rep, ordering: .acquiring) != 0 {
+            adaptiveYieldSync(&k)
+        }
+    }
+}
+
+private func spinUnlock(_ raw: UnsafeMutableRawPointer) {
+    raw.withMemoryRebound(to: UInt32.AtomicRepresentation.self, capacity: 1) { rep in
+        UInt32.AtomicRepresentation.atomicStore(0, at: rep, ordering: .releasing)
+    }
 }
 
 // MARK: - id_pool acquire / release (byte-exact with C++ id_pool)
@@ -121,9 +147,9 @@ func recycleStorage(shm: borrowing ShmHandle, chunkSize: Int, id: StorageId, con
     }
     if isLast {
         let lock = ciLockPtr(base)
-        os_unfair_lock_lock(lock)
+        spinLock(lock)
         chunkRelease(base, id: id)
-        os_unfair_lock_unlock(lock)
+        spinUnlock(lock)
     }
 }
 
@@ -132,7 +158,7 @@ func recycleStorage(shm: borrowing ShmHandle, chunkSize: Int, id: StorageId, con
 func acquireStorage(shm: borrowing ShmHandle, chunkSize: Int, conns: UInt32) -> (StorageId, UnsafeMutableRawPointer)? {
     let base = shm.ptr
     let lock = ciLockPtr(base)
-    os_unfair_lock_lock(lock)
+    spinLock(lock)
     // prepare(): a fresh (zeroed) pool is invalid → build the free list.
     let prepared = base.advanced(by: ciPreparedOffset).assumingMemoryBound(to: UInt8.self)
     if prepared.pointee == 0 && ciCursorPtr(base).pointee == 0 && ciNextPtr(base).pointee == 0 {
@@ -140,7 +166,7 @@ func acquireStorage(shm: borrowing ShmHandle, chunkSize: Int, conns: UInt32) -> 
     }
     prepared.pointee = 1
     let id = chunkAcquire(base)
-    os_unfair_lock_unlock(lock)
+    spinUnlock(lock)
     guard id >= 0 else { return nil }
     chunkConnsPtr(base, chunkSize: chunkSize, id: id).withMemoryRebound(to: UInt32.AtomicRepresentation.self, capacity: 1) { rep in
         UInt32.AtomicRepresentation.atomicStore(conns, at: rep, ordering: .relaxed)

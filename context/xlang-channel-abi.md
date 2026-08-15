@@ -82,8 +82,11 @@ offset  size  field
   > park and donate priority on — `1` is not one — in a primitive Apple does not
   > support across processes.
   >
-  > The Rust port now uses the TAS spin. **Swift and Zig still use
-  > `os_unfair_lock` and should be changed to match.**
+  > All four ports now use the TAS spin (Rust, then Swift and Zig). Verified by
+  > the cross-language matrix: 363/363 pairings, every writer/reader combination
+  > over payloads up to 64 KiB, i.e. through the chunk-storage path. Note that
+  > proves no regression rather than proving the fix — the old mismatch also
+  > worked uncontended, which is the whole reason it survived this long.
 - `head_` (`prod_cons_impl<…,broadcast>`) = `{ alignas(64) wt_(atomic u32);
   alignas(64) epoch_(u64); }`, size 128, align 64.
 
