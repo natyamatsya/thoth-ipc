@@ -80,6 +80,14 @@ modes = ["async"]
 probes = ["spinlock", "idpool", "idpool-partial"]
 reference = "cpp"
 
+# Chunk-pool contention (context/abi-consistency-review.md): one writer, every
+# language reading at once, at chunk-storage sizes and for long enough that
+# allocation overlaps recycling. Every other scenario is 1:1, so the contended
+# paths of the shared-memory primitives are otherwise untested.
+[scenarios.contend]
+sizes = [3000, 65536]
+count = 200
+
 [scenarios.sync]
 sizes = [40, 63, 64, 65, 200, 3000, 65536]
 count = 5

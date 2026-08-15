@@ -113,6 +113,7 @@ pub struct Plan {
 
 pub const SCENARIOS: &[&str] = &[
     "conform",
+    "contend",
     "sync",
     "async",
     "fanout",
@@ -259,6 +260,49 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                         kind: CaseKind::Group {
                             readers: vec![Proc::new(r, rw_args("aread", &channel, sc.count, size, &[]))],
                             writers: vec![Proc::new(w, rw_args("write", &channel, sc.count, size, &[]))],
+                        },
+                        channel,
+                        xfail: false,
+                    });
+                }
+            }
+        }
+    }
+
+    // Chunk-pool contention: the same shape as fanout but with a message count
+    // high enough that the writer is allocating chunks while the readers are
+    // recycling them, and only at sizes that take the chunk path. This is the
+    // coverage class the matrix lacked — every other case has a single reader,
+    // so the pool lock is never actually contended, let alone contended between
+    // two languages. See context/abi-consistency-review.md.
+    if enabled("contend") {
+        let langs = participants("contend", Mode::Sync, &mut notes);
+        let sc = &cfg.scenarios.contend;
+        if langs.len() >= 2 {
+            for w in &langs {
+                for &size in &sc.sizes {
+                    let channel = namer.next("k");
+                    let readers: Vec<Proc> = langs
+                        .iter()
+                        .map(|r| Proc::new(r, rw_args("read", &channel, sc.count, size, &[])))
+                        .collect();
+                    let minrecv = readers.len().to_string();
+                    let reader_names: Vec<&str> = langs.iter().map(|r| r.name.as_str()).collect();
+                    cases.push(Case {
+                        scenario: "contend".into(),
+                        id: format!(
+                            "{} -> [{}] {}x{}B",
+                            w.name,
+                            reader_names.join("+"),
+                            sc.count,
+                            size
+                        ),
+                        kind: CaseKind::Group {
+                            readers,
+                            writers: vec![Proc::new(
+                                w,
+                                rw_args("write", &channel, sc.count, size, &[&minrecv]),
+                            )],
                         },
                         channel,
                         xfail: false,

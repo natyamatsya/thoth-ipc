@@ -95,11 +95,34 @@ pub struct ScenariosConfig {
     #[serde(rename = "async")]
     pub async_: PairScenarioConfig,
     pub fanout: FanoutScenarioConfig,
+    pub contend: ContendScenarioConfig,
     pub channel: ChannelScenarioConfig,
     pub reap: ReapScenarioConfig,
     pub secure: SecureScenarioConfig,
     pub primitives: PrimitivesScenarioConfig,
     pub typed: TypedScenarioConfig,
+}
+
+/// Chunk-pool contention: one writer, every language reading at once, at sizes
+/// that force chunk storage and for long enough that allocation and recycling
+/// overlap. Every other scenario is one writer and one reader, so the contended
+/// paths of the shared-memory primitives are otherwise never exercised.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ContendScenarioConfig {
+    /// Above thoth::large_msg_limit (64 B), so the payload goes through chunk
+    /// storage rather than inline fragments.
+    pub sizes: Vec<usize>,
+    pub count: usize,
+}
+
+impl Default for ContendScenarioConfig {
+    fn default() -> Self {
+        Self {
+            sizes: vec![3000, 65536],
+            count: 200,
+        }
+    }
 }
 
 /// Conformance probes: which primitive traces every port must reproduce, and
