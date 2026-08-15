@@ -258,7 +258,7 @@ unsafe fn channel_slot(base: *mut u8, idx: u8) -> &'static ChannelElemT {
 ///
 /// ```text
 ///   0  connections  AtomicU32   == C++ conn_head_base::cc_ (connection bitmask)
-///   4  lc           os_unfair_lock == C++ conn_head_base::lc_ (Apple spin_lock)
+///   4  lc           AtomicU32   == C++ conn_head_base::lc_ (thoth::spin_lock)
 ///   8  constructed  AtomicU8    == C++ conn_head_base::constructed_ (DCLP flag)
 ///  64  write_cursor AtomicU32   == C++ prod_cons head_.wt_  (alignas cache line)
 /// 128  epoch        AtomicU64   == C++ prod_cons head_.epoch_ (alignas cache line)
@@ -269,10 +269,11 @@ unsafe fn channel_slot(base: *mut u8, idx: u8) -> &'static ChannelElemT {
 #[repr(C)]
 struct RingHeader {
     connections: AtomicU32,        // @0
-    #[cfg(target_vendor = "apple")]
-    lc: libc::os_unfair_lock,      // @4 (C++ spin_lock = os_unfair_lock on Apple)
-    #[cfg(not(target_vendor = "apple"))]
-    lc: AtomicU32,                 // @4 (C++ generic spin_lock = atomic<u32> TAS-spin)
+    // @4 — C++ `thoth::spin_lock` (rw_lock.h): atomic<u32> test-and-set, 1 =
+    // locked. Same on every target including Apple; see the note in
+    // chunk_storage.rs for why the os_unfair_lock variant must not be used on a
+    // lock that lives in shared memory.
+    lc: AtomicU32,
     constructed: AtomicU8,         // @8
     _pad_a: [u8; 55],              // @9..64
     write_cursor: AtomicU32,       // @64
@@ -304,7 +305,7 @@ const _: () = {
 };
 
 /// C++ `conn_head_base::init()` — a double-checked-locking construct via the
-/// header's `os_unfair_lock`. Initialises the ring header exactly once across
+/// header's spin lock. Initialises the ring header exactly once across
 /// processes/languages; without it a C++ peer that sees `constructed_ == 0`
 /// would placement-new (zero) the header, wiping a connection bit this port set.
 ///
@@ -314,34 +315,21 @@ unsafe fn init_header(hdr: &RingHeader) {
     if hdr.constructed.load(Ordering::Acquire) != 0 {
         return;
     }
-    #[cfg(target_vendor = "apple")]
-    {
-        let lc = &hdr.lc as *const libc::os_unfair_lock as *mut libc::os_unfair_lock;
-        libc::os_unfair_lock_lock(lc);
-        if hdr.constructed.load(Ordering::Relaxed) == 0 {
-            // Fresh shm is zero-filled (cc_ already 0); publish constructed_. (We do
-            // not re-zero lc_ while holding it, unlike C++'s placement-new — the
-            // resulting bytes are identical: lc_ ends unlocked, constructed_ = 1.)
-            hdr.connections.store(0, Ordering::Relaxed);
-            hdr.constructed.store(1, Ordering::Release);
-        }
-        libc::os_unfair_lock_unlock(lc);
+    // DCLP under C++'s spin_lock (rw_lock.h) — an atomic<u32> test-and-set spin
+    // (1 = locked, 0 = free) at lc_ @4, so a C++ peer and this port serialise the
+    // first-init critical section against each other.
+    let mut k = 0u32;
+    while hdr.lc.swap(1, Ordering::Acquire) != 0 {
+        crate::spin_lock::adaptive_yield_pub(&mut k);
     }
-    // Non-Apple: DCLP under C++'s generic spin_lock (rw_lock.h) — an atomic<u32>
-    // test-and-set spin (1 = locked, 0 = free), byte-exact at lc_ @4 so a C++ peer
-    // and this port serialise the first-init critical section identically.
-    #[cfg(not(target_vendor = "apple"))]
-    {
-        let mut k = 0u32;
-        while hdr.lc.swap(1, Ordering::Acquire) != 0 {
-            crate::spin_lock::adaptive_yield_pub(&mut k);
-        }
-        if hdr.constructed.load(Ordering::Relaxed) == 0 {
-            hdr.connections.store(0, Ordering::Relaxed);
-            hdr.constructed.store(1, Ordering::Release);
-        }
-        hdr.lc.store(0, Ordering::Release);
+    if hdr.constructed.load(Ordering::Relaxed) == 0 {
+        // Fresh shm is zero-filled (cc_ already 0); publish constructed_. (We do
+        // not re-zero lc_ while holding it, unlike C++'s placement-new — the
+        // resulting bytes are identical: lc_ ends unlocked, constructed_ = 1.)
+        hdr.connections.store(0, Ordering::Relaxed);
+        hdr.constructed.store(1, Ordering::Release);
     }
+    hdr.lc.store(0, Ordering::Release);
 }
 
 /// Get a pointer to the ring header from the shm base.

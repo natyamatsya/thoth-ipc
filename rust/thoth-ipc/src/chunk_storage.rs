@@ -51,10 +51,14 @@ struct ChunkInfo {
     cursor_: u8,            // @32 head of the free list
     prepared_: u8,          // @33 id_pool::prepared_ (bool)
     _pad: [u8; 2],          // @34..36
-    #[cfg(target_vendor = "apple")]
-    lock_: libc::os_unfair_lock, // @36 (C++ spin_lock)
-    #[cfg(not(target_vendor = "apple"))]
-    lock_: AtomicU32, // @36 (C++ generic spin_lock = atomic<u32> TAS-spin)
+    // @36 — C++ `thoth::spin_lock` (rw_lock.h): an atomic<u32> test-and-set spin,
+    // 1 = locked, 0 = free. The same everywhere, Apple included: chunk_info_t
+    // lives in shared memory and this lock is what serialises the id_pool between
+    // a C++ sender and this port, so it has to be the *same* algorithm on both
+    // sides or it excludes nothing. (thoth has a second, os_unfair_lock spin_lock
+    // under platform/apple/, but that one is process-local and chunk_info_t does
+    // not use it.)
+    lock_: AtomicU32,
 }
 
 const _: () = {
@@ -102,32 +106,18 @@ impl ChunkInfo {
     }
 }
 
-/// Lock the chunk_info_t spin_lock: os_unfair_lock on Apple; on other targets the
-/// C++ generic spin_lock — an atomic<u32> test-and-set spin (1 = locked, 0 = free),
-/// byte-exact at lock_ @36 so a C++ peer and this port serialise pool access.
+/// Lock the chunk_info_t spin_lock — C++ `thoth::spin_lock`, an atomic<u32>
+/// test-and-set spin (1 = locked, 0 = free) at lock_ @36, so a C++ peer and this
+/// port serialise pool access against each other.
 unsafe fn chunk_lock(info: &ChunkInfo) {
-    #[cfg(target_vendor = "apple")]
-    {
-        libc::os_unfair_lock_lock(&info.lock_ as *const _ as *mut libc::os_unfair_lock);
-    }
-    #[cfg(not(target_vendor = "apple"))]
-    {
-        let mut k = 0u32;
-        while info.lock_.swap(1, Ordering::Acquire) != 0 {
-            crate::spin_lock::adaptive_yield_pub(&mut k);
-        }
+    let mut k = 0u32;
+    while info.lock_.swap(1, Ordering::Acquire) != 0 {
+        crate::spin_lock::adaptive_yield_pub(&mut k);
     }
 }
 
 unsafe fn chunk_unlock(info: &ChunkInfo) {
-    #[cfg(target_vendor = "apple")]
-    {
-        libc::os_unfair_lock_unlock(&info.lock_ as *const _ as *mut libc::os_unfair_lock);
-    }
-    #[cfg(not(target_vendor = "apple"))]
-    {
-        info.lock_.store(0, Ordering::Release);
-    }
+    info.lock_.store(0, Ordering::Release);
 }
 
 // ---------------------------------------------------------------------------
