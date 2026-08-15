@@ -52,12 +52,23 @@ struct ChunkInfo {
     prepared_: u8,          // @33 id_pool::prepared_ (bool)
     _pad: [u8; 2],          // @34..36
     // @36 — C++ `thoth::spin_lock` (rw_lock.h): an atomic<u32> test-and-set spin,
-    // 1 = locked, 0 = free. The same everywhere, Apple included: chunk_info_t
-    // lives in shared memory and this lock is what serialises the id_pool between
-    // a C++ sender and this port, so it has to be the *same* algorithm on both
-    // sides or it excludes nothing. (thoth has a second, os_unfair_lock spin_lock
-    // under platform/apple/, but that one is process-local and chunk_info_t does
-    // not use it.)
+    // 1 = locked, 0 = free, on every target including Apple. Verified by
+    // compiling against the C++ headers rather than by reading them: the type is
+    // `thoth::spin_lock`, and locking one writes 0x00000001.
+    //
+    // thoth has a *second* spin_lock at platform/apple/spin_lock.h wrapping
+    // os_unfair_lock. It is a different type in a different namespace
+    // (`thoth::detail::sync`), it is documented there as process-local, and
+    // chunk_info_t does not use it — but three ports and the ABI notes had it
+    // the other way round.
+    //
+    // What the mismatch actually cost is narrower than it looks. Both algorithms
+    // acquire only from 0 and store non-zero, so they do exclude each other in
+    // the uncontended case — `os_unfair_lock_trylock` over a TAS-held lock does
+    // fail. The hazard is in the contended path: os_unfair_lock treats the field
+    // as a thread token to park and donate priority on, and `1` is not one, in a
+    // primitive Apple documents as unusable across processes. Matching the peer's
+    // algorithm removes that rather than fixing an outright missing lock.
     lock_: AtomicU32,
 }
 

@@ -269,10 +269,11 @@ unsafe fn channel_slot(base: *mut u8, idx: u8) -> &'static ChannelElemT {
 #[repr(C)]
 struct RingHeader {
     connections: AtomicU32,        // @0
-    // @4 — C++ `thoth::spin_lock` (rw_lock.h): atomic<u32> test-and-set, 1 =
-    // locked. Same on every target including Apple; see the note in
-    // chunk_storage.rs for why the os_unfair_lock variant must not be used on a
-    // lock that lives in shared memory.
+    // @4 — C++ `conn_head_base::lc_` is `thoth::spin_lock` (rw_lock.h): atomic<u32>
+    // test-and-set, 1 = locked, on every target including Apple. See the note in
+    // chunk_storage.rs: the os_unfair_lock look-alike is a different type that
+    // this structure does not use, and Apple does not support that primitive on
+    // memory shared between processes.
     lc: AtomicU32,
     constructed: AtomicU8,         // @8
     _pad_a: [u8; 55],              // @9..64

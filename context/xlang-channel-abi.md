@@ -50,7 +50,7 @@ maps.
 offset  size  field
 ------  ----  -----------------------------------------------------------
    0     4    conn_head_base.cc_        atomic<u32>  connection bitmask
-   4     4    conn_head_base.lc_        spin_lock (Apple: os_unfair_lock = u32)
+   4     4    conn_head_base.lc_        thoth::spin_lock = atomic<u32> TAS (all targets)
    8     1    conn_head_base.constructed_ atomic<bool>   (DCLP init flag)
   [9..64 padding — head_ is alignas(64)]
   64     4    head_.wt_                 atomic<u32>  write index      (cache line 1)
@@ -61,12 +61,29 @@ offset  size  field
 ```
 
 - `conn_head_base` = `{ cc_(u32), lc_(spin_lock), constructed_(atomic bool) }`,
-  size 12, align 4. **`lc_` is a 4-byte, platform-specific lock**: Apple
-  `os_unfair_lock`; elsewhere C++'s generic `spin_lock` (`rw_lock.h`) = an
-  `atomic<u32>` test-and-set spin (1 = locked, 0 = free). The ports match per
-  target — Rust uses `libc::os_unfair_lock` on Apple and an `AtomicU32` TAS-spin
-  on other targets, so the DCLP init critical section (§5) serialises identically
-  with a C++ peer on both. Swift is macOS-only.
+  size 12, align 4. **`lc_` is `thoth::spin_lock` (`rw_lock.h`) on every target**,
+  including Apple: an `atomic<u32>` test-and-set spin, 1 = locked, 0 = free.
+
+  > **Corrected 2026-08-15.** This section previously said Apple used
+  > `os_unfair_lock`, and the Rust, Swift and Zig ports were all written to that
+  > claim. It is wrong. `conn_head_base::lc_` and `chunk_info_t::lock_` are both
+  > declared `thoth::spin_lock`, which is unconditional — verified by compiling
+  > against the headers: `sizeof == 4` and locking one writes `0x00000001`,
+  > whereas `os_unfair_lock` writes a thread token (`0x00000103` in the same
+  > probe). The `os_unfair_lock` wrapper at `platform/apple/spin_lock.h` is a
+  > *different* type, `thoth::detail::sync::spin_lock`, documented there as
+  > process-local and reached only via `platform/apple/mutex.h`; neither
+  > shared-memory structure uses it.
+  >
+  > Impact is narrower than "no lock": both algorithms acquire only from 0 and
+  > store non-zero, so they do exclude each other uncontended
+  > (`os_unfair_lock_trylock` over a TAS-held lock fails). The hazard is the
+  > contended path, where `os_unfair_lock` treats the field as a thread token to
+  > park and donate priority on — `1` is not one — in a primitive Apple does not
+  > support across processes.
+  >
+  > The Rust port now uses the TAS spin. **Swift and Zig still use
+  > `os_unfair_lock` and should be changed to match.**
 - `head_` (`prod_cons_impl<…,broadcast>`) = `{ alignas(64) wt_(atomic u32);
   alignas(64) epoch_(u64); }`, size 128, align 64.
 
@@ -179,7 +196,8 @@ Byte-exact chunk-storage layout (Apple arm64):
   NOT per channel. Size = `sizeof(chunk_info_t) + max_count·chunk_size`.
 - **`chunk_info_t`** = `{ id_pool pool_; spin_lock lock_; }`:
   `pool_` = `{ next_[max_count] (u8 each); cursor_ (u8); prepared_ (bool) }`
-  (`max_count = large_msg_cache = 32`; 34 B), then `lock_` (os_unfair_lock) at
+  (`max_count = large_msg_cache = 32`; 34 B), then `lock_` (`thoth::spin_lock`,
+  atomic<u32> TAS — see the correction under §2) at
   offset 36 → `sizeof = 40`. Chunks start at offset 40 (`this + 1`).
 - **`id_pool`** free-list: `init` sets `next_[i] = i+1`; `acquire` → `id = cursor_;
   cursor_ = next_[id]`; `release(id)` → `next_[id] = cursor_; cursor_ = id`.
