@@ -77,7 +77,7 @@ modes = ["async"]
 # matrix cannot see: a lock algorithm or a free-list rule can be wrong in every
 # port while every payload still arrives intact.
 [scenarios.conform]
-probes = ["spinlock", "idpool", "idpool-partial"]
+probes = ["spinlock", "idpool", "idpool-partial", "idpool-release"]
 reference = "cpp"
 
 # Chunk-pool contention (context/abi-consistency-review.md): one writer, every

@@ -102,6 +102,26 @@ test "calcChunkSize matches C++ calc_chunk_size" {
 // chunk storage — recycle/poolRelease — and never allocates a chunk, so it has
 // no prepare/acquire to probe. The harness reports that as an explicit
 // `unsupported` line rather than skipping quietly.
+/// Release on its own, from a pool seeded by writing its bytes rather than by
+/// calling prepare(). This port implements the receiving half of chunk storage
+/// and so has no prepare/acquire to probe — but it does have release, and this
+/// exercises the real `poolRelease`. Returns the pool image after each step:
+/// seeded, after release(1), after release(0).
+pub fn probeIdPoolRelease() [3][chunk_info_size]u8 {
+    var buf: [chunk_info_size]u8 align(8) = @splat(0);
+    const base: [*]u8 = &buf;
+    for (0..chunk_max_count) |i| nextPtr(base, i).* = @intCast(i + 1);
+    cursorPtr(base).* = 3; // ids 0,1,2 handed out
+    base[abi.chunk_info_prepared_off] = 1;
+    var out: [3][chunk_info_size]u8 = undefined;
+    out[0] = buf;
+    poolRelease(base, 1);
+    out[1] = buf;
+    poolRelease(base, 0);
+    out[2] = buf;
+    return out;
+}
+
 /// The three observations, in order: the field before locking, while held, and
 /// after release. Returned rather than printed so the harness owns formatting.
 pub fn probeSpinLock() [3]u32 {

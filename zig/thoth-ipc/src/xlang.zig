@@ -15,6 +15,7 @@
 const std = @import("std");
 const channel = @import("transport/channel.zig");
 const chunk = @import("transport/chunk.zig");
+const abi = @import("abi_generated.zig");
 const notify = @import("transport/notify.zig");
 const ChannelInner = @import("transport/channel_multi.zig").ChannelInner;
 const Mutex = @import("sync/mutex.zig").Mutex;
@@ -45,6 +46,16 @@ fn perr(comptime fmt: []const u8, args: anytype) void {
 /// Print a line to stdout (the runner compares trimmed stdout for reaper verbs).
 fn pout(comptime fmt: []const u8, args: anytype) void {
     var buf: [64]u8 = undefined;
+    const s = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
+    _ = std.c.write(1, s.ptr, s.len);
+}
+
+/// `pout` for lines that do not fit its 64-byte buffer — a conformance trace
+/// carries 64 hex digits of pool image plus labels. `pout` drops such a line on
+/// the floor (bufPrint fails, `catch return`), which is silent and was worth
+/// exactly one debugging round.
+fn poutWide(comptime fmt: []const u8, args: anytype) void {
+    var buf: [256]u8 = undefined;
     const s = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
     _ = std.c.write(1, s.ptr, s.len);
 }
@@ -635,8 +646,21 @@ fn runProbe(which: []const u8) u8 {
         pout("step=unlocked bytes={x:0>8}", .{v[2]});
         return 0;
     }
-    // This port has no chunk allocator to probe — see chunk.zig. Say so out
-    // loud so the runner records a gap rather than a pass.
+    if (std.mem.eql(u8, which, "idpool-release")) {
+        const images = chunk.probeIdPoolRelease();
+        const steps = [_][]const u8{ "seeded", "after-release1", "after-release0" };
+        for (images, steps) |img, step| {
+            var hex: [64]u8 = undefined;
+            for (0..32) |i| _ = std.fmt.bufPrint(hex[i * 2 ..][0..2], "{x:0>2}", .{img[i]}) catch {};
+            poutWide("step={s} next={s} cursor={x:0>2} prepared={x:0>2}", .{
+                step, hex[0..64], img[abi.chunk_info_cursor_off], img[abi.chunk_info_prepared_off],
+            });
+        }
+        return 0;
+    }
+    // prepare/acquire are the allocator half, which this port does not have —
+    // its sender fragments instead (see chunk.zig). Say so out loud so the
+    // runner records a gap rather than a pass.
     if (std.mem.eql(u8, which, "idpool") or std.mem.eql(u8, which, "idpool-partial")) {
         pout("unsupported reason=zig-port-has-no-chunk-allocator", .{});
         return 0;

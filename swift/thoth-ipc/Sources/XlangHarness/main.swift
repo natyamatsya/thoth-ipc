@@ -418,6 +418,7 @@ if args.count >= 3, args[1] == "conform" {
     case "spinlock": lines = ChunkConform.spinlock()
     case "idpool": lines = ChunkConform.idpool()
     case "idpool-partial": lines = ChunkConform.idpoolPartial()
+    case "idpool-release": lines = ChunkConform.idpoolRelease()
     default:
         FileHandle.standardError.write(Data("unknown conformance probe '\(args[2])'\n".utf8))
         exit(2)

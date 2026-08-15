@@ -457,6 +457,24 @@ void probe_idpool_partial() {
     probe_idpool_dump("partial-after", pool);
 }
 
+// Release on its own, from a pool seeded by writing its bytes rather than by
+// calling prepare(). A port that implements only the receiving half of chunk
+// storage — as the Zig one does — still implements release, and this is the
+// probe it can answer.
+void probe_idpool_release() {
+    thoth::id_pool<> pool{};
+    auto* raw = reinterpret_cast<unsigned char*>(&pool);
+    std::memset(&pool, 0, sizeof(pool));
+    for (std::size_t i = 0; i < thoth::id_pool<>::max_count; ++i) raw[i] = static_cast<unsigned char>(i + 1);
+    raw[thoth::id_pool<>::max_count] = 3;      // cursor_: ids 0,1,2 handed out
+    raw[thoth::id_pool<>::max_count + 1] = 1;  // prepared_
+    probe_idpool_dump("seeded", pool);
+    pool.release(1);
+    probe_idpool_dump("after-release1", pool);
+    pool.release(0);
+    probe_idpool_dump("after-release0", pool);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -465,6 +483,7 @@ int main(int argc, char** argv) {
         if (which == "spinlock")      { probe_spinlock(); return 0; }
         if (which == "idpool")        { probe_idpool(); return 0; }
         if (which == "idpool-partial"){ probe_idpool_partial(); return 0; }
+        if (which == "idpool-release"){ probe_idpool_release(); return 0; }
         std::fprintf(stderr, "unknown conformance probe '%s'\n", which.c_str());
         return 2;
     }

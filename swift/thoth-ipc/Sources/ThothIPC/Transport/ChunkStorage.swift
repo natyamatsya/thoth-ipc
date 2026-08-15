@@ -253,6 +253,23 @@ public enum ChunkConform {
         return out
     }
 
+    /// Release on its own, from a pool seeded by writing its bytes rather than
+    /// by calling prepare() — the probe a receive-only port can answer.
+    public static func idpoolRelease() -> [String] {
+        var out: [String] = []
+        withPool { base in
+            for i in 0..<chunkMaxCount { ciNextPtr(base).advanced(by: i).pointee = UInt8(i + 1) }
+            ciCursorPtr(base).pointee = 3 // ids 0,1,2 handed out
+            base.advanced(by: ciPreparedOffset).assumingMemoryBound(to: UInt8.self).pointee = 1
+            out.append(dump("seeded", base))
+            chunkRelease(base, id: 1)
+            out.append(dump("after-release1", base))
+            chunkRelease(base, id: 0)
+            out.append(dump("after-release0", base))
+        }
+        return out
+    }
+
     public static func idpoolPartial() -> [String] {
         var out: [String] = []
         withPool { base in

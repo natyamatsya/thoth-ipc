@@ -551,6 +551,7 @@ fn main() {
             "spinlock" => thoth_ipc::conform::spinlock(),
             "idpool" => thoth_ipc::conform::idpool(),
             "idpool-partial" => thoth_ipc::conform::idpool_partial(),
+            "idpool-release" => thoth_ipc::conform::idpool_release(),
             other => {
                 eprintln!("unknown conformance probe '{other}'");
                 exit(2);

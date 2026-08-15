@@ -373,6 +373,26 @@ pub mod conform {
         out
     }
 
+    /// Release on its own, from a pool seeded by writing its bytes rather than
+    /// by calling prepare(). A port that implements only the receiving half of
+    /// chunk storage still implements release, and this is the probe it can
+    /// answer.
+    pub fn idpool_release() -> Vec<String> {
+        let mut info = zeroed();
+        for i in 0..MAX_COUNT {
+            info.next_[i] = (i + 1) as u8;
+        }
+        info.cursor_ = 3; // ids 0,1,2 handed out
+        info.prepared_ = 1;
+        let mut out = Vec::new();
+        dump("seeded", &info, &mut out);
+        info.release(1);
+        dump("after-release1", &info, &mut out);
+        info.release(0);
+        dump("after-release0", &info, &mut out);
+        out
+    }
+
     /// `MAX_COUNT` is part of the trace's shape; assert the ports agree on it.
     pub const SLOTS: usize = MAX_COUNT;
 }

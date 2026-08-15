@@ -142,6 +142,7 @@ impl Default for ConformScenarioConfig {
                 "spinlock".into(),
                 "idpool".into(),
                 "idpool-partial".into(),
+                "idpool-release".into(),
             ],
             reference: "cpp".into(),
         }
