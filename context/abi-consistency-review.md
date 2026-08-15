@@ -88,6 +88,38 @@ The repo already has the shape of this idea for *names* —
 against a generated golden. The same trick applied to *state transitions* rather
 than names is the missing tier-3 guard.
 
+## Outcome (2026-08-15)
+
+All five recommendations were worked through; four landed, one was assessed and
+declined.
+
+| # | Recommendation | Outcome |
+|---|---|---|
+| 1 | Byte-golden conformance probes | **Done.** `conform` scenario, 9 cases. Found a second divergence on its first run (below). |
+| 2 | Extend `primitive_id` to spin locks | **Declined**, see below. |
+| 3 | Describe `chunk_info_t` in abi.json | **Done.** Ports assert generated offsets instead of literals. |
+| 4 | Stop prose carrying semantics | **Done.** `protocol` tags + `abi/protocols.txt`; the runner refuses to run when a declared protocol has no probe. |
+| 5 | Contention scenario | **Done.** `contend`, 8 cases at chunk-storage sizes. |
+
+**What the probes found immediately.** `idpool-partial` failed on its first run:
+C++ decides a pool is fresh by comparing the *whole* structure against a zeroed
+one (`id_pool::invalid()` is a memcmp), while all three ports sampled only
+`next_[0]`, `cursor_` and `prepared_`. A partially written pool — a torn init —
+therefore read as fresh to the ports and as used to C++, and the two would
+disagree about whether to rebuild the free list. Latent rather than live, but it
+is precisely the tier-3 class this review is about, and it had been sitting
+under a green 363-case matrix.
+
+**Why recommendation 2 was declined.** Each SyncAbi stamp is its own shm object
+(`<name><sidecar_suffix>`), so covering the spin locks means a new segment per
+ring *and* per chunk pool, created and validated by the C++ reference as well —
+otherwise the ports stamp something nothing checks. That is a wire change across
+four implementations to buy protection against run-time peer skew, which the
+conformance probes now cover at build time for free, and which the application
+layer already covers separately via the build-id handshake
+(`git:<hash>+thoth-ipc:<version>`, reported as skew on connect). Revisit only if
+a skew bug appears that neither mechanism catches.
+
 ## Recommendations, in priority order
 
 1. **Byte-golden conformance for tier-3 primitives.** Give each harness a
