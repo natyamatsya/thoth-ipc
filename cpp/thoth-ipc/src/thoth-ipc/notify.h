@@ -329,8 +329,10 @@ struct notify_sigpipe_guard {
         sigset_t pend;
         if (sigpending(&pend) == 0 && sigismember(&pend, SIGPIPE)) {
             sigset_t only; sigemptyset(&only); sigaddset(&only, SIGPIPE);
-            int sig; struct timespec zero{0, 0};
-            ::sigtimedwait(&only, &sig, &zero);
+            struct timespec zero{0, 0};
+            // POSIX: the second parameter is `siginfo_t *`, and NULL is allowed.
+            // We only want the pending signal consumed; the number is already known.
+            ::sigtimedwait(&only, nullptr, &zero);
         }
         if (blocked_) pthread_sigmask(SIG_SETMASK, &old_, nullptr);
     }
