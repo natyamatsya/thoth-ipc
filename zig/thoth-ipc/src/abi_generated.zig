@@ -65,6 +65,7 @@ pub const secure_alg = enum(u16) {
 // --- struct layout (byte sizes + field offsets) ---
 /// message framing inside a slot's data_ (msg_t<64,8>)
 pub const msg_t_size: usize = 80;
+pub const msg_t_align: usize = 8;
 pub const msg_t_cc_id_off: usize = 0;
 pub const msg_t_id_off: usize = 4;
 pub const msg_t_remain_off: usize = 8;
@@ -72,27 +73,33 @@ pub const msg_t_storage_off: usize = 12;
 pub const msg_t_payload_off: usize = 16;
 /// shared conn_head_base + cache-line-aligned prod_cons head; identical offsets for route and channel (block_ starts at size)
 pub const ring_header_size: usize = 192;
+pub const ring_header_align: usize = 64;
 pub const ring_header_cc_off: usize = 0;
 /// protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
 pub const ring_header_lc_off: usize = 4;
 pub const ring_header_constructed_off: usize = 8;
 pub const ring_header_cursor_off: usize = 64;
 pub const ring_header_epoch_off: usize = 128;
-/// single-writer route slot (elem_t<80,AlignSize>); size is align-dependent
+/// single-writer route slot (elem_t<80,AlignSize>): `alignas(AlignSize) byte_t data_[80]` + `atomic<u64> rc_`. AlignSize = min(DataSize, alignof(max_align_t)), so the ALIGNMENT is what makes the slot 88 on the align-8 targets and 96 elsewhere; it is per-target for the same reason the size is, and a port that hardcodes 8 gets the stride wrong off Apple/MSVC
 pub const route_elem_size: usize = 88;
+pub const route_elem_align: usize = 8;
 pub const route_elem_data_off: usize = 0;
 pub const route_elem_rc_off: usize = 80;
-/// multi-writer channel slot (adds the f_ct_ commit flag)
+/// multi-writer channel slot (adds the f_ct_ commit flag). Same AlignSize story as route_elem, but the size is unaffected: 80 + 8 + 8 is already a multiple of 16
 pub const channel_elem_size: usize = 96;
+pub const channel_elem_align: usize = 8;
 pub const channel_elem_data_off: usize = 0;
 pub const channel_elem_rc_off: usize = 80;
 pub const channel_elem_f_ct_off: usize = 88;
 /// sizeof(elem_array<route,80,AlignSize>) — ftruncate target; align-dependent
 pub const route_ring_size: usize = 22784;
+pub const route_ring_align: usize = 64;
 /// sizeof(elem_array<channel,80,AlignSize>) — ftruncate target; same on both align classes (the f_ct_ flag already makes the slot 96)
 pub const channel_ring_size: usize = 24832;
+pub const channel_ring_align: usize = 64;
 /// CHUNK_INFO__<size> header: id_pool free list + the pool spin_lock. Chunks start at offset `size` (C++ `this + 1`).
 pub const chunk_info_size: usize = 40;
+pub const chunk_info_align: usize = 4;
 /// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
 pub const chunk_info_next_off: usize = 0;
 /// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
@@ -103,10 +110,12 @@ pub const chunk_info_prepared_off: usize = 33;
 pub const chunk_info_lock_off: usize = 36;
 /// LV_CONN__ owner table entry (32 of them = 512 B)
 pub const liveness_slot_size: usize = 16;
+pub const liveness_slot_align: usize = 8;
 pub const liveness_slot_pid_off: usize = 0;
 pub const liveness_slot_start_tok_off: usize = 8;
 /// secure envelope v1 fixed header (all little-endian)
 pub const sipc_header_size: usize = 19;
+pub const sipc_header_align: usize = 1;
 pub const sipc_header_magic_off: usize = 0;
 pub const sipc_header_version_off: usize = 4;
 pub const sipc_header_alg_id_off: usize = 5;
@@ -116,6 +125,7 @@ pub const sipc_header_tag_size_off: usize = 13;
 pub const sipc_header_ct_size_off: usize = 15;
 /// sync ABI guard sidecar (6 x u32)
 pub const syncabi_stamp_size: usize = 24;
+pub const syncabi_stamp_align: usize = 4;
 pub const syncabi_stamp_magic_off: usize = 0;
 pub const syncabi_stamp_ver_major_off: usize = 4;
 pub const syncabi_stamp_ver_minor_off: usize = 8;

@@ -65,12 +65,14 @@ enum class secure_alg : std::uint16_t { aes256gcm = 1, chacha20poly1305 = 2 };
 
 // --- struct layout (byte sizes + field offsets) ---
 inline constexpr std::size_t msg_t_size = 80;
+inline constexpr std::size_t msg_t_align = 8;
 inline constexpr std::size_t msg_t_cc_id_off = 0;
 inline constexpr std::size_t msg_t_id_off = 4;
 inline constexpr std::size_t msg_t_remain_off = 8;
 inline constexpr std::size_t msg_t_storage_off = 12;
 inline constexpr std::size_t msg_t_payload_off = 16;
 inline constexpr std::size_t ring_header_size = 192;
+inline constexpr std::size_t ring_header_align = 64;
 inline constexpr std::size_t ring_header_cc_off = 0;
 // protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
 inline constexpr std::size_t ring_header_lc_off = 4;
@@ -82,9 +84,19 @@ inline constexpr std::size_t route_elem_size = 88;
 #else
 inline constexpr std::size_t route_elem_size = 96;
 #endif
+#if (defined(__APPLE__) && defined(__aarch64__)) || defined(_MSC_VER)
+inline constexpr std::size_t route_elem_align = 8;
+#else
+inline constexpr std::size_t route_elem_align = 16;
+#endif
 inline constexpr std::size_t route_elem_data_off = 0;
 inline constexpr std::size_t route_elem_rc_off = 80;
 inline constexpr std::size_t channel_elem_size = 96;
+#if (defined(__APPLE__) && defined(__aarch64__)) || defined(_MSC_VER)
+inline constexpr std::size_t channel_elem_align = 8;
+#else
+inline constexpr std::size_t channel_elem_align = 16;
+#endif
 inline constexpr std::size_t channel_elem_data_off = 0;
 inline constexpr std::size_t channel_elem_rc_off = 80;
 inline constexpr std::size_t channel_elem_f_ct_off = 88;
@@ -93,8 +105,11 @@ inline constexpr std::size_t route_ring_size = 22784;
 #else
 inline constexpr std::size_t route_ring_size = 24832;
 #endif
+inline constexpr std::size_t route_ring_align = 64;
 inline constexpr std::size_t channel_ring_size = 24832;
+inline constexpr std::size_t channel_ring_align = 64;
 inline constexpr std::size_t chunk_info_size = 40;
+inline constexpr std::size_t chunk_info_align = 4;
 // protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
 inline constexpr std::size_t chunk_info_next_off = 0;
 // protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
@@ -104,9 +119,11 @@ inline constexpr std::size_t chunk_info_prepared_off = 33;
 // protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
 inline constexpr std::size_t chunk_info_lock_off = 36;
 inline constexpr std::size_t liveness_slot_size = 16;
+inline constexpr std::size_t liveness_slot_align = 8;
 inline constexpr std::size_t liveness_slot_pid_off = 0;
 inline constexpr std::size_t liveness_slot_start_tok_off = 8;
 inline constexpr std::size_t sipc_header_size = 19;
+inline constexpr std::size_t sipc_header_align = 1;
 inline constexpr std::size_t sipc_header_magic_off = 0;
 inline constexpr std::size_t sipc_header_version_off = 4;
 inline constexpr std::size_t sipc_header_alg_id_off = 5;
@@ -115,6 +132,7 @@ inline constexpr std::size_t sipc_header_nonce_size_off = 11;
 inline constexpr std::size_t sipc_header_tag_size_off = 13;
 inline constexpr std::size_t sipc_header_ct_size_off = 15;
 inline constexpr std::size_t syncabi_stamp_size = 24;
+inline constexpr std::size_t syncabi_stamp_align = 4;
 inline constexpr std::size_t syncabi_stamp_magic_off = 0;
 inline constexpr std::size_t syncabi_stamp_ver_major_off = 4;
 inline constexpr std::size_t syncabi_stamp_ver_minor_off = 8;

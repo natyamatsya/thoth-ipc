@@ -390,6 +390,7 @@ fn gen_zig(abi: &Value, target: &str) -> String {
             o.push_str(&format!("/// {d}\n"));
         }
         o.push_str(&format!("pub const {name}_size: usize = {};\n", resolve_int(&s["size"], target).unwrap()));
+        o.push_str(&format!("pub const {name}_align: usize = {};\n", resolve_int(&s["align"], target).unwrap()));
         for f in s["fields"].as_array().unwrap_or(&vec![]) {
             let fname = f["name"].as_str().unwrap();
             if let Some(p) = f["protocol"].as_str() {
@@ -565,6 +566,7 @@ fn gen_rust(abi: &Value, _target: &str) -> String {
     for s in abi["structs"].as_array().unwrap() {
         let name = s["name"].as_str().unwrap();
         emit_rust(&mut o, &format!("pub const {name}_size: usize"), &ts, |t| resolve_int(&s["size"], t).unwrap().to_string());
+        emit_rust(&mut o, &format!("pub const {name}_align: usize"), &ts, |t| resolve_int(&s["align"], t).unwrap().to_string());
         for f in each_field(s) {
             let fname = f["name"].as_str().unwrap();
             if let Some(p) = f["protocol"].as_str() {
@@ -637,6 +639,7 @@ fn gen_swift(abi: &Value, target: &str) -> String {
     for s in abi["structs"].as_array().unwrap() {
         let name = s["name"].as_str().unwrap();
         o.push_str(&format!("    public static let {name}_size: Int = {}\n", resolve_int(&s["size"], target).unwrap()));
+        o.push_str(&format!("    public static let {name}_align: Int = {}\n", resolve_int(&s["align"], target).unwrap()));
         for f in each_field(s) {
             if let Some(p) = f["protocol"].as_str() {
                 o.push_str(&format!("    {}\n", protocol_note("///", p)));
@@ -711,6 +714,7 @@ fn gen_cpp(abi: &Value, _target: &str) -> String {
     for s in abi["structs"].as_array().unwrap() {
         let name = s["name"].as_str().unwrap();
         emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_size"), "", &ts, |t| resolve_int(&s["size"], t).unwrap().to_string());
+        emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_align"), "", &ts, |t| resolve_int(&s["align"], t).unwrap().to_string());
         for f in each_field(s) {
             let fname = f["name"].as_str().unwrap();
             if let Some(p) = f["protocol"].as_str() {

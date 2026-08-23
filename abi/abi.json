@@ -257,8 +257,11 @@
             "apple_arm64": 88,
             "x86_64": 96
          },
-         "align": 8,
-         "description": "single-writer route slot (elem_t<80,AlignSize>); size is align-dependent",
+         "align": {
+            "apple_arm64": 8,
+            "x86_64": 16
+         },
+         "description": "single-writer route slot (elem_t<80,AlignSize>): `alignas(AlignSize) byte_t data_[80]` + `atomic<u64> rc_`. AlignSize = min(DataSize, alignof(max_align_t)), so the ALIGNMENT is what makes the slot 88 on the align-8 targets and 96 elsewhere; it is per-target for the same reason the size is, and a port that hardcodes 8 gets the stride wrong off Apple/MSVC",
          "fields": [
             {
                "name": "data",
@@ -279,8 +282,11 @@
       {
          "name": "channel_elem",
          "size": 96,
-         "align": 8,
-         "description": "multi-writer channel slot (adds the f_ct_ commit flag)",
+         "align": {
+            "apple_arm64": 8,
+            "x86_64": 16
+         },
+         "description": "multi-writer channel slot (adds the f_ct_ commit flag). Same AlignSize story as route_elem, but the size is unaffected: 80 + 8 + 8 is already a multiple of 16",
          "fields": [
             {
                "name": "data",

@@ -68,12 +68,14 @@ pub enum secure_alg {
 
 // --- struct layout (byte sizes + field offsets) ---
 pub const msg_t_size: usize = 80;
+pub const msg_t_align: usize = 8;
 pub const msg_t_cc_id_off: usize = 0;
 pub const msg_t_id_off: usize = 4;
 pub const msg_t_remain_off: usize = 8;
 pub const msg_t_storage_off: usize = 12;
 pub const msg_t_payload_off: usize = 16;
 pub const ring_header_size: usize = 192;
+pub const ring_header_align: usize = 64;
 pub const ring_header_cc_off: usize = 0;
 /// protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
 pub const ring_header_lc_off: usize = 4;
@@ -84,9 +86,17 @@ pub const ring_header_epoch_off: usize = 128;
 pub const route_elem_size: usize = 88;
 #[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
 pub const route_elem_size: usize = 96;
+#[cfg(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc"))]
+pub const route_elem_align: usize = 8;
+#[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
+pub const route_elem_align: usize = 16;
 pub const route_elem_data_off: usize = 0;
 pub const route_elem_rc_off: usize = 80;
 pub const channel_elem_size: usize = 96;
+#[cfg(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc"))]
+pub const channel_elem_align: usize = 8;
+#[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
+pub const channel_elem_align: usize = 16;
 pub const channel_elem_data_off: usize = 0;
 pub const channel_elem_rc_off: usize = 80;
 pub const channel_elem_f_ct_off: usize = 88;
@@ -94,8 +104,11 @@ pub const channel_elem_f_ct_off: usize = 88;
 pub const route_ring_size: usize = 22784;
 #[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
 pub const route_ring_size: usize = 24832;
+pub const route_ring_align: usize = 64;
 pub const channel_ring_size: usize = 24832;
+pub const channel_ring_align: usize = 64;
 pub const chunk_info_size: usize = 40;
+pub const chunk_info_align: usize = 4;
 /// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
 pub const chunk_info_next_off: usize = 0;
 /// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
@@ -105,9 +118,11 @@ pub const chunk_info_prepared_off: usize = 33;
 /// protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
 pub const chunk_info_lock_off: usize = 36;
 pub const liveness_slot_size: usize = 16;
+pub const liveness_slot_align: usize = 8;
 pub const liveness_slot_pid_off: usize = 0;
 pub const liveness_slot_start_tok_off: usize = 8;
 pub const sipc_header_size: usize = 19;
+pub const sipc_header_align: usize = 1;
 pub const sipc_header_magic_off: usize = 0;
 pub const sipc_header_version_off: usize = 4;
 pub const sipc_header_alg_id_off: usize = 5;
@@ -116,6 +131,7 @@ pub const sipc_header_nonce_size_off: usize = 11;
 pub const sipc_header_tag_size_off: usize = 13;
 pub const sipc_header_ct_size_off: usize = 15;
 pub const syncabi_stamp_size: usize = 24;
+pub const syncabi_stamp_align: usize = 4;
 pub const syncabi_stamp_magic_off: usize = 0;
 pub const syncabi_stamp_ver_major_off: usize = 4;
 pub const syncabi_stamp_ver_minor_off: usize = 8;

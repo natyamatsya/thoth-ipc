@@ -63,12 +63,14 @@ public enum ABI {
 
     // MARK: struct layout (byte sizes + field offsets)
     public static let msg_t_size: Int = 80
+    public static let msg_t_align: Int = 8
     public static let msg_t_cc_id_off: Int = 0
     public static let msg_t_id_off: Int = 4
     public static let msg_t_remain_off: Int = 8
     public static let msg_t_storage_off: Int = 12
     public static let msg_t_payload_off: Int = 16
     public static let ring_header_size: Int = 192
+    public static let ring_header_align: Int = 64
     public static let ring_header_cc_off: Int = 0
     /// protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
     public static let ring_header_lc_off: Int = 4
@@ -76,15 +78,20 @@ public enum ABI {
     public static let ring_header_cursor_off: Int = 64
     public static let ring_header_epoch_off: Int = 128
     public static let route_elem_size: Int = 88
+    public static let route_elem_align: Int = 8
     public static let route_elem_data_off: Int = 0
     public static let route_elem_rc_off: Int = 80
     public static let channel_elem_size: Int = 96
+    public static let channel_elem_align: Int = 8
     public static let channel_elem_data_off: Int = 0
     public static let channel_elem_rc_off: Int = 80
     public static let channel_elem_f_ct_off: Int = 88
     public static let route_ring_size: Int = 22784
+    public static let route_ring_align: Int = 64
     public static let channel_ring_size: Int = 24832
+    public static let channel_ring_align: Int = 64
     public static let chunk_info_size: Int = 40
+    public static let chunk_info_align: Int = 4
     /// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
     public static let chunk_info_next_off: Int = 0
     /// protocol: exercised by the `idpool` conformance probe (byte-for-byte across ports)
@@ -94,9 +101,11 @@ public enum ABI {
     /// protocol: exercised by the `spinlock` conformance probe (byte-for-byte across ports)
     public static let chunk_info_lock_off: Int = 36
     public static let liveness_slot_size: Int = 16
+    public static let liveness_slot_align: Int = 8
     public static let liveness_slot_pid_off: Int = 0
     public static let liveness_slot_start_tok_off: Int = 8
     public static let sipc_header_size: Int = 19
+    public static let sipc_header_align: Int = 1
     public static let sipc_header_magic_off: Int = 0
     public static let sipc_header_version_off: Int = 4
     public static let sipc_header_alg_id_off: Int = 5
@@ -105,6 +114,7 @@ public enum ABI {
     public static let sipc_header_tag_size_off: Int = 13
     public static let sipc_header_ct_size_off: Int = 15
     public static let syncabi_stamp_size: Int = 24
+    public static let syncabi_stamp_align: Int = 4
     public static let syncabi_stamp_magic_off: Int = 0
     public static let syncabi_stamp_ver_major_off: Int = 4
     public static let syncabi_stamp_ver_minor_off: Int = 8

@@ -102,7 +102,16 @@ const RING_SIZE: usize = abi::ring_size;
 /// unchanged): a slot lives in shared memory and is written through a shared
 /// `&ElemT`, which would be UB against a plain `[u8; N]`. Cross-slot exclusion is
 /// enforced by the `rc_` protocol, not the Rust borrow checker.
-#[repr(C, align(8))]
+/// The alignment is target-dependent and load-bearing. C++ declares the slot as
+/// `alignas(AlignSize) byte_t data_[80]; std::atomic<u64> rc_;` with
+/// `AlignSize = min(DataSize, alignof(std::max_align_t))` — 8 on Apple arm64 and
+/// MSVC, but **16 on x86_64 Linux**, where `long double` gives `max_align_t` a
+/// 16-byte alignment. That padding is what makes the slot 88 bytes there and 96
+/// here, and the slot size IS the ring stride: a mirror that is 88 everywhere
+/// reads every slot but the first at the wrong offset. The literals below are
+/// checked against the generated `route_elem_align` right after the struct.
+#[cfg_attr(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc"), repr(C, align(8)))]
+#[cfg_attr(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")), repr(C, align(16)))]
 struct ElemT {
     data_: UnsafeCell<[u8; MSG_SIZE]>, // holds a msg_t<64,8>
     rc_: AtomicU64,
@@ -120,7 +129,7 @@ const MSG_PAYLOAD: usize = abi::msg_t_payload_off; // [u8; 64] fragment payload
 // Compile-time guard: the Rust struct must match the generated ABI layout.
 const _: () = {
     assert!(std::mem::size_of::<ElemT>() == abi::route_elem_size);
-    assert!(std::mem::align_of::<ElemT>() == 8);
+    assert!(std::mem::align_of::<ElemT>() == abi::route_elem_align);
     assert!(std::mem::offset_of!(ElemT, rc_) == abi::route_elem_rc_off);
 };
 
@@ -179,7 +188,13 @@ const EP_INCR: u64 = abi::route_ep_incr;
 /// Multi-writer channel slot: the route slot plus a per-slot `f_ct_` commit flag.
 /// `data_` is an `UnsafeCell` for the same reason as `ElemT` (interior mutation
 /// through a shared `&ChannelElemT`); `#[repr(transparent)]` keeps the layout.
-#[repr(C, align(8))]
+/// Same target-dependent `AlignSize` as `ElemT` (see there). The size is 96 on
+/// every target regardless — 80 + 8 + 8 is already a multiple of 16 — so only the
+/// alignment differs, but it is mirrored anyway: this is an ABI mirror, and
+/// matching by size while disagreeing about alignment is how the next thing that
+/// embeds it goes wrong.
+#[cfg_attr(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc"), repr(C, align(8)))]
+#[cfg_attr(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")), repr(C, align(16)))]
 struct ChannelElemT {
     data_: UnsafeCell<[u8; MSG_SIZE]>,
     rc_: AtomicU64,
@@ -187,6 +202,7 @@ struct ChannelElemT {
 }
 const _: () = {
     assert!(std::mem::size_of::<ChannelElemT>() == abi::channel_elem_size);
+    assert!(std::mem::align_of::<ChannelElemT>() == abi::channel_elem_align);
     assert!(std::mem::offset_of!(ChannelElemT, rc_) == abi::channel_elem_rc_off);
     assert!(std::mem::offset_of!(ChannelElemT, f_ct_) == abi::channel_elem_f_ct_off);
 };

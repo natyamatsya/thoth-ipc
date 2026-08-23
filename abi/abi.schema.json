@@ -31,6 +31,7 @@
     "constants": { "type": "array", "items": { "$ref": "#/$defs/constant" } },
     "enums": { "type": "array", "items": { "$ref": "#/$defs/enum" } },
     "structs": { "type": "array", "items": { "$ref": "#/$defs/struct" } },
+    "$protocol_note": { "type": "string" },
     "names": { "type": "array", "items": { "$ref": "#/$defs/nameTemplate" } }
   },
   "$defs": {
@@ -98,6 +99,10 @@
         "type": { "enum": ["u8", "u16", "u32", "u64", "i32", "bytes", "lock"] },
         "count": { "type": "integer", "description": "element count for `bytes` (a byte array)" },
         "atomic": { "type": "boolean", "default": false },
+        "protocol": {
+          "type": "string",
+          "description": "names the shared-byte protocol operating on this field; the conformance runner refuses to run when a declared protocol has no probe (see context/abi-consistency-review.md, recommendation 4)"
+        },
         "description": { "type": "string" }
       }
     },
@@ -108,7 +113,7 @@
       "properties": {
         "name": { "$ref": "#/$defs/identifier" },
         "size": { "$ref": "#/$defs/intOrPerTarget" },
-        "align": { "type": "integer" },
+        "align": { "$ref": "#/$defs/intOrPerTarget" },
         "description": { "type": "string" },
         "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } }
       }
