@@ -552,6 +552,7 @@ fn main() {
             "idpool" => thoth_ipc::conform::idpool(),
             "idpool-partial" => thoth_ipc::conform::idpool_partial(),
             "idpool-release" => thoth_ipc::conform::idpool_release(),
+            "sole-owner" => thoth_ipc::liveness::conform_sole_owner(),
             other => {
                 eprintln!("unknown conformance probe '{other}'");
                 exit(2);
@@ -694,6 +695,28 @@ fn main() {
         #[cfg(feature = "secure-crypto-c")]
         caps.extend(secure::caps());
         println!("{}", caps.join(" "));
+        exit(0);
+    }
+    // Claim the route's sole-sender slot and hold it, so a test can SIGKILL this
+    // process and check a new sender takes it over (or is refused while this one
+    // lives). Prints READY once the slot is held. Optional arg: hold seconds.
+    if verb == "shold" {
+        let secs: u64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(30);
+        let mut s = Route::connect(name, Mode::Sender).expect("connect sender");
+        if !s.sender_ready() {
+            eprintln!("sender slot not claimed");
+            exit(1);
+        }
+        println!("READY");
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        std::thread::sleep(std::time::Duration::from_secs(secs));
+        exit(0);
+    }
+    // Whether a new sender gets the route's sole-sender slot: 1 or 0.
+    if verb == "sclaim" {
+        let mut s = Route::connect(name, Mode::Sender).expect("connect sender");
+        println!("{}", if s.sender_ready() { 1 } else { 0 });
         exit(0);
     }
     // Connect a receiver and hold it (populating the LV_CONN__ owner table), so a

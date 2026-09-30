@@ -15,6 +15,7 @@
 const std = @import("std");
 const channel = @import("transport/channel.zig");
 const chunk = @import("transport/chunk.zig");
+const liveness = @import("transport/liveness.zig");
 const abi = @import("abi_generated.zig");
 const notify = @import("transport/notify.zig");
 const ChannelInner = @import("transport/channel_multi.zig").ChannelInner;
@@ -310,6 +311,35 @@ fn doHold(name: []const u8, secs: u64) u8 {
     pout("READY", .{});
     channel.sleepNs(secs * std.time.ns_per_s);
     _ = &ch;
+    return 0;
+}
+
+/// Claim the route's sole-sender slot and hold it, so a test can SIGKILL this
+/// process and check a new sender takes it over (or is refused while this one
+/// lives). Prints READY once the slot is held. No deinit, as in doHold.
+fn doShold(name: []const u8, secs: u64) u8 {
+    var ch = ChanInner.open(alloc, "", name, .sender) catch {
+        perr("[zig] connect(sender) failed", .{});
+        return 3;
+    };
+    if (!ch.senderReady()) {
+        perr("[zig] sender slot not claimed", .{});
+        return 1;
+    }
+    pout("READY", .{});
+    channel.sleepNs(secs * std.time.ns_per_s);
+    _ = &ch;
+    return 0;
+}
+
+/// Whether a new sender gets the route's sole-sender slot: 1 or 0.
+fn doSclaim(name: []const u8) u8 {
+    var ch = ChanInner.open(alloc, "", name, .sender) catch {
+        perr("[zig] connect(sender) failed", .{});
+        return 3;
+    };
+    defer ch.deinit();
+    pout("{d}", .{@as(u8, if (ch.senderReady()) 1 else 0)});
     return 0;
 }
 
@@ -678,8 +708,59 @@ fn runProbe(which: []const u8) u8 {
         for (images, steps) |img, step| poutPoolImage(step, img);
         return 0;
     }
+    if (std.mem.eql(u8, which, "sole-owner")) {
+        probeSoleOwner();
+        return 0;
+    }
     perr("unknown conformance probe '{s}'", .{which});
     return 2;
+}
+
+/// The sole-owner claim (a route's single-sender guard) on a local record,
+/// through every state it can be found in; pid/start_tok print as "self" when
+/// they are this process's. Must print exactly what the C++ reference prints.
+fn probeSoleOwner() void {
+    const dead_pid: i32 = 0x7fff_fffe; // above every OS's pid limit: a dead holder
+    var rec: [16]u8 align(8) = [_]u8{0} ** 16;
+    const o: [*]u8 = &rec;
+    const pid_p: *u32 = @ptrCast(@alignCast(o + abi.liveness_slot_pid_off));
+    const tok_p: *u64 = @ptrCast(@alignCast(o + abi.liveness_slot_start_tok_off));
+    const me = liveness.selfPid();
+    const my_tok = liveness.startToken(me);
+    const S = struct {
+        fn dump(step: []const u8, ok: ?bool, p: *u32, t: *u64, self_pid: i32, self_tok: u64) void {
+            const pid: i32 = @bitCast(p.*);
+            const tok = t.*;
+            var pb: [24]u8 = undefined;
+            var tb: [24]u8 = undefined;
+            const ps = if (pid != 0 and pid == self_pid) "self" else (std.fmt.bufPrint(&pb, "{d}", .{pid}) catch "?");
+            const ts = if (tok != 0 and tok == self_tok) "self" else (std.fmt.bufPrint(&tb, "{d}", .{tok}) catch "?");
+            const ks = if (ok) |k| (if (k) "1" else "0") else "-";
+            poutWide("step={s} ok={s} pid={s} tok={s}", .{ step, ks, ps, ts });
+        }
+    };
+    S.dump("zeroed", null, pid_p, tok_p, me, my_tok);
+    S.dump("claim-free", liveness.claimSoleOwner(o), pid_p, tok_p, me, my_tok);
+    S.dump("claim-held-by-self", liveness.claimSoleOwner(o), pid_p, tok_p, me, my_tok);
+    liveness.releaseSoleOwner(o);
+    S.dump("release", null, pid_p, tok_p, me, my_tok);
+    // A pre-owner-record binary set only the first byte: pid 1, always alive.
+    pid_p.* = 0;
+    tok_p.* = 0;
+    rec[0] = 1;
+    S.dump("claim-legacy-flag", liveness.claimSoleOwner(o), pid_p, tok_p, me, my_tok);
+    liveness.releaseSoleOwner(o);
+    S.dump("release-not-owner", null, pid_p, tok_p, me, my_tok);
+    pid_p.* = @bitCast(liveness.owner_claiming);
+    tok_p.* = 0;
+    S.dump("claim-in-flight", liveness.claimSoleOwner(o), pid_p, tok_p, me, my_tok);
+    pid_p.* = @bitCast(dead_pid);
+    tok_p.* = 12345;
+    S.dump("claim-dead-holder", liveness.claimSoleOwner(o), pid_p, tok_p, me, my_tok);
+    // This pid with another start token: the recorded holder is gone.
+    pid_p.* = @bitCast(me);
+    tok_p.* = my_tok +% 1;
+    S.dump("claim-reused-pid", liveness.claimSoleOwner(o), pid_p, tok_p, me, my_tok);
 }
 
 pub fn main(m: std.process.Init.Minimal) void {
@@ -732,6 +813,11 @@ pub fn main(m: std.process.Init.Minimal) void {
         const secs: u64 = if (argv.len > 3) (std.fmt.parseInt(u64, argv[3], 10) catch 30) else 30;
         std.process.exit(doHold(name, secs));
     }
+    if (std.mem.eql(u8, verb, "shold")) {
+        const secs: u64 = if (argv.len > 3) (std.fmt.parseInt(u64, argv[3], 10) catch 30) else 30;
+        std.process.exit(doShold(name, secs));
+    }
+    if (std.mem.eql(u8, verb, "sclaim")) std.process.exit(doSclaim(name));
     if (std.mem.eql(u8, verb, "probe")) std.process.exit(doProbe(name));
     if (std.mem.eql(u8, verb, "count")) std.process.exit(doCount(name));
 

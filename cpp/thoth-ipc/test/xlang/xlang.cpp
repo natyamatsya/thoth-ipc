@@ -30,6 +30,7 @@
 #include "thoth-ipc/condition.h"
 #include "thoth-ipc/rw_lock.h"            // thoth::spin_lock (probe reference)
 #include "thoth-ipc/utility/id_pool.h"    // thoth::id_pool   (probe reference)
+#include "thoth-ipc/liveness.h"           // sole-owner claim  (probe reference)
 #include "thoth-ipc/mutex.h"
 #include "thoth-ipc/proto/codecs/protobuf_codec.h"
 #include "thoth-ipc/proto/codecs/secure_codec.h"
@@ -475,6 +476,45 @@ void probe_idpool_release() {
     probe_idpool_dump("after-release0", pool);
 }
 
+// The sole-owner claim (a route's single-sender guard, xlang-channel-abi.md §2a)
+// on a local owner record, through every state it can be found in. pid and
+// start_tok print as "self" when they are this process's, so the trace is the
+// same in every process and every port.
+void probe_sole_owner_dump(const char* step, int ok, const thoth::detail::slot_owner& o) {
+    const std::int32_t pid = o.pid.load();
+    const std::uint64_t tok = o.start_tok.load();
+    std::string p = (pid != 0 && pid == thoth::detail::self_pid()) ? "self" : std::to_string(pid);
+    std::string t = (tok != 0 && tok == thoth::detail::self_start_token()) ? "self" : std::to_string(tok);
+    std::printf("step=%s ok=%s pid=%s tok=%s\n", step, ok < 0 ? "-" : (ok ? "1" : "0"), p.c_str(), t.c_str());
+}
+
+void probe_sole_owner() {
+    using namespace thoth::detail;
+    // A pid no process can have (above every OS's pid limit): a dead holder.
+    constexpr std::int32_t dead_pid = 0x7ffffffe;
+    slot_owner o{};
+    auto set = [&o](std::int32_t pid, std::uint64_t tok) { o.pid.store(pid); o.start_tok.store(tok); };
+    probe_sole_owner_dump("zeroed", -1, o);
+    probe_sole_owner_dump("claim-free", claim_sole_owner(o), o);
+    probe_sole_owner_dump("claim-held-by-self", claim_sole_owner(o), o);
+    release_sole_owner(o);
+    probe_sole_owner_dump("release", -1, o);
+    // A pre-owner-record binary set only the first byte: pid 1, always alive.
+    set(0, 0);
+    reinterpret_cast<unsigned char*>(&o)[0] = 1;
+    probe_sole_owner_dump("claim-legacy-flag", claim_sole_owner(o), o);
+    release_sole_owner(o);
+    probe_sole_owner_dump("release-not-owner", -1, o);
+    set(owner_claiming, 0);
+    probe_sole_owner_dump("claim-in-flight", claim_sole_owner(o), o);
+    set(dead_pid, 12345);
+    probe_sole_owner_dump("claim-dead-holder", claim_sole_owner(o), o);
+    // This pid with another start token: the recorded holder was an earlier
+    // process that had this pid, so it is gone.
+    set(self_pid(), self_start_token() + 1);
+    probe_sole_owner_dump("claim-reused-pid", claim_sole_owner(o), o);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -484,6 +524,7 @@ int main(int argc, char** argv) {
         if (which == "idpool")        { probe_idpool(); return 0; }
         if (which == "idpool-partial"){ probe_idpool_partial(); return 0; }
         if (which == "idpool-release"){ probe_idpool_release(); return 0; }
+        if (which == "sole-owner")    { probe_sole_owner(); return 0; }
         std::fprintf(stderr, "unknown conformance probe '%s'\n", which.c_str());
         return 2;
     }
@@ -599,6 +640,24 @@ int main(int argc, char** argv) {
     if (verb == "count") {
         thoth::route r{name, thoth::receiver};
         std::printf("%zu\n", r.recv_count());
+        return 0;
+    }
+    // Claim the route's sole-sender slot and hold it, so a test can SIGKILL this
+    // process and check that a new sender takes the slot over (or, while this
+    // one lives, is refused). Prints READY once the slot is held.
+    if (verb == "shold") {
+        int secs = (argc > 3) ? std::atoi(argv[3]) : 30;
+        thoth::route s;
+        if (!s.connect(name, thoth::sender)) { std::fprintf(stderr, "sender slot not claimed\n"); return 1; }
+        std::printf("READY\n");
+        std::fflush(stdout);
+        std::this_thread::sleep_for(std::chrono::seconds(secs));
+        return 0;
+    }
+    // Whether a new sender gets the route's sole-sender slot: 1 or 0.
+    if (verb == "sclaim") {
+        thoth::route s;
+        std::printf("%d\n", s.connect(name, thoth::sender) ? 1 : 0);
         return 0;
     }
     // Connect a receiver and hold it (populating the owner table), so a test can

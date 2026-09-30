@@ -419,6 +419,7 @@ if args.count >= 3, args[1] == "conform" {
     case "idpool": lines = ChunkConform.idpool()
     case "idpool-partial": lines = ChunkConform.idpoolPartial()
     case "idpool-release": lines = ChunkConform.idpoolRelease()
+    case "sole-owner": lines = OwnerConform.soleOwner()
     default:
         FileHandle.standardError.write(Data("unknown conformance probe '\(args[2])'\n".utf8))
         exit(2)
@@ -555,6 +556,22 @@ if verb == "hold" {
     Thread.sleep(forTimeInterval: TimeInterval(secs))
     _ = r
     exit(0)
+}
+if verb == "shold" {
+    // Claim the route's sole-sender slot and hold it, so a test can SIGKILL this
+    // process and check a new sender takes it over (or is refused while this one
+    // lives). Prints READY once the slot is held.
+    let secs = args.count > 3 ? (Int(args[3]) ?? 30) : 30
+    let s = Route.connectBlocking(name: name, mode: .sender)
+    guard s.senderReady() else { perr("sender slot not claimed"); exit(1) }
+    print("READY"); fflush(stdout)
+    Thread.sleep(forTimeInterval: TimeInterval(secs))
+    _ = s
+    exit(0)
+}
+if verb == "sclaim" {  // whether a new sender gets the route's sole-sender slot: 1 or 0
+    let s = Route.connectBlocking(name: name, mode: .sender)
+    print(s.senderReady() ? 1 : 0); exit(0)
 }
 if verb == "probe" {  // sender: observe recv count without reaping or claiming a slot
     let r = Route.connectBlocking(name: name, mode: .sender)

@@ -448,6 +448,48 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                     channel: ch,
                     xfail: false,
                 });
+                // A route has one sender (the ring's sole-sender owner record,
+                // xlang-channel-abi.md §2a). dead: a sender SIGKILLed while it
+                // holds the slot must not block every later sender; a new one
+                // takes it over (1). live: a live holder is never taken over (0),
+                // which also proves the start token matches cross-language.
+                for dead in [true, false] {
+                    let kind = if dead { "dead" } else { "live" };
+                    let ch = namer.next("r");
+                    cases.push(Case {
+                        scenario: "reap".into(),
+                        id: format!("{} shold -> {} sclaim {}", h.name, r.name, kind),
+                        kind: CaseKind::HoldProbe {
+                            holder: Proc::new(h, vec!["shold".into(), ch.clone(), "20".into()]),
+                            kill_holder: dead,
+                            probes: vec![Probe {
+                                proc: Proc::new(r, vec!["sclaim".into(), ch.clone()]),
+                                expect: (if dead { "1" } else { "0" }).into(),
+                            }],
+                            then_group: None,
+                        },
+                        channel: ch,
+                        xfail: false,
+                    });
+                }
+                // After a sender holder dies, a new sender's traffic flows on the
+                // SAME channel.
+                let ch = namer.next("r");
+                cases.push(Case {
+                    scenario: "reap".into(),
+                    id: format!("{} shold dead -> {} -> {} traffic", h.name, r.name, h.name),
+                    kind: CaseKind::HoldProbe {
+                        holder: Proc::new(h, vec!["shold".into(), ch.clone(), "20".into()]),
+                        kill_holder: true,
+                        probes: Vec::new(),
+                        then_group: Some((
+                            vec![Proc::new(h, rw_args("read", &ch, 5, 200, &[]))],
+                            vec![Proc::new(r, rw_args("write", &ch, 5, 200, &[]))],
+                        )),
+                    },
+                    channel: ch,
+                    xfail: false,
+                });
             }
         }
     }
