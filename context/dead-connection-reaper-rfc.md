@@ -277,6 +277,28 @@ could stay connected across an app restart. The bridge's `send` delivered-bool
 the notify layer — the bridge's async receives are no longer woken by (or waiting
 on) dead slots.
 
+## Dead senders (implemented)
+
+Receivers were not the only sticky state a killed peer left behind. A route admits
+one sender, guarded by a one-byte `atomic_flag` in the ring's trailer
+(`elem_array::sender_checker`): set when a sender opens, cleared only by a clean
+`shut_sending()`. A SIGKILLed sender never cleared it, so every later sender on the
+channel was refused (`fail: send, que->ready_sending() == false`) until
+`clear_storage()`. That is exactly what the client above hits once it drops its
+startup wipe: an app killed and restarted with the same channel names can receive
+but can no longer publish on its own channels.
+
+The fix applies this RFC's rule to the sender: the flag became a `slot_owner` (the
+same 16-byte `{pid, start_tok}` record) holding the sender's process, claimed by
+CAS and taken over from a **dead** holder (`is_process_alive(pid, start_tok)`), never
+from a live one. The record occupies the trailer's former padding, so the ring's
+size is unchanged. A claim goes through a `-1` "in flight" state so no claimant can
+pair a new pid with the previous holder's token. The layout and protocol are
+xlang-channel-abi.md §2a; all four ports claim and honour it (before, the ports
+ignored the flag, so single-sender was not enforced across languages either), and
+it is verified by the `sole-owner` conformance probe and the `reap` scenario's
+`shold`/`sclaim` cases.
+
 ## Phasing
 
 1. **C++ owner table + `reap_dead_receivers()` + reap-on-connect.** Fixes phantom

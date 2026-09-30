@@ -41,9 +41,10 @@ FNV-1a-shortened to `/<first-13-chars>_<16-hex>`.
 The queue element type is `T = msg_t<64, 8>` (§4); the elem_array is parameterised
 by `sizeof(T)=80`, `alignof(T)=8`. Total `sizeof(elem_array)` = **22784 bytes**
 (Apple arm64) — verified against the real C++ type. The bytes after `block_`
-(offset 192 + 88·256 = 22720) hold `elem_array`'s trailing `sender_checker`
-(`atomic_flag`, single-producer guard) + `receiver_checker`, then align-64 padding.
-Ports must `shm_open`/`ftruncate` the ring to the full 22784 so the sender flag
+(offset 192 + 88·256 = 22720; 24768 on align-16 targets) hold `elem_array`'s
+trailing `sender_checker` — the **sole-sender owner record** (§2a), a 16-byte
+`slot_owner` — + `receiver_checker` (empty for broadcast), then align-64 padding.
+Ports must `shm_open`/`ftruncate` the ring to the full 22784 so the owner record
 maps.
 
 ```
@@ -89,6 +90,49 @@ offset  size  field
   > worked uncontended, which is the whole reason it survived this long.
 - `head_` (`prod_cons_impl<…,broadcast>`) = `{ alignas(64) wt_(atomic u32);
   alignas(64) epoch_(u64); }`, size 128, align 64.
+
+## 2a. Sole-sender owner record (single-producer guard)
+
+A route has **one** sender. The ring records who it is in a `slot_owner` (§9's
+16-byte layout: `pid` int32 `@0`, `start_tok` uint64 `@8`) at
+`route_ring.sender_owner` = **22720** (align-8) / **24768** (align-16), right after
+`block_`. It replaced a one-byte `atomic_flag` that a SIGKILLed sender never
+cleared, so every later sender was refused (`ready_sending() == false`) until
+`clear_storage()`; recording the holder lets a new sender take over from a dead
+one, by the reaper's PID-liveness rule (§9), while a live holder is never taken
+over.
+
+- **`pid`:** `0` = free, `-1` = a claim in flight (never taken over), `> 0` = the
+  holder, whose `start_tok` is its `start_token` (§9).
+- **Claim** (sender connect, and retried on every send until held — C++
+  `ready_sending`): load `pid`; `-1` → refuse; `> 0` and alive
+  (`is_process_alive(pid, start_tok)`, §9) → refuse, **including this process** (a
+  second sender in the same process is refused too); otherwise (free, or a dead
+  holder) CAS `pid: seen → -1`, store `start_tok = start_token(getpid())`, store
+  `pid = getpid()` (release). The CAS to `-1` first is what keeps a concurrent
+  claimant from pairing the new `pid` with the previous holder's `start_tok` and
+  mistaking a live holder for a dead one. A holder that dies inside that
+  two-store window leaves `-1` until `clear_storage()`.
+- **Release** (clean sender disconnect): if `pid == getpid()`, store
+  `start_tok = 0`, then CAS `pid: getpid() → 0` (release).
+- **Older binaries.** A pre-owner-record C++ sender sets only the first byte to 1,
+  which reads as `pid` 1 (always alive): it is never taken over, as before. Before
+  this record, Rust/Swift/Zig senders ignored the guard altogether (only an
+  informational `senderCount` at header `@136`), so a port could send alongside a
+  live C++ sender on a single-writer ring; every port now claims and honours it.
+- **Multi-writer** `channel` rings have no sender guard (`sender_checker<true>` is
+  empty); **unicast** policies use the same record for their sole receiver
+  (`receiver_checker<P,false>` derives from `sender_checker<P,false>`).
+
+**Verification.** `abi.json` `route_ring.sender_owner` (offset per target,
+`protocol: sole-owner`), checked against the compiled C++ by `tools/abi` and
+`static_assert`ed in `ipc.cpp`. The `sole-owner` conformance probe traces the claim
+through every state it can be found in (free, held by this process, released, a
+legacy flag byte, in flight, a dead holder, a reused pid); every port must print
+the C++ reference's lines. The `reap` scenario adds `{holder} shold -> {taker}
+sclaim dead|live` (a SIGKILLed holder's slot is taken over: `1`; a live one's
+never: `0`) and `{holder} shold dead -> {taker} -> {holder} traffic` over every
+language pairing, with harness verbs `shold` / `sclaim` in all four ports.
 
 ## 3. Slot — `elem_t` (broadcast)
 
@@ -321,6 +365,8 @@ formula are cross-language ABI.
   slot with `pid == 0` (an un-upgraded port, or mid-connect) is skipped — never a
   false reap. C++ additionally reaps in `force_push` (route policy).
 - **Non-broadcast** channels do not use this table (`cc_` is a plain count).
+- The same `slot_owner` layout and liveness rule guard the route's single
+  **sender**, in the ring itself rather than in this segment (§2a).
 
 **Verification.** the runner's `reap` scenario (formerly `xlang_matrix.py --reap-lang`) runs the reap matrix: every
 `{holder} × {reaper}` pairing, `dead` (holder SIGKILLed → reaper's `count` must be

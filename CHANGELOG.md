@@ -6,6 +6,33 @@ Notable changes to thoth-ipc. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **A killed sender no longer blocks its route for good.** A route's single sender
+  was guarded by a one-byte `atomic_flag` in the ring trailer that only a clean
+  shutdown cleared, so after a SIGKILLed (or crashed) sender every later sender on
+  the channel failed with `que->ready_sending() == false` until `clear_storage()` —
+  e.g. an app restarted with the same channel names could no longer publish. The
+  flag is now a sole-owner record (`slot_owner {pid, start_tok}`, the reaper's
+  layout) in the same place, claimed by CAS and taken over from a dead holder by
+  the reaper's PID-liveness rule, never from a live one; the ring size is
+  unchanged (`route_ring.sender_owner` in `abi.json`, xlang-channel-abi.md §2a).
+  Unicast policies get the same for their sole receiver.
+
+### Changed
+- **Single-sender is enforced across languages.** Rust, Swift and Zig senders now
+  claim and honour the route's sole-sender record (they ignored the C++ flag, so a
+  port could send alongside a live sender on a single-writer ring). A second live
+  sender on a route is refused: Rust `send` returns `ErrorKind::AddrInUse`, Swift
+  throws `EBUSY`, Zig returns `error.SenderBusy`; `Route::sender_ready()` /
+  `senderReady()` report (and retry) the claim, like C++ `ready_sending`.
+- **ABI tooling checks field offsets.** `tools/abi check` compares every struct
+  field offset the C++ dumper emits against `abi.json` (so far
+  `route_ring.sender_owner`), not only sizes and constants.
+
+### Added
+- `sole-owner` conformance probe and the `reap` scenario's `shold` / `sclaim` cases
+  (every holder × taker language pairing, dead / live / traffic).
+
 ## [0.6.0] - 2026-07-18
 
 ### Changed
