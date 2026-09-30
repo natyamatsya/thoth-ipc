@@ -209,6 +209,22 @@ final class ChanInner: @unchecked Sendable {
     let rdWaiter: Waiter
     let ccWaiter: Waiter
     var disconnected: Bool = false
+    /// Route sender: whether this endpoint holds the ring's sole-sender owner
+    /// record (xlang-channel-abi.md §2a). Claimed on connect, retried on send.
+    var senderClaimed: Bool = false
+
+    /// The route ring's sole-sender owner record (C++ `elem_array::sender_checker`),
+    /// right after the slots.
+    var senderOwner: UnsafeMutableRawPointer { ringShm.ptr.advanced(by: ABI.route_ring_sender_owner_off) }
+
+    /// Whether this sender may send: a multi-writer channel always may; a route
+    /// sender must hold the sole-sender claim, retried here (C++ `ready_sending`),
+    /// so it takes over once a dead holder is found.
+    func senderReady() -> Bool {
+        if multi || senderClaimed { return true }
+        senderClaimed = claimSoleOwner(senderOwner)
+        return senderClaimed
+    }
 
     static func open(prefix: String, name: String, mode: Mode, multi: Bool = false) async throws(IpcError) -> ChanInner {
         let fp = fullPrefix(prefix)
@@ -274,10 +290,13 @@ final class ChanInner: @unchecked Sendable {
             try? ccWaiter.broadcast()
         }
 
-        return ChanInner(name: name, prefix: prefix, chunkPrefix: chunkPrefix, mode: mode,
+        let inner = ChanInner(name: name, prefix: prefix, chunkPrefix: chunkPrefix, mode: mode,
                          ringShm: ringShm, ccIdShm: ccIdShm, livenessShm: livenessShm,
                          connId: connId, ccId: ccId, readCursor: readCursor, multi: multi, acIdShm: acIdShm, acIdPtr: acIdPtr,
                          wtWaiter: wtWaiter, rdWaiter: rdWaiter, ccWaiter: ccWaiter)
+        // A route has one sender: claim it (taking over from a dead holder).
+        if mode == .sender { _ = inner.senderReady() }
+        return inner
     }
 
     static func openSync(prefix: String, name: String, mode: Mode, multi: Bool = false) throws(IpcError) -> ChanInner {
@@ -337,10 +356,13 @@ final class ChanInner: @unchecked Sendable {
             try? ccWaiter.broadcast()
         }
 
-        return ChanInner(name: name, prefix: prefix, chunkPrefix: chunkPrefix, mode: mode,
+        let inner = ChanInner(name: name, prefix: prefix, chunkPrefix: chunkPrefix, mode: mode,
                          ringShm: ringShm, ccIdShm: ccIdShm, livenessShm: livenessShm,
                          connId: connId, ccId: ccId, readCursor: readCursor, multi: multi, acIdShm: acIdShm, acIdPtr: acIdPtr,
                          wtWaiter: wtWaiter, rdWaiter: rdWaiter, ccWaiter: ccWaiter)
+        // A route has one sender: claim it (taking over from a dead holder).
+        if mode == .sender { _ = inner.senderReady() }
+        return inner
     }
 
     init(name: String, prefix: String, chunkPrefix: String, mode: Mode,
@@ -390,6 +412,10 @@ final class ChanInner: @unchecked Sendable {
         switch mode {
         case .sender:
             _ = ua32(&hdrPtr.pointee.senderCount).loadThenWrappingDecrement(by: 1, ordering: .relaxed)
+            if senderClaimed {
+                releaseSoleOwner(senderOwner)
+                senderClaimed = false
+            }
         case .receiver:
             _ = ua32(&hdrPtr.pointee.connections).loadThenBitwiseAnd(with: ~connId, ordering: .acquiringAndReleasing)
             livenessClearOwner(livenessShm.ptr, connId)
@@ -432,6 +458,8 @@ extension ChanInner {
     func send(data: [UInt8], timeout: Duration) throws(IpcError) -> Bool {
         guard !data.isEmpty else { return false }
         guard mode == .sender else { throw .osError(EPERM) }
+        // Another live sender holds the route (its one sender slot).
+        guard senderReady() else { throw .osError(EBUSY) }
         guard ua32(&hdrPtr.pointee.connections).load(ordering: .relaxed) != 0 else { return false }
         let size = data.count
         // Multi-writer: shared AC_CONN__ counter (concurrent writers must not

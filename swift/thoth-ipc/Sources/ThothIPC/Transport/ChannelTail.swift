@@ -101,6 +101,11 @@ public final class Route: @unchecked Sendable {
     public var valid: Bool   { inner.valid }
     public var recvCount: Int { inner.recvCount }
 
+    /// Whether this sender holds the route's sole-sender slot, claiming it if it
+    /// is free or its holder is dead (C++ `ready_sending`). A route has one
+    /// sender; a second one is refused (send throws EBUSY) while the first lives.
+    public func senderReady() -> Bool { inner.mode == .sender && inner.senderReady() }
+
     public func disconnect() { inner.disconnect() }
 
     public func send(data: [UInt8], timeout: Duration = .seconds(200)) throws(IpcError) -> Bool {

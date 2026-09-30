@@ -201,6 +201,86 @@ pub fn clear_owner(lv: *mut ConnLiveness, bit: u32) {
     s.start_tok.store(0, Ordering::Relaxed);
 }
 
+// ---------------------------------------------------------------------------
+// Sole-owner claim (a route's single-sender guard; xlang-channel-abi.md §2a)
+// ---------------------------------------------------------------------------
+
+/// `pid` of a sole-owner record whose claim is in flight: never taken over.
+pub const OWNER_CLAIMING: i32 = -1;
+
+/// Claim a sole-owner record for this process: free, or held by a dead process.
+/// False when a live process (this one included) holds it, or a claim is in
+/// flight. Byte-exact with C++ `claim_sole_owner` (liveness.h): CAS the pid to
+/// `OWNER_CLAIMING` first, so no claimant can pair the new pid with the previous
+/// holder's token; then the token, then the pid (release).
+pub fn claim_sole_owner(o: &SlotOwner) -> bool {
+    let cur = o.pid.load(Ordering::Acquire);
+    if cur == OWNER_CLAIMING {
+        return false;
+    }
+    if cur != 0 && is_process_alive(cur, o.start_tok.load(Ordering::Acquire)) {
+        return false;
+    }
+    if o.pid.compare_exchange(cur, OWNER_CLAIMING, Ordering::AcqRel, Ordering::Relaxed).is_err() {
+        return false;
+    }
+    o.start_tok.store(start_token(self_pid()), Ordering::Relaxed);
+    o.pid.store(self_pid(), Ordering::Release);
+    true
+}
+
+/// Release a sole-owner record this process holds (a clean shutdown).
+pub fn release_sole_owner(o: &SlotOwner) {
+    let me = self_pid();
+    if o.pid.load(Ordering::Acquire) != me {
+        return;
+    }
+    o.start_tok.store(0, Ordering::Relaxed);
+    let _ = o.pid.compare_exchange(me, 0, Ordering::Release, Ordering::Relaxed);
+}
+
+/// The `sole-owner` conformance probe: the claim on a local record, through every
+/// state it can be found in. Must print exactly what the C++ reference
+/// (`xlang_ipc conform sole-owner`) prints.
+pub fn conform_sole_owner() -> Vec<String> {
+    // A pid no process can have (above every OS's pid limit): a dead holder.
+    const DEAD_PID: i32 = 0x7fff_fffe;
+    let o = SlotOwner { pid: AtomicI32::new(0), start_tok: AtomicU64::new(0) };
+    let me = self_pid();
+    let my_tok = start_token(me);
+    let mut out = Vec::new();
+    let mut dump = |step: &str, ok: Option<bool>, o: &SlotOwner| {
+        let pid = o.pid.load(Ordering::Relaxed);
+        let tok = o.start_tok.load(Ordering::Relaxed);
+        let p = if pid != 0 && pid == me { "self".to_string() } else { pid.to_string() };
+        let t = if tok != 0 && tok == my_tok { "self".to_string() } else { tok.to_string() };
+        let ok = match ok { None => "-", Some(true) => "1", Some(false) => "0" };
+        out.push(format!("step={step} ok={ok} pid={p} tok={t}"));
+    };
+    let set = |pid: i32, tok: u64| {
+        o.pid.store(pid, Ordering::Relaxed);
+        o.start_tok.store(tok, Ordering::Relaxed);
+    };
+    dump("zeroed", None, &o);
+    dump("claim-free", Some(claim_sole_owner(&o)), &o);
+    dump("claim-held-by-self", Some(claim_sole_owner(&o)), &o);
+    release_sole_owner(&o);
+    dump("release", None, &o);
+    // A pre-owner-record binary set only the first byte: pid 1, always alive.
+    set(i32::from_le_bytes([1, 0, 0, 0]), 0);
+    dump("claim-legacy-flag", Some(claim_sole_owner(&o)), &o);
+    release_sole_owner(&o);
+    dump("release-not-owner", None, &o);
+    set(OWNER_CLAIMING, 0);
+    dump("claim-in-flight", Some(claim_sole_owner(&o)), &o);
+    set(DEAD_PID, 12345);
+    dump("claim-dead-holder", Some(claim_sole_owner(&o)), &o);
+    // This pid with another start token: the recorded holder is gone.
+    set(me, my_tok + 1);
+    dump("claim-reused-pid", Some(claim_sole_owner(&o)), &o);
+    out
+}
+
 /// Reap the dead receivers among `live`, clearing each via `disconnect_fn(bit)`.
 /// Lock-free (CAS-on-owner). Returns the reaped mask.
 pub fn reap_dead_receivers<F: FnMut(u32)>(lv: *mut ConnLiveness, live: u32, mut disconnect_fn: F) -> u32 {

@@ -32,6 +32,7 @@ pub const off_constructed: usize = abi.ring_header_constructed_off; // DCLP init
 pub const off_wt: usize = abi.ring_header_cursor_off; // route write cursor (channel: ct_)
 pub const off_epoch: usize = abi.ring_header_epoch_off; // writer epoch
 pub const off_block: usize = abi.ring_header_size; // block_ starts where the header ends
+pub const off_sender_owner: usize = abi.route_ring_sender_owner_off; // sole-sender owner record (after block_)
 
 // --- Slot (elem_t) layout (ABI §3) -----------------------------------------
 

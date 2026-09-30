@@ -349,6 +349,12 @@ unsafe fn init_header(hdr: &RingHeader) {
     hdr.lc.store(0, Ordering::Release);
 }
 
+/// The route ring's sole-sender owner record (C++ `elem_array::sender_checker`),
+/// right after the slots.
+unsafe fn sender_owner(base: *mut u8) -> &'static crate::liveness::SlotOwner {
+    &*(base.add(abi::route_ring_sender_owner_off) as *const crate::liveness::SlotOwner)
+}
+
 /// Get a pointer to the ring header from the shm base.
 unsafe fn ring_header(base: *mut u8) -> &'static RingHeader {
     &*(base as *const RingHeader)
@@ -403,6 +409,9 @@ struct ChanInner {
     #[cfg(not(unix))]
     chunk_shm: HashMap<usize, ShmHandle>, // large-message chunk storage (CH_CONN__), keyed by chunk_size
     disconnected: bool, // true after explicit disconnect()
+    // Route sender: whether this endpoint holds the ring's sole-sender owner
+    // record (xlang-channel-abi.md §2a). Claimed on connect, retried on send.
+    sender_claimed: bool,
     // Layer 1 (opt-in `notify` feature): on send, poke the per-channel readiness
     // notifier so an async receiver (e.g. a C++ async_recv reactor) wakes.
     #[cfg(feature = "notify")]
@@ -522,6 +531,11 @@ impl ChanInner {
             }
         }
 
+        // A route has one sender: claim it (taking over from a dead holder).
+        let sender_claimed = mode == Mode::Sender
+            && !multi
+            && crate::liveness::claim_sole_owner(unsafe { sender_owner(ring_shm.get()) });
+
         Ok(Self {
             name: name.to_string(),
             prefix: prefix.to_string(),
@@ -541,6 +555,7 @@ impl ChanInner {
             _cc_id_shm: cc_id_shm,
             chunk_shm: HashMap::new(),
             disconnected: false,
+            sender_claimed,
             liveness_shm,
             #[cfg(feature = "notify")]
             notify_source: crate::notify::NotifySource::new(),
@@ -675,6 +690,13 @@ impl ChanInner {
         }
         if self.mode != Mode::Sender {
             return Err(io::Error::other("not a sender"));
+        }
+        if !self.sender_ready() {
+            let holder = unsafe { sender_owner(self.ring_shm.get()) }.pid.load(Ordering::Acquire);
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                format!("route '{}' has another live sender (pid {holder})", self.name),
+            ));
         }
         if self.hdr().connections.load(Ordering::Relaxed) == 0 {
             return Ok(false); // no receivers
@@ -1085,6 +1107,18 @@ impl ChanInner {
         !self.disconnected
     }
 
+    /// Whether this sender may send: a multi-writer channel always may; a route
+    /// sender must hold the sole-sender claim, which is retried here (C++
+    /// `ready_sending`), so it takes over once a dead holder is found.
+    fn sender_ready(&mut self) -> bool {
+        if self.multi || self.sender_claimed {
+            return true;
+        }
+        self.sender_claimed =
+            crate::liveness::claim_sole_owner(unsafe { sender_owner(self.ring_shm.get()) });
+        self.sender_claimed
+    }
+
     /// Disconnect this endpoint: clear connection bits and mark as disconnected.
     /// Mirrors C++ `detail_impl::disconnect` — shuts sending and clears receiver bit.
     fn disconnect(&mut self) {
@@ -1095,6 +1129,10 @@ impl ChanInner {
         match self.mode {
             Mode::Sender => {
                 hdr.sender_count.fetch_sub(1, Ordering::Relaxed);
+                if self.sender_claimed {
+                    crate::liveness::release_sole_owner(unsafe { sender_owner(self.ring_shm.get()) });
+                    self.sender_claimed = false;
+                }
             }
             Mode::Receiver => {
                 hdr.connections.fetch_and(!self.conn_id, Ordering::AcqRel);
@@ -1200,6 +1238,13 @@ impl Route {
         Ok(Self {
             inner: self.inner.clone_inner()?,
         })
+    }
+
+    /// Whether this sender holds the route's sole-sender slot, claiming it if it
+    /// is free or its holder is dead (C++ `ready_sending`). A route has one
+    /// sender; a second one is refused while the first lives.
+    pub fn sender_ready(&mut self) -> bool {
+        self.inner.mode == Mode::Sender && self.inner.sender_ready()
     }
 
     /// Number of connected receivers.

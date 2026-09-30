@@ -50,7 +50,7 @@ inline fn tokPtr(lv: [*]u8, idx: usize) *u64 {
     return @ptrCast(@alignCast(lv + idx * slot_stride + tok_off));
 }
 
-fn selfPid() i32 {
+pub fn selfPid() i32 {
     return std.c.getpid();
 }
 
@@ -119,6 +119,37 @@ pub fn reapDeadReceivers(lv: [*]u8, live: u32, cc: *u32) u32 {
         }
     }
     return reaped;
+}
+
+// --- Sole-owner claim (a route's single-sender guard; xlang-channel-abi.md §2a)
+
+/// `pid` of a sole-owner record whose claim is in flight: never taken over.
+pub const owner_claiming: i32 = -1;
+
+/// Claim a sole-owner record (one `slot_owner` at `o`) for this process: free,
+/// or held by a dead process. False when a live process (this one included)
+/// holds it, or a claim is in flight. Byte-exact with C++ `claim_sole_owner`
+/// (liveness.h): CAS the pid to `owner_claiming` first, so no claimant can pair
+/// the new pid with the previous holder's token; then the token, then the pid.
+pub fn claimSoleOwner(o: [*]u8) bool {
+    const pp = pidPtr(o, 0);
+    const tp = tokPtr(o, 0);
+    const cur: i32 = @bitCast(@atomicLoad(u32, pp, .acquire));
+    if (cur == owner_claiming) return false;
+    if (cur != 0 and isProcessAlive(cur, @atomicLoad(u64, tp, .acquire))) return false;
+    if (@cmpxchgStrong(u32, pp, @bitCast(cur), @bitCast(owner_claiming), .acq_rel, .monotonic) != null) return false;
+    @atomicStore(u64, tp, startToken(selfPid()), .monotonic);
+    @atomicStore(u32, pp, @bitCast(selfPid()), .release);
+    return true;
+}
+
+/// Release a sole-owner record this process holds (a clean shutdown).
+pub fn releaseSoleOwner(o: [*]u8) void {
+    const pp = pidPtr(o, 0);
+    const me: u32 = @bitCast(selfPid());
+    if (@atomicLoad(u32, pp, .acquire) != me) return;
+    @atomicStore(u64, tokPtr(o, 0), 0, .monotonic);
+    _ = @cmpxchgStrong(u32, pp, me, 0, .release, .monotonic);
 }
 
 test "shm size is 512" {

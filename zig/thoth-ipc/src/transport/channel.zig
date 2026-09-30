@@ -32,6 +32,7 @@ pub const Mode = enum { sender, receiver };
 pub const Error = error{
     ConnectFailed,
     SendFailed,
+    SenderBusy, // another live sender holds the route (its one sender slot)
     Full,
     OutOfMemory,
 } || shm.ShmError;
@@ -59,6 +60,9 @@ pub const ChanInner = struct {
     wt_waiter: Waiter,
     cc_waiter: Waiter,
     disconnected: bool = false,
+    // Sender: whether this endpoint holds the ring's sole-sender owner record
+    // (xlang-channel-abi.md §2a). Claimed on connect, retried on send.
+    sender_claimed: bool = false,
 
     pub fn open(alloc: std.mem.Allocator, prefix: []const u8, name: []const u8, mode: Mode) Error!ChanInner {
         var rbuf: [256]u8 = undefined;
@@ -123,8 +127,19 @@ pub const ChanInner = struct {
             self.read_cursor = @atomicLoad(u32, layout.u32ptr(base, layout.off_wt), .acquire);
             // Wake any sender parked in waitForRecv (CC waiter).
             self.cc_waiter.broadcast();
+        } else {
+            // A route has one sender: claim it (taking over from a dead holder).
+            _ = self.senderReady();
         }
         return self;
+    }
+
+    /// Whether this sender holds the route's sole-sender slot, claiming it if it
+    /// is free or its holder is dead (C++ `ready_sending`).
+    pub fn senderReady(self: *ChanInner) bool {
+        if (self.sender_claimed) return true;
+        self.sender_claimed = liveness.claimSoleOwner(self.ring.ptr() + layout.off_sender_owner);
+        return self.sender_claimed;
     }
 
     pub fn recvCount(self: *ChanInner) usize {
@@ -138,6 +153,9 @@ pub const ChanInner = struct {
             const cc = layout.u32ptr(self.ring.ptr(), layout.off_cc);
             _ = @atomicRmw(u32, cc, .And, ~self.conn_id, .acq_rel);
             liveness.clearOwner(self.liveness_shm.ptr(), self.conn_id);
+        } else if (self.sender_claimed) {
+            liveness.releaseSoleOwner(self.ring.ptr() + layout.off_sender_owner);
+            self.sender_claimed = false;
         }
         self.disconnected = true;
     }
@@ -162,6 +180,7 @@ pub const ChanInner = struct {
 
     pub fn send(self: *ChanInner, data: []const u8, deadline_ns: i128) Error!bool {
         if (data.len == 0) return false;
+        if (!self.senderReady()) return Error.SenderBusy;
         const base = self.ring.ptr();
         if (@atomicLoad(u32, layout.u32ptr(base, layout.off_cc), .monotonic) == 0) return false;
 
