@@ -106,6 +106,12 @@ inline constexpr std::size_t route_ring_size = 22784;
 inline constexpr std::size_t route_ring_size = 24832;
 #endif
 inline constexpr std::size_t route_ring_align = 64;
+// protocol: exercised by the `sole-owner` conformance probe (byte-for-byte across ports)
+#if (defined(__APPLE__) && defined(__aarch64__)) || defined(_MSC_VER)
+inline constexpr std::size_t route_ring_sender_owner_off = 22720;
+#else
+inline constexpr std::size_t route_ring_sender_owner_off = 24768;
+#endif
 inline constexpr std::size_t channel_ring_size = 24832;
 inline constexpr std::size_t channel_ring_align = 64;
 inline constexpr std::size_t chunk_info_size = 40;

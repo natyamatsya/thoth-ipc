@@ -319,7 +319,19 @@
          },
          "align": 64,
          "description": "sizeof(elem_array<route,80,AlignSize>) — ftruncate target; align-dependent",
-         "fields": []
+         "fields": [
+            {
+               "name": "sender_owner",
+               "offset": {
+                  "apple_arm64": 22720,
+                  "x86_64": 24768
+               },
+               "type": "bytes",
+               "count": 16,
+               "protocol": "sole-owner",
+               "description": "the single sender's owner record: a liveness_slot right after block_ (elem_array's sender_checker). pid 0 = free, -1 = a claim in flight, >0 = the holder, whose start_tok is its start token. Claim: CAS pid (0, or a DEAD holder's pid) -> -1, store start_tok, store pid (release); a live holder or -1 refuses. Release: start_tok = 0, CAS own pid -> 0. See context/xlang-channel-abi.md §2a"
+            }
+         ]
       },
       {
          "name": "channel_ring",

@@ -105,6 +105,11 @@ pub const route_ring_size: usize = 22784;
 #[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
 pub const route_ring_size: usize = 24832;
 pub const route_ring_align: usize = 64;
+/// protocol: exercised by the `sole-owner` conformance probe (byte-for-byte across ports)
+#[cfg(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc"))]
+pub const route_ring_sender_owner_off: usize = 22720;
+#[cfg(not(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc")))]
+pub const route_ring_sender_owner_off: usize = 24768;
 pub const channel_ring_size: usize = 24832;
 pub const channel_ring_align: usize = 64;
 pub const chunk_info_size: usize = 40;

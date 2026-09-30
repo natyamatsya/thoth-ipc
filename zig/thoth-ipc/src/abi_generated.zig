@@ -94,6 +94,8 @@ pub const channel_elem_f_ct_off: usize = 88;
 /// sizeof(elem_array<route,80,AlignSize>) — ftruncate target; align-dependent
 pub const route_ring_size: usize = 22784;
 pub const route_ring_align: usize = 64;
+/// protocol: exercised by the `sole-owner` conformance probe (byte-for-byte across ports)
+pub const route_ring_sender_owner_off: usize = 22720;
 /// sizeof(elem_array<channel,80,AlignSize>) — ftruncate target; same on both align classes (the f_ct_ flag already makes the slot 96)
 pub const channel_ring_size: usize = 24832;
 pub const channel_ring_align: usize = 64;

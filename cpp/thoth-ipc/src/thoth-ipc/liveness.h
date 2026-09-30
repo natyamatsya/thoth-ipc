@@ -216,6 +216,49 @@ inline void liveness_clear_owner(conn_liveness *lv, thoth::circ::cc_t bit) noexc
     lv->slots[idx].start_tok.store(0, std::memory_order_relaxed);
 }
 
+// Sole-owner claim (the single-producer guard of a route, and the single-consumer
+// guard of unicast policies): one slot_owner in the ring's trailer, after
+// block_ (xlang-channel-abi.md §2). A killed owner never releases it; instead of
+// a sticky flag, the claim records who holds it, so a newcomer takes over from a
+// DEAD owner and is refused by a live one — the receiver reaper's PID-liveness
+// rule, applied to the sender.
+//
+//   pid == 0                free
+//   pid == owner_claiming   a claim in flight (never taken over)
+//   pid  > 0                held by that process (start_tok: its start token)
+//
+// A claim first CASes pid to owner_claiming, so between winning the slot and
+// publishing {start_tok, pid} no other claimant can pair the new pid with the
+// previous owner's token and mistake a live owner for a dead one. An owner that
+// dies inside that two-store window leaves the slot held until clear_storage().
+// A pre-owner-record binary set only the first byte of the slot: that reads as
+// pid 1, which is always alive, so it is never taken over (as before).
+constexpr std::int32_t owner_claiming = -1;
+
+// Claim `o` for this process: free, or held by a dead process. False when a live
+// process (this one included) holds it, or a claim is in flight.
+inline bool claim_sole_owner(slot_owner &o) noexcept {
+    std::int32_t cur = o.pid.load(std::memory_order_acquire);
+    if (cur == owner_claiming) return false;
+    if (cur != 0 && is_process_alive(cur, o.start_tok.load(std::memory_order_acquire))) return false;
+    // Free, or dead: only one claimant wins the CAS from the value it saw.
+    if (!o.pid.compare_exchange_strong(cur, owner_claiming, std::memory_order_acq_rel,
+                                       std::memory_order_relaxed)) {
+        return false;
+    }
+    o.start_tok.store(self_start_token(), std::memory_order_relaxed);
+    o.pid.store(self_pid(), std::memory_order_release);
+    return true;
+}
+
+// Release a claim this process holds (a clean shutdown).
+inline void release_sole_owner(slot_owner &o) noexcept {
+    std::int32_t self = self_pid();
+    if (o.pid.load(std::memory_order_acquire) != self) return;
+    o.start_tok.store(0, std::memory_order_relaxed);
+    o.pid.compare_exchange_strong(self, 0, std::memory_order_release, std::memory_order_relaxed);
+}
+
 // Reap dead receivers from `live` (the current cc_ mask). For each set bit whose
 // recorded owner PID is gone, CAS-claim the owner (dead → 0) and, on success,
 // clear the bit via `disconnect_bit(bit)` and reclaim its readiness FIFO via

@@ -11,6 +11,7 @@
 
 #include "thoth-ipc/circ/elem_def.h"
 #include "thoth-ipc/platform/detail.h"
+#include "thoth-ipc/liveness.h"
 
 namespace thoth {
 namespace circ {
@@ -71,16 +72,18 @@ private:
 
     template <typename P>
     struct sender_checker<P, false> {
+        // The sole sender (and, via receiver_checker, the sole receiver of a
+        // unicast policy): a claim by process, so a dead holder's slot is taken
+        // over instead of refusing every later endpoint (liveness.h).
         bool connect() noexcept {
-            return !flag_.test_and_set(std::memory_order_acq_rel);
+            return thoth::detail::claim_sole_owner(owner_);
         }
         void disconnect() noexcept {
-            flag_.clear();
+            thoth::detail::release_sole_owner(owner_);
         }
 
-    private:
-        // in shm, it should be 0 whether it's initialized or not.
-        std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
+        // In shm; all-zero (free) whether it was initialized or not.
+        thoth::detail::slot_owner owner_;
     };
 
     template <typename P, bool/* = relat_trait<P>::is_multi_consumer*/>
@@ -146,6 +149,9 @@ public:
     // conn_head_base::*_offset() and the policy field offsets) against thoth::abi.
     static consteval std::size_t conn_offset() noexcept { return offsetof(elem_array, conn_); }
     static consteval std::size_t head_offset() noexcept { return offsetof(elem_array, head_); }
+    // The single-producer owner record (abi.json route_ring.sender_owner): s_ckr_'s
+    // slot_owner, right after block_. Only meaningful for single-producer policies.
+    static consteval std::size_t sender_owner_offset() noexcept { return offsetof(elem_array, s_ckr_); }
 
     cursor_t cursor() const noexcept {
         return head_.cursor();

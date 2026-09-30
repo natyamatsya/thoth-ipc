@@ -54,6 +54,7 @@ int main() {
     std::printf("  \"route_elem.size\": %zu,\n",   sizeof(RouteP::elem_t<80, A>));
     std::printf("  \"channel_elem.size\": %zu,\n", sizeof(ChanP::elem_t<80, A>));
     std::printf("  \"route_ring.size\": %zu,\n",   sizeof(RouteArr));
+    std::printf("  \"route_ring.sender_owner\": %zu,\n", RouteArr::sender_owner_offset());
     std::printf("  \"channel_ring.size\": %zu,\n", sizeof(ChanArr));
 
     std::printf("  \"ring_header.size\": %zu,\n",   static_cast<std::size_t>(RouteArr::head_size));

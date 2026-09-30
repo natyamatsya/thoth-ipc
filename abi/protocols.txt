@@ -2,6 +2,7 @@
 # Regenerate: cargo run --manifest-path tools/abi/Cargo.toml -- generate --lang protocols
 # <struct>.<field> <conformance-probe>
 ring_header.lc spinlock
+route_ring.sender_owner sole-owner
 chunk_info.next idpool
 chunk_info.cursor idpool
 chunk_info.prepared idpool

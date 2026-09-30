@@ -220,6 +220,17 @@ fn run_check(root: &Path, args: &[String]) {
             flat.insert(format!("{name}.size"), u);
         }
     }
+    // Field offsets (`<struct>.<field>`), compared when the dumper emits them;
+    // the rest are static_asserted in C++ (ipc.cpp) and not listed as uncovered.
+    let mut offsets: BTreeMap<String, u64> = BTreeMap::new();
+    for s in abi["structs"].as_array().unwrap_or(&vec![]) {
+        let Some(name) = s["name"].as_str() else { continue };
+        for f in s["fields"].as_array().unwrap_or(&vec![]) {
+            if let (Some(field), Some(u)) = (f["name"].as_str(), resolve_int(&f["offset"], &target)) {
+                offsets.insert(format!("{name}.{field}"), u);
+            }
+        }
+    }
 
     let bin = std::env::temp_dir().join(format!("thoth_dump_abi_{target}"));
     let cxx = std::env::var("CXX").unwrap_or_else(|_| "c++".to_string());
@@ -259,7 +270,7 @@ fn run_check(root: &Path, args: &[String]) {
     let dobj = dumped.as_object().expect("dumper emitted a JSON object");
     for (k, v) in dobj {
         let Some(cpp) = as_u64(v) else { continue }; // "name:*" strings checked by check_naming
-        match flat.get(k) {
+        match flat.get(k).or_else(|| offsets.get(k)) {
             Some(&abi_v) if abi_v == cpp => checked += 1,
             Some(&abi_v) => {
                 mismatches += 1;

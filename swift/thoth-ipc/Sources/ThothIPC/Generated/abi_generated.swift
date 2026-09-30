@@ -88,6 +88,8 @@ public enum ABI {
     public static let channel_elem_f_ct_off: Int = 88
     public static let route_ring_size: Int = 22784
     public static let route_ring_align: Int = 64
+    /// protocol: exercised by the `sole-owner` conformance probe (byte-for-byte across ports)
+    public static let route_ring_sender_owner_off: Int = 22720
     public static let channel_ring_size: Int = 24832
     public static let channel_ring_align: Int = 64
     public static let chunk_info_size: Int = 40

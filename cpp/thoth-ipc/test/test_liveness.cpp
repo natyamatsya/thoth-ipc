@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <csignal>
 #include <sys/wait.h>
+#include <string>
 #include <thread>
 #include <unistd.h>
 
@@ -158,6 +159,68 @@ TEST(Liveness, StartTokenDetectsPidReuse) {
 
     // A clearly invalid PID is never alive.
     EXPECT_FALSE(is_process_alive(-1, tok));
+}
+
+// A single-producer route admits one sender, guarded by a flag in the ring. A
+// SIGKILLed sender never clears it, so without reaping every later sender is
+// refused ("que->ready_sending() == false") until clear_storage() - e.g. an app
+// restarted after a kill can no longer publish on its own channels.
+TEST(Liveness, ReclaimsDeadSender) {
+    char const *name = "st.liveness.sender";
+    thoth::route::clear_storage(name);
+    thoth::route r{name, thoth::receiver};
+
+    pid_t pid = ::fork();
+    ASSERT_GE(pid, 0);
+    if (pid == 0) {
+        // Child: hold the single-producer flag (opening a sender claims it), and
+        // say so with one delivered message.
+        for (;;) {
+            thoth::route s{name, thoth::sender};
+            if (s.send("held", 4, 0)) ::pause();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    // Whatever happens below, the child does not outlive the test.
+    struct reap_child {
+        pid_t pid;
+        ~reap_child() {
+            if (pid > 0 && ::kill(pid, SIGKILL) == 0) ::waitpid(pid, nullptr, 0);
+        }
+    } child{pid};
+
+    thoth::buff_t held = r.recv(3000);
+    ASSERT_FALSE(held.empty()) << "the child never held the sender flag";
+    {
+        thoth::route other{name, thoth::sender};
+        EXPECT_FALSE(other.send("x", 1, 0)) << "a second sender got in while the first lives";
+    }
+
+    // Kill the child hard - no clean shut_sending().
+    ASSERT_EQ(::kill(pid, SIGKILL), 0);
+    int status = 0;
+    ASSERT_EQ(::waitpid(pid, &status, 0), pid);
+    child.pid = 0;
+
+    // A fresh sender must take over the dead one's flag and deliver.
+    {
+        thoth::route s{name, thoth::sender};
+        EXPECT_TRUE(s.send("after", 5, 1000)) << "the dead sender's flag was not reclaimed";
+        thoth::buff_t b = r.recv(1000);
+        ASSERT_FALSE(b.empty());
+        EXPECT_EQ(std::string(static_cast<char const *>(b.data()), b.size()), "after");
+    }
+
+    // A live sender keeps the flag: a second one is still refused.
+    {
+        thoth::route s1{name, thoth::sender};
+        ASSERT_TRUE(s1.send("one", 3, 1000));
+        thoth::route s2{name, thoth::sender};
+        EXPECT_FALSE(s2.send("two", 3, 0)) << "a live sender's flag was taken over";
+    }
+
+    thoth::route::clear_storage(name);
 }
 
 #endif // !_WIN32

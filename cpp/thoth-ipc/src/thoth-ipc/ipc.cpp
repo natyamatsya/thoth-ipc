@@ -72,6 +72,9 @@ static_assert(sizeof(AbiRouteP::elem_t<80, AbiAlign>) == thoth::abi::route_elem_
 static_assert(sizeof(AbiChanP::elem_t<80, AbiAlign>)  == thoth::abi::channel_elem_size, "abi drift: channel_elem.size");
 static_assert(sizeof(AbiRouteArr) == thoth::abi::route_ring_size,   "abi drift: route_ring.size");
 static_assert(sizeof(AbiChanArr)  == thoth::abi::channel_ring_size, "abi drift: channel_ring.size");
+static_assert(AbiRouteArr::sender_owner_offset() == thoth::abi::route_ring_sender_owner_off,
+              "abi drift: route_ring.sender_owner");
+static_assert(sizeof(thoth::detail::slot_owner) == 16, "abi drift: route_ring.sender_owner size");
 // ring_header.size = elem_array::head_size = the aligned byte offset of block_[0]
 // (align_up(sizeof(conn_t), alignof(policy_t)) + sizeof(policy_t)). msg_t.size /
 // chunk_* are asserted in msg_layout.h, next to their definitions.
