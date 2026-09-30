@@ -77,6 +77,43 @@ fn start_token(pid: i32) -> u64 {
 
 /// Is the recorded process (pid + token) still alive? Conservative: any
 /// "can't determine" answer errs toward ALIVE so a live peer is never false-reaped.
+/// Whether `pid` is a zombie: it has exited and only waits for its parent to
+/// reap it, which may never happen (e.g. a parent that cannot wait for a child a
+/// debugger traces). A zombie holds nothing, but `kill(pid, 0)` still succeeds
+/// for it and its start token can no longer be read, so without this check it
+/// would count as alive for as long as its parent lives. Byte-exact with C++
+/// `is_zombie` (liveness.h).
+///
+/// macOS: `sysctl(KERN_PROC_PID)` (what ps reads; proc_pidinfo fails for
+/// zombies), `kinfo_proc.kp_proc.p_stat == SZOMB`.
+#[cfg(target_vendor = "apple")]
+fn is_zombie(pid: i32) -> bool {
+    const KINFO_PROC_SIZE: usize = 648; // sizeof(struct kinfo_proc), arm64 and x86_64
+    const P_STAT_OFF: usize = 36; // kp_proc (@0) .p_stat
+    const SZOMB: u8 = 5;
+    if pid <= 0 {
+        return false;
+    }
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROC, libc::KERN_PROC_PID, pid];
+    let mut buf = [0u8; KINFO_PROC_SIZE];
+    let mut len = KINFO_PROC_SIZE;
+    let rc = unsafe {
+        libc::sysctl(mib.as_mut_ptr(), 4, buf.as_mut_ptr().cast(), &mut len, std::ptr::null_mut(), 0)
+    };
+    rc == 0 && len == KINFO_PROC_SIZE && buf[P_STAT_OFF] == SZOMB
+}
+/// Linux: `/proc/<pid>/stat` state `Z` (or `X`, dead).
+#[cfg(all(unix, not(target_vendor = "apple")))]
+fn is_zombie(pid: i32) -> bool {
+    if pid <= 0 {
+        return false;
+    }
+    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else { return false };
+    // comm may contain spaces and parentheses: the state follows the LAST ')'.
+    let Some(end) = stat.rfind(')') else { return false };
+    matches!(stat.as_bytes().get(end + 2), Some(b'Z' | b'X'))
+}
+
 #[cfg(unix)]
 fn is_process_alive(pid: i32, tok: u64) -> bool {
     if pid <= 0 {
@@ -86,6 +123,9 @@ fn is_process_alive(pid: i32, tok: u64) -> bool {
     let exists = rc == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
     if !exists {
         return false; // definitely gone
+    }
+    if is_zombie(pid) {
+        return false; // exited, just not reaped yet
     }
     if tok == 0 {
         return true; // no recorded token → token-less fallback
@@ -420,5 +460,30 @@ mod tests {
             assert!(!is_process_alive(me, tok ^ 0x5eed));
         }
         assert!(!is_process_alive(-1, tok));
+    }
+
+    /// A zombie (exited, not yet reaped by its parent) holds nothing.
+    #[cfg(unix)]
+    #[test]
+    fn zombie_is_not_alive() {
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork failed");
+        if pid == 0 {
+            unsafe { libc::_exit(0) };
+        }
+        // Not waited for: the child is a zombie once it has exited.
+        let mut zombie = false;
+        for _ in 0..300 {
+            if is_zombie(pid) {
+                zombie = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let alive = is_process_alive(pid, 0);
+        unsafe { libc::waitpid(pid, std::ptr::null_mut(), 0) };
+        assert!(zombie, "the child never showed as a zombie");
+        assert!(!alive, "a zombie counted as alive");
+        assert!(!is_zombie(self_pid()));
     }
 }

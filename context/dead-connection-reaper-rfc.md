@@ -299,6 +299,16 @@ ignored the flag, so single-sender was not enforced across languages either), an
 it is verified by the `sole-owner` conformance probe and the `reap` scenario's
 `shold`/`sclaim` cases.
 
+**Zombies.** Verifying the fix in that client showed a second gap, in the liveness
+check itself: the peer was killed, but its parent (the bridge) could not `wait()`
+for it — a debugger was tracing it — so it stayed a zombie. `kill(pid, 0)` succeeds
+for a zombie and `proc_pidinfo` fails, so the token read 0 and the conservative
+rule answered *alive*, for as long as the parent lived. A zombie has exited and
+holds nothing, so every port's `is_process_alive` now answers *dead* for one
+(macOS `sysctl KERN_PROC_PID` → `p_stat == SZOMB`, Linux `/proc/<pid>/stat` state
+`Z`), for receivers and the sender alike; the `reap` scenario's `zombie` cases kill
+a holder without reaping it.
+
 ## Phasing
 
 1. **C++ owner table + `reap_dead_receivers()` + reap-on-connect.** Fixes phantom

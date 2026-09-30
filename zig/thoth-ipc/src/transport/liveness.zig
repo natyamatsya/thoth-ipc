@@ -66,6 +66,31 @@ pub fn startToken(pid: i32) u64 {
     return tvsec *% 1_000_000 +% tvusec;
 }
 
+// Darwin sysctl — the kinfo_proc image read for the zombie check.
+const CTL_KERN: c_int = 1;
+const KERN_PROC: c_int = 14;
+const KERN_PROC_PID: c_int = 1;
+const KINFO_PROC_SIZE: usize = 648; // sizeof(struct kinfo_proc), arm64 and x86_64
+const P_STAT_OFF: usize = 36; // kp_proc (@0) .p_stat
+const SZOMB: u8 = 5;
+extern "c" fn sysctl(name: [*]c_int, namelen: c_uint, oldp: ?*anyopaque, oldlenp: ?*usize, newp: ?*anyopaque, newlen: usize) c_int;
+
+/// Whether `pid` is a zombie: it has exited and only waits for its parent to
+/// reap it, which may never happen (e.g. a parent that cannot wait for a child a
+/// debugger traces). A zombie holds nothing, but kill(pid, 0) still succeeds for
+/// it and its start token can no longer be read, so without this check it would
+/// count as alive for as long as its parent lives. Byte-exact with C++ is_zombie
+/// (liveness.h): sysctl KERN_PROC_PID (what ps reads; proc_pidinfo fails for
+/// zombies), kp_proc.p_stat == SZOMB.
+pub fn isZombie(pid: i32) bool {
+    if (pid <= 0) return false;
+    var mib = [_]c_int{ CTL_KERN, KERN_PROC, KERN_PROC_PID, pid };
+    var buf: [KINFO_PROC_SIZE]u8 = undefined;
+    var len: usize = KINFO_PROC_SIZE;
+    if (sysctl(&mib, 4, &buf, &len, null, 0) != 0 or len != KINFO_PROC_SIZE) return false;
+    return buf[P_STAT_OFF] == SZOMB;
+}
+
 /// Is the recorded process (pid + token) still alive? Conservative: any
 /// "can't determine" answer errs toward ALIVE so a live peer is never false-reaped.
 fn isProcessAlive(pid: i32, tok: u64) bool {
@@ -74,6 +99,7 @@ fn isProcessAlive(pid: i32, tok: u64) bool {
     const esrch = @intFromEnum(std.c.E.SRCH);
     const exists = rc == 0 or std.c._errno().* != esrch;
     if (!exists) return false; // definitely gone
+    if (isZombie(pid)) return false; // exited, just not reaped yet
     if (tok == 0) return true; // no recorded token → token-less fallback
     const cur = startToken(pid);
     if (cur == 0) return true; // couldn't read → don't risk a false reap
@@ -150,6 +176,27 @@ pub fn releaseSoleOwner(o: [*]u8) void {
     if (@atomicLoad(u32, pp, .acquire) != me) return;
     @atomicStore(u64, tokPtr(o, 0), 0, .monotonic);
     _ = @cmpxchgStrong(u32, pp, me, 0, .release, .monotonic);
+}
+
+test "a zombie is not alive" {
+    const pid = std.c.fork();
+    try std.testing.expect(pid >= 0);
+    if (pid == 0) std.c._exit(0);
+    // Not waited for: the child is a zombie once it has exited.
+    var zombie = false;
+    var i: usize = 0;
+    while (i < 300 and !zombie) : (i += 1) {
+        zombie = isZombie(pid);
+        if (!zombie) {
+            const ts = std.c.timespec{ .sec = 0, .nsec = 10 * std.time.ns_per_ms };
+            _ = std.c.nanosleep(&ts, null);
+        }
+    }
+    const alive = isProcessAlive(pid, 0);
+    _ = std.c.waitpid(pid, null, 0);
+    try std.testing.expect(zombie);
+    try std.testing.expect(!alive);
+    try std.testing.expect(!isZombie(selfPid()));
 }
 
 test "shm size is 512" {

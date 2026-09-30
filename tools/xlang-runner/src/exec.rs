@@ -219,9 +219,27 @@ fn run_group_inner(readers: &[Proc], writers: &[Proc], cfg: &RunConfig) -> (bool
     (ok, detail.trim().to_string())
 }
 
+/// Wait (up to 5 s) until a killed child has exited, without reaping it: `ps`
+/// shows it as a zombie (state Z) from then on.
+fn wait_until_zombie(pid: u32) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        let state = Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+        if state.starts_with('Z') {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn run_hold_probe(
     holder: &Proc,
     kill_holder: bool,
+    zombie: bool,
     probes: &[Probe],
     then_group: &Option<(Vec<Proc>, Vec<Proc>)>,
     channel: &str,
@@ -276,7 +294,13 @@ fn run_hold_probe(
 
     if kill_holder {
         let _ = holder_child.kill();
-        let _ = holder_child.wait();
+        if zombie {
+            // Leave it unreaped (a zombie) while the probes run: wait until it
+            // has exited, without waitpid.
+            wait_until_zombie(holder_child.id());
+        } else {
+            let _ = holder_child.wait();
+        }
     }
 
     let mut ok = true;
@@ -320,8 +344,8 @@ fn run_hold_probe(
 
     if !kill_holder {
         let _ = holder_child.kill();
-        let _ = holder_child.wait();
     }
+    let _ = holder_child.wait(); // reaps a zombie, too
     for bin in &clearers {
         clear(bin, channel);
     }
@@ -389,9 +413,10 @@ fn run_once(case: &Case, cfg: &RunConfig) -> (bool, String) {
         CaseKind::HoldProbe {
             holder,
             kill_holder,
+            zombie,
             probes,
             then_group,
-        } => run_hold_probe(holder, *kill_holder, probes, then_group, &case.channel, cfg),
+        } => run_hold_probe(holder, *kill_holder, *zombie, probes, then_group, &case.channel, cfg),
         CaseKind::Conform { reference, subject } => run_conform(reference, subject, cfg),
     }
 }

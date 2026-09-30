@@ -17,6 +17,13 @@ Notable changes to thoth-ipc. The format follows
   the reaper's PID-liveness rule, never from a live one; the ring size is
   unchanged (`route_ring.sender_owner` in `abi.json`, xlang-channel-abi.md §2a).
   Unicast policies get the same for their sole receiver.
+- **A zombie counts as dead.** `is_process_alive` treated a peer that had exited
+  but was not yet reaped by its parent as alive: `kill(pid, 0)` succeeds for a
+  zombie and its start token can no longer be read, which the conservative rule
+  answered with "alive" — for as long as the parent lived (e.g. a parent that
+  cannot `wait()` for a child a debugger traces). Every port now detects zombies
+  (macOS `sysctl KERN_PROC_PID` → `p_stat == SZOMB`, Linux `/proc` state `Z`), so
+  a zombie's receiver slot is reaped and its sender slot taken over.
 
 ### Changed
 - **Single-sender is enforced across languages.** Rust, Swift and Zig senders now
@@ -31,7 +38,8 @@ Notable changes to thoth-ipc. The format follows
 
 ### Added
 - `sole-owner` conformance probe and the `reap` scenario's `shold` / `sclaim` cases
-  (every holder × taker language pairing, dead / live / traffic).
+  (every holder × taker language pairing, dead / live / traffic), plus `zombie`
+  cases for senders and receivers (the runner kills the holder without reaping it).
 
 ## [0.6.0] - 2026-07-18
 

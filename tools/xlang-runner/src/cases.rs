@@ -62,10 +62,13 @@ pub enum CaseKind {
     /// prints READY; optionally it is SIGKILLed; then each probe runs in order
     /// and its stdout is checked; finally an optional reader/writer group must
     /// round-trip on the same (uncleared) channel. Covers reaping, dead-holder
-    /// recovery and traffic-after-reap.
+    /// recovery and traffic-after-reap. `zombie`: the killed holder is not
+    /// reaped until the case ends, so the probes meet a zombie (an exited
+    /// process whose parent has not waited for it yet).
     HoldProbe {
         holder: Proc,
         kill_holder: bool,
+        zombie: bool,
         probes: Vec<Probe>,
         then_group: Option<(Vec<Proc>, Vec<Proc>)>,
     },
@@ -396,6 +399,7 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                         kind: CaseKind::HoldProbe {
                             holder: Proc::new(h, vec!["hold".into(), ch.clone(), "20".into()]),
                             kill_holder: dead,
+                            zombie: false,
                             probes: vec![Probe {
                                 proc: Proc::new(r, vec!["count".into(), ch.clone()]),
                                 expect: (if dead { "1" } else { "2" }).into(),
@@ -415,6 +419,7 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                     kind: CaseKind::HoldProbe {
                         holder: Proc::new(h, vec!["hold".into(), ch.clone(), "20".into()]),
                         kill_holder: true,
+                        zombie: false,
                         probes: vec![
                             Probe {
                                 proc: Proc::new(r, vec!["probe".into(), ch.clone()]),
@@ -439,6 +444,7 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                     kind: CaseKind::HoldProbe {
                         holder: Proc::new(h, vec!["hold".into(), ch.clone(), "20".into()]),
                         kill_holder: true,
+                        zombie: false,
                         probes: Vec::new(),
                         then_group: Some((
                             vec![Proc::new(r, rw_args("read", &ch, 5, 200, &[]))],
@@ -462,6 +468,7 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                         kind: CaseKind::HoldProbe {
                             holder: Proc::new(h, vec!["shold".into(), ch.clone(), "20".into()]),
                             kill_holder: dead,
+                            zombie: false,
                             probes: vec![Probe {
                                 proc: Proc::new(r, vec!["sclaim".into(), ch.clone()]),
                                 expect: (if dead { "1" } else { "0" }).into(),
@@ -481,11 +488,50 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                     kind: CaseKind::HoldProbe {
                         holder: Proc::new(h, vec!["shold".into(), ch.clone(), "20".into()]),
                         kill_holder: true,
+                        zombie: false,
                         probes: Vec::new(),
                         then_group: Some((
                             vec![Proc::new(h, rw_args("read", &ch, 5, 200, &[]))],
                             vec![Proc::new(r, rw_args("write", &ch, 5, 200, &[]))],
                         )),
+                    },
+                    channel: ch,
+                    xfail: false,
+                });
+                // A killed holder its parent has not reaped yet (a zombie) holds
+                // nothing: kill(pid, 0) still finds it, so every port must detect
+                // the zombie, for the sender slot (sclaim 1) and a receiver slot
+                // (count 1) alike.
+                let ch = namer.next("r");
+                cases.push(Case {
+                    scenario: "reap".into(),
+                    id: format!("{} shold -> {} sclaim zombie", h.name, r.name),
+                    kind: CaseKind::HoldProbe {
+                        holder: Proc::new(h, vec!["shold".into(), ch.clone(), "20".into()]),
+                        kill_holder: true,
+                        zombie: true,
+                        probes: vec![Probe {
+                            proc: Proc::new(r, vec!["sclaim".into(), ch.clone()]),
+                            expect: "1".into(),
+                        }],
+                        then_group: None,
+                    },
+                    channel: ch,
+                    xfail: false,
+                });
+                let ch = namer.next("r");
+                cases.push(Case {
+                    scenario: "reap".into(),
+                    id: format!("{} hold -> {} reap zombie", h.name, r.name),
+                    kind: CaseKind::HoldProbe {
+                        holder: Proc::new(h, vec!["hold".into(), ch.clone(), "20".into()]),
+                        kill_holder: true,
+                        zombie: true,
+                        probes: vec![Probe {
+                            proc: Proc::new(r, vec!["count".into(), ch.clone()]),
+                            expect: "1".into(),
+                        }],
+                        then_group: None,
                     },
                     channel: ch,
                     xfail: false,
@@ -507,6 +553,7 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                     kind: CaseKind::HoldProbe {
                         holder: Proc::new(a, vec!["mhold".into(), ch.clone(), "20".into()]),
                         kill_holder: false,
+                        zombie: false,
                         probes: vec![Probe {
                             proc: Proc::new(b, vec!["mtry".into(), ch.clone()]),
                             expect: "busy".into(),
@@ -525,6 +572,7 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                     kind: CaseKind::HoldProbe {
                         holder: Proc::new(a, vec!["mhold".into(), ch.clone(), "20".into()]),
                         kill_holder: true,
+                        zombie: false,
                         probes: vec![Probe {
                             proc: Proc::new(b, vec!["mlock".into(), ch.clone(), "5000".into()]),
                             expect: "acquired".into(),

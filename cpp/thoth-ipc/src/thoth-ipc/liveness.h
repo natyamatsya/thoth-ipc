@@ -37,6 +37,8 @@
 #  if defined(THOTH_IPC_OS_APPLE)
 #    include <libproc.h>
 #    include <sys/proc_info.h>
+#    include <sys/proc.h>    // SZOMB
+#    include <sys/sysctl.h>  // KERN_PROC_PID
 #  else
 #    include <cstdio>
 #    include <cstdlib>
@@ -152,6 +154,41 @@ inline std::uint64_t self_start_token() noexcept {
 // (EPERM ⇒ exists); the token then rules out a recycled PID belonging to a
 // different process. Conservative: any "can't determine" answer errs toward
 // ALIVE, so a live-but-idle peer is never falsely reaped.
+// Whether `pid` is a zombie: it has exited and only waits for its parent to reap
+// it, which may never happen (e.g. a parent that cannot wait for a child a debugger
+// traces). A zombie holds nothing, but kill(pid, 0) still succeeds for it and its
+// start token can no longer be read, so without this check it would count as
+// alive for as long as its parent lives. macOS: sysctl KERN_PROC_PID (what ps
+// reads; proc_pidinfo fails for zombies), p_stat == SZOMB. Linux: /proc/<pid>/stat
+// state Z (or X, dead). Windows has no zombies (an exited process is not
+// STILL_ACTIVE).
+inline bool is_zombie(std::int32_t pid) noexcept {
+#if defined(THOTH_IPC_OS_WIN)
+    (void)pid;
+    return false;
+#elif defined(THOTH_IPC_OS_APPLE)
+    if (pid <= 0) return false;
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
+    struct kinfo_proc kp{};
+    std::size_t len = sizeof(kp);
+    if (::sysctl(mib, 4, &kp, &len, nullptr, 0) != 0 || len != sizeof(kp)) return false;
+    return kp.kp_proc.p_stat == SZOMB;
+#else
+    if (pid <= 0) return false;
+    char path[64];
+    std::snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+    std::FILE *f = std::fopen(path, "re");
+    if (f == nullptr) return false;
+    char buf[1024];
+    std::size_t len = std::fread(buf, 1, sizeof(buf) - 1, f);
+    std::fclose(f);
+    buf[len] = '\0';
+    char *p = std::strrchr(buf, ')'); // comm may contain spaces and parentheses
+    if (p == nullptr || p[1] != ' ') return false;
+    return p[2] == 'Z' || p[2] == 'X';
+#endif
+}
+
 inline bool is_process_alive(std::int32_t pid, std::uint64_t tok) noexcept {
 #if defined(THOTH_IPC_OS_WIN)
     if (pid <= 0) return false;
@@ -185,6 +222,7 @@ inline bool is_process_alive(std::int32_t pid, std::uint64_t tok) noexcept {
     if (pid <= 0) return false;
     bool exists = (::kill(static_cast<pid_t>(pid), 0) == 0) || (errno != ESRCH);
     if (!exists) return false;     // definitely gone
+    if (is_zombie(pid)) return false; // exited, just not reaped yet
     if (tok == 0) return true;     // no recorded token → token-less fallback
     std::uint64_t cur = start_token(pid);
     if (cur == 0) return true;     // couldn't read current token → don't risk a false reap

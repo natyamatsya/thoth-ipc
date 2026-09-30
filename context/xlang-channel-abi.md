@@ -357,6 +357,15 @@ formula are cross-language ABI.
   field 22 (starttime jiffies). **This formula must be identical across ports** —
   otherwise a reaper of language A would compute a different token than language B
   stored and *false-reap a live B receiver*.
+- **Liveness** `is_process_alive(pid, tok)`: gone if `kill(pid, 0)` reports ESRCH;
+  **dead if a zombie** (exited, not yet reaped by its parent — which may never
+  happen, e.g. a parent that cannot `wait()` for a child a debugger traces):
+  macOS `sysctl(CTL_KERN, KERN_PROC, KERN_PROC_PID, pid)` →
+  `kinfo_proc.kp_proc.p_stat == SZOMB` (5; `kinfo_proc` is 648 B, `p_stat @36`),
+  Linux `/proc/<pid>/stat` state `Z`/`X`. A zombie holds nothing, but `kill(pid,0)`
+  still succeeds for it and `proc_pidinfo` fails, so its token reads 0 — without
+  this rule it counted as alive for as long as its parent lived. Otherwise alive
+  unless the recorded token differs from the current one.
 - **Protocol.** On connect (broadcast receiver): reap dead peers, then claim a
   `cc_` bit, then store `{ getpid(), start_token(getpid()) }` (token first, pid
   with release). On disconnect: clear the slot. Reap = for each set `cc_` bit

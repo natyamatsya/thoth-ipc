@@ -52,12 +52,29 @@ func startToken(_ pid: Int32) -> UInt64 {
     return UInt64(info.pbi_start_tvsec) &* 1_000_000 &+ UInt64(info.pbi_start_tvusec)
 }
 
+/// Whether `pid` is a zombie: it has exited and only waits for its parent to
+/// reap it, which may never happen (e.g. a parent that cannot wait for a child a
+/// debugger traces). A zombie holds nothing, but `kill(pid, 0)` still succeeds for
+/// it and its start token can no longer be read, so without this check it would
+/// count as alive for as long as its parent lives. Byte-exact with C++ `is_zombie`
+/// (liveness.h): sysctl KERN_PROC_PID (what ps reads; proc_pidinfo fails for
+/// zombies), `kp_proc.p_stat == SZOMB` (5).
+func isZombie(_ pid: Int32) -> Bool {
+    guard pid > 0 else { return false }
+    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+    var kp = kinfo_proc()
+    var len = MemoryLayout<kinfo_proc>.size
+    guard sysctl(&mib, 4, &kp, &len, nil, 0) == 0, len == MemoryLayout<kinfo_proc>.size else { return false }
+    return kp.kp_proc.p_stat == 5 // SZOMB
+}
+
 /// Is the recorded process (pid + token) still alive? Conservative: any
 /// "can't determine" answer errs toward ALIVE so a live peer is never false-reaped.
 func isProcessAlive(_ pid: Int32, _ tok: UInt64) -> Bool {
     guard pid > 0 else { return false }
     let exists = kill(pid, 0) == 0 || errno != ESRCH
     if !exists { return false }        // definitely gone
+    if isZombie(pid) { return false }  // exited, just not reaped yet
     if tok == 0 { return true }        // no recorded token → token-less fallback
     let cur = startToken(pid)
     if cur == 0 { return true }        // couldn't read → don't risk a false reap

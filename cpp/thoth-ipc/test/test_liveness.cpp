@@ -223,4 +223,63 @@ TEST(Liveness, ReclaimsDeadSender) {
     thoth::route::clear_storage(name);
 }
 
+// A zombie - a peer that has exited but whose parent has not reaped it yet, e.g.
+// a parent that cannot wait() for a child a debugger traces - holds nothing,
+// though kill(pid, 0) still succeeds for it. Its sender slot must be taken over
+// and its receiver slot reaped while it is still a zombie.
+namespace {
+
+// Fork a child that runs `hold` and then exits without cleanup; wait until it is
+// a zombie, and leave it unreaped (the caller reaps it at the end).
+template <typename Hold>
+pid_t fork_zombie(Hold hold) {
+    pid_t pid = ::fork();
+    if (pid == 0) {
+        hold();
+        ::_exit(0); // no destructors: the slot stays claimed
+    }
+    for (int i = 0; i < 300 && !thoth::detail::is_zombie(pid); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return pid;
+}
+
+} // namespace
+
+TEST(Liveness, ZombieSenderIsTakenOver) {
+    char const *name = "st.liveness.zombie-sender";
+    thoth::route::clear_storage(name);
+    thoth::route r{name, thoth::receiver};
+    pid_t pid = fork_zombie([name] {
+        // Leaked on purpose: a destructor would release the slot before _exit.
+        auto *s = new thoth::route{name, thoth::sender};
+        s->send("held", 4, 1000);
+    });
+    ASSERT_GT(pid, 0);
+    ASSERT_TRUE(thoth::detail::is_zombie(pid)) << "the child did not become a zombie";
+    ASSERT_FALSE(r.recv(1000).empty()) << "the child never held the sender slot";
+    {
+        thoth::route s{name, thoth::sender};
+        EXPECT_TRUE(s.send("after", 5, 1000)) << "a zombie's sender slot was not taken over";
+    }
+    ::waitpid(pid, nullptr, 0);
+    thoth::route::clear_storage(name);
+}
+
+TEST(Liveness, ZombieReceiverIsReaped) {
+    char const *name = "st.liveness.zombie-receiver";
+    thoth::route::clear_storage(name);
+    // Leaked on purpose: a destructor would disconnect cleanly before _exit.
+    pid_t pid = fork_zombie([name] { new thoth::route{name, thoth::receiver}; });
+    ASSERT_GT(pid, 0);
+    ASSERT_TRUE(thoth::detail::is_zombie(pid)) << "the child did not become a zombie";
+    EXPECT_EQ(observed_recv_count(name), 1u) << "expected the zombie's bit to linger";
+    {
+        thoth::route fresh{name, thoth::receiver};
+        EXPECT_EQ(fresh.recv_count(), 1u) << "a zombie receiver was not reaped on connect";
+    }
+    ::waitpid(pid, nullptr, 0);
+    thoth::route::clear_storage(name);
+}
+
 #endif // !_WIN32
