@@ -35,8 +35,16 @@ public enum ABI {
     public static let chan_ic_incr: UInt64 = 0x0000000100000000
     /// SyncAbi stamp magic "LISA" (0x4C495341)
     public static let syncabi_magic: UInt32 = 1279873857
+    /// SyncAbi backend id: posix_pthread (pthread_mutex_t / pthread_cond_t; FreeBSD, QNX and other POSIX)
+    public static let syncabi_backend_posix_pthread: UInt32 = 1
     /// SyncAbi backend id: apple_ulock
     public static let syncabi_backend_ulock: UInt32 = 2
+    /// SyncAbi backend id: apple_mach (App-Store-safe macOS profile; C++ only)
+    public static let syncabi_backend_apple_mach: UInt32 = 3
+    /// SyncAbi backend id: win32 (named kernel objects, payload size 0)
+    public static let syncabi_backend_win32: UInt32 = 4
+    /// SyncAbi backend id: linux_a0 (vendored alephzero robust PI futex mutex a0_mtx_t + condition a0_cnd_t; Linux and Android)
+    public static let syncabi_backend_linux_a0: UInt32 = 5
     /// secure envelope v1 magic
     public static let sipc_magic: String = "SIPC"
     /// secure envelope v1 version

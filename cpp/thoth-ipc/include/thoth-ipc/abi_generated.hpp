@@ -44,8 +44,16 @@ inline constexpr std::uint64_t chan_ic_mask = 0xff000000ffffffffull;
 inline constexpr std::uint64_t chan_ic_incr = 0x0000000100000000ull;
 /// SyncAbi stamp magic "LISA" (0x4C495341)
 inline constexpr std::uint32_t syncabi_magic = 1279873857;
+/// SyncAbi backend id: posix_pthread (pthread_mutex_t / pthread_cond_t; FreeBSD, QNX and other POSIX)
+inline constexpr std::uint32_t syncabi_backend_posix_pthread = 1;
 /// SyncAbi backend id: apple_ulock
 inline constexpr std::uint32_t syncabi_backend_ulock = 2;
+/// SyncAbi backend id: apple_mach (App-Store-safe macOS profile; C++ only)
+inline constexpr std::uint32_t syncabi_backend_apple_mach = 3;
+/// SyncAbi backend id: win32 (named kernel objects, payload size 0)
+inline constexpr std::uint32_t syncabi_backend_win32 = 4;
+/// SyncAbi backend id: linux_a0 (vendored alephzero robust PI futex mutex a0_mtx_t + condition a0_cnd_t; Linux and Android)
+inline constexpr std::uint32_t syncabi_backend_linux_a0 = 5;
 /// secure envelope v1 magic
 inline constexpr const char* sipc_magic = "SIPC";
 /// secure envelope v1 version

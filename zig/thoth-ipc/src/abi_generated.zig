@@ -36,8 +36,16 @@ pub const chan_ic_mask: u64 = 0xff000000ffffffff;
 pub const chan_ic_incr: u64 = 0x0000000100000000;
 /// SyncAbi stamp magic "LISA" (0x4C495341)
 pub const syncabi_magic: u32 = 1279873857;
+/// SyncAbi backend id: posix_pthread (pthread_mutex_t / pthread_cond_t; FreeBSD, QNX and other POSIX)
+pub const syncabi_backend_posix_pthread: u32 = 1;
 /// SyncAbi backend id: apple_ulock
 pub const syncabi_backend_ulock: u32 = 2;
+/// SyncAbi backend id: apple_mach (App-Store-safe macOS profile; C++ only)
+pub const syncabi_backend_apple_mach: u32 = 3;
+/// SyncAbi backend id: win32 (named kernel objects, payload size 0)
+pub const syncabi_backend_win32: u32 = 4;
+/// SyncAbi backend id: linux_a0 (vendored alephzero robust PI futex mutex a0_mtx_t + condition a0_cnd_t; Linux and Android)
+pub const syncabi_backend_linux_a0: u32 = 5;
 /// secure envelope v1 magic
 pub const sipc_magic: []const u8 = "SIPC";
 /// secure envelope v1 version

@@ -69,6 +69,12 @@ static_assert(static_cast<std::uint32_t>(sync_abi_magic) == thoth::abi::syncabi_
 #if defined(THOTH_IPC_OS_APPLE) && !defined(THOTH_IPC_APPLE_APP_STORE_SAFE)
 static_assert(2u == thoth::abi::syncabi_backend_ulock, "abi drift: syncabi_backend_ulock");
 #endif
+// The remaining backend_id() literals, likewise pinned to abi.json (the Rust
+// port selects its backend from these generated constants).
+static_assert(1u == thoth::abi::syncabi_backend_posix_pthread, "abi drift: syncabi_backend_posix_pthread");
+static_assert(3u == thoth::abi::syncabi_backend_apple_mach,    "abi drift: syncabi_backend_apple_mach");
+static_assert(4u == thoth::abi::syncabi_backend_win32,         "abi drift: syncabi_backend_win32");
+static_assert(5u == thoth::abi::syncabi_backend_linux_a0,      "abi drift: syncabi_backend_linux_a0");
 
 static_assert(sizeof(stamp_t) == thoth::abi::syncabi_stamp_size,
               "abi drift: syncabi_stamp.size");
