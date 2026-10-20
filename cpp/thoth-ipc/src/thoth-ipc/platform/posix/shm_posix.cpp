@@ -146,12 +146,6 @@ std::int32_t get_ref(id_t id) {
     return acc_of(ii->mem_, ii->size_).load(std::memory_order_acquire);
 }
 
-bool share_with(id_t id, std::int32_t /*pid*/) noexcept {
-    // A POSIX shm object exists by name until it is unlinked, not until its
-    // last opener exits: nothing to hand over.
-    return id != nullptr;
-}
-
 void sub_ref(id_t id) {
     THOTH_IPC_LOG();
     if (id == nullptr) {

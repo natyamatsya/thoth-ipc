@@ -68,10 +68,6 @@ void handle::sub_ref() noexcept {
     shm::sub_ref(impl(p_)->id_);
 }
 
-bool handle::share_with(std::int32_t pid) const noexcept {
-    return shm::share_with(impl(p_)->id_, pid);
-}
-
 bool handle::acquire(char const * name, std::size_t size, unsigned mode) {
     THOTH_IPC_LOG();
     if (!is_valid_string(name)) {

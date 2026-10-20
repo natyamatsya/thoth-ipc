@@ -8,7 +8,6 @@
 #include <array>
 #include <cassert>
 #include <mutex>
-#include <thread>
 
 #include "thoth-ipc/ipc.h"
 #include "thoth-ipc/def.h"
@@ -294,9 +293,6 @@ struct conn_info_head {
 auto& chunk_storages() {
     class chunk_handle_t {
         thoth::unordered_map<std::string, thoth::shm::handle> handles_;
-        // Per prefix: the receiver processes (pid, start token) this process has
-        // already handed its segment to (share_with_readers).
-        thoth::unordered_map<std::string, std::vector<std::pair<std::int32_t, std::uint64_t>>> shared_;
         std::mutex lock_;
 
         static bool make_handle(thoth::shm::handle &h, std::string const &shm_name, std::size_t chunk_size) {
@@ -330,52 +326,6 @@ auto& chunk_storages() {
             }
             return info;
         }
-
-        // Make every receiver in `conns` a holder of this chunk segment before a
-        // message stored in it is published (shm::share_with). On Windows the
-        // segment is otherwise destroyed when the last process holding it exits:
-        // a sender that exits before its receivers map the segment — they map it
-        // lazily, on the first large message they read — takes the payloads with
-        // it, and the receivers read a new, zeroed segment instead. A POSIX
-        // segment outlives its openers, so there this is never called.
-        //
-        // Receivers are found through the route's owner table (liveness.h), as
-        // the reaper finds them. Each receiver process is given the segment once
-        // per sending process; the duplicated handle stays open in it until it
-        // exits.
-        void share_with_readers(conn_info_head *inf, thoth::circ::cc_t conns) {
-            if (inf == nullptr) return;
-            thoth::detail::conn_liveness *lv = inf->liveness();
-            if (lv == nullptr) return;
-            const std::int32_t self = thoth::detail::self_pid();
-            std::lock_guard<std::mutex> guard {lock_};
-            auto hit = handles_.find(inf->prefix_);
-            if (hit == handles_.end() || !hit->second.valid()) return;
-            auto &given = shared_[inf->prefix_];
-            for (thoth::circ::cc_t m = conns; m != 0; m &= (m - 1)) {
-                auto &slot = lv->slots[thoth::detail::slot_index(m & (~m + 1))];
-                // A receiver records its pid just after claiming its bit, so a
-                // sender that saw the bit may briefly see no owner yet.
-                std::int32_t pid = slot.pid.load(std::memory_order_acquire);
-                for (int k = 0; pid == 0 && k < 64; ++k) {
-                    std::this_thread::yield();
-                    pid = slot.pid.load(std::memory_order_acquire);
-                }
-                if (pid <= 0 || pid == self) continue;
-                const std::uint64_t tok = slot.start_tok.load(std::memory_order_relaxed);
-                const auto who = std::make_pair(pid, tok);
-                if (std::find(given.begin(), given.end(), who) != given.end()) continue;
-                if (!hit->second.share_with(pid)) continue;
-                if (given.size() >= 64) {
-                    // Forget receivers that have exited, so a long-lived sender
-                    // does not accumulate every receiver it ever served.
-                    given.erase(std::remove_if(given.begin(), given.end(), [](auto const &g) {
-                        return !thoth::detail::is_process_alive(g.first, g.second);
-                    }), given.end());
-                }
-                given.push_back(who);
-            }
-        }
     };
     using deleter_t = void (*)(chunk_handle_t*);
     using chunk_handle_ptr_t = std::unique_ptr<chunk_handle_t, deleter_t>;
@@ -383,8 +333,7 @@ auto& chunk_storages() {
     return *chunk_hs;
 }
 
-// The process-wide handle on the chunk segments of `chunk_size` (one per prefix).
-auto &chunk_storage(std::size_t chunk_size) {
+chunk_info_t *chunk_storage_info(conn_info_head *inf, std::size_t chunk_size) {
     auto &storages = chunk_storages();
     std::decay_t<decltype(storages)>::iterator it;
     {
@@ -401,11 +350,7 @@ auto &chunk_storage(std::size_t chunk_size) {
                 }}).first;
         }
     }
-    return *it->second;
-}
-
-chunk_info_t *chunk_storage_info(conn_info_head *inf, std::size_t chunk_size) {
-    return chunk_storage(chunk_size).get_info(inf, chunk_size);
+    return it->second->get_info(inf, chunk_size);
 }
 
 std::pair<thoth::storage_id_t, void*> acquire_storage(conn_info_head *inf, std::size_t size, thoth::circ::cc_t conns) {
@@ -422,10 +367,6 @@ std::pair<thoth::storage_id_t, void*> acquire_storage(conn_info_head *inf, std::
     auto chunk = info->at(chunk_size, id);
     if (chunk == nullptr) return {};
     chunk->conns().store(conns, std::memory_order_relaxed);
-#if defined(THOTH_IPC_OS_WIN)
-    // Before the message is published: see chunk_handle_t::share_with_readers.
-    chunk_storage(chunk_size).share_with_readers(inf, conns);
-#endif
     return { id, chunk->data() };
 }
 
