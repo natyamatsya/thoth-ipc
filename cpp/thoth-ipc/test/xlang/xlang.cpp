@@ -9,7 +9,7 @@
 // Verbs (see tools/xlang-runner/README.md for the scenario each serves):
 //   write/read (route), cwrite/cread (multi-writer channel), twrite/tread
 //   (typed codec), swrite[-tamper]/sread[-reject|-badkey|-badkeyid] (AEAD
-//   envelope), hold/count/probe (reaping), mhold/mtry/mlock + spost/swait +
+//   envelope), hold/count/probe/keep (reaping), mhold/mtry/mlock + spost/swait +
 //   cvwait/cvnotify (sync primitives), caps, clear.
 //
 // Payload pattern: byte[i] = 'A' + (i % 26). The reader checks length + bytes.
@@ -658,6 +658,23 @@ int main(int argc, char** argv) {
     if (verb == "sclaim") {
         thoth::route s;
         std::printf("%d\n", s.connect(name, thoth::sender) ? 1 : 0);
+        return 0;
+    }
+    // Hold the channel's shared state open without taking a slot in it: neither
+    // the sender slot nor a receiver bit (connect as a sender, then give the
+    // sender claim back), plus the primitives' mutex. Prints READY once open.
+    // On Windows a segment or kernel object is destroyed with its last handle,
+    // so when a test kills the only process holding a channel, the dead slot
+    // it means to probe goes with it; the runner runs this beside the holder
+    // there, so the probes still meet the dead holder's state.
+    if (verb == "keep") {
+        int secs = (argc > 3) ? std::atoi(argv[3]) : 30;
+        thoth::route r{name, thoth::sender};
+        r.disconnect();
+        thoth::sync::mutex m{(std::string(name) + "_m").c_str()};
+        std::printf("READY\n");
+        std::fflush(stdout);
+        std::this_thread::sleep_for(std::chrono::seconds(secs));
         return 0;
     }
     // Connect a receiver and hold it (populating the owner table), so a test can

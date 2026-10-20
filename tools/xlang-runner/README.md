@@ -34,12 +34,22 @@ binary per language, a uniform CLI — but a real framework around it:
 | `async`           | a writer's notify wakes an async (readiness-driven) receiver                | `write` / `aread`            |
 | `fanout`          | 1 writer → N mixed-language readers: every receiver gets every message (rc_ bitmask with N>1) | `write minrecv=N` / `read` |
 | `channel`         | multi-writer `thoth::channel` (2 writers of different languages → 1 reader)  | `cwrite` / `cread`           |
-| `reap`            | dead receivers reclaimed, live never falsely; sender `probe` doesn't reap; traffic flows after a reap; a dead sender's slot is taken over, a live one's never, and a new sender's traffic flows; a killed but unreaped (zombie) holder counts as dead | `hold` / `count` / `probe`, `shold` / `sclaim` |
+| `reap`            | dead receivers reclaimed, live never falsely; sender `probe` doesn't reap; traffic flows after a reap; a dead sender's slot is taken over, a live one's never, and a new sender's traffic flows; a killed but unreaped (zombie) holder counts as dead | `hold` / `count` / `probe`, `shold` / `sclaim` (+ `keep` on Windows) |
 | `primitives`      | mutex contention + robust dead-holder recovery, semaphore count exactness, condition wakeup; the probe for the sync payload protocols in `[scenarios.primitives].protocols` | `mhold`/`mtry`/`mlock`, `spost`/`swait`, `cvnotify`/`cvwait` |
 | `typed`           | the typed codec layer end-to-end (canonical protobuf message, field-level verify) | `twrite` / `tread`      |
 | `secure`          | AEAD envelope v1 interop: sealed by one language, opened by another         | `swrite` / `sread`           |
 | `secure-badkey`   | fail-closed: a reader keyed with different material rejects every message   | `swrite` / `sread-badkey`    |
 | `secure-negative` | fail-closed on tampered tags, wrong key ids, and algorithm mismatch         | `swrite-tamper` / `sread-reject` / `sread-badkeyid` |
+
+On Windows the cases that kill a holder (`reap` dead/zombie, `primitives`
+"killed holding mutex") also run a **keeper** beside it: the holder's harness
+with the `keep` verb, which holds the channel's segments and its mutex open
+without taking a slot. A Windows section or kernel object is destroyed with
+its last handle, so without one, killing the only process that holds a channel
+destroys the dead slot (or abandoned mutex) the probes are meant to find, and
+the probes meet a fresh channel instead — passing trivially, or, for
+`probe-noreap`, failing (the sender sees no receiver at all). POSIX segments
+outlive their processes, so elsewhere no keeper is needed.
 
 The secure scenarios run per algorithm (`aes256gcm`, `chacha20poly1305`) with
 the shared xlang test key that is byte-identical in all three harnesses. They

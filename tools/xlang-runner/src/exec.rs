@@ -221,7 +221,9 @@ fn run_group_inner(readers: &[Proc], writers: &[Proc], cfg: &RunConfig) -> (bool
 
 /// Wait (up to 5 s) until a killed child has exited, without reaping it: `ps`
 /// shows it as a zombie (state Z) from then on.
-fn wait_until_zombie(pid: u32) {
+#[cfg(not(windows))]
+fn wait_until_zombie(child: &mut Child) {
+    let pid = child.id();
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while std::time::Instant::now() < deadline {
         let state = Command::new("ps")
@@ -233,6 +235,56 @@ fn wait_until_zombie(pid: u32) {
             return;
         }
         std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Windows has no zombies; the closest state is a process that has exited
+/// while its parent still holds its handle (the pid stays reserved until the
+/// handle is closed). `TerminateProcess` only starts the termination, so wait
+/// (up to 5 s) for the exit. `try_wait` keeps the handle open (it is closed
+/// when the `Child` is dropped), so nothing is reaped.
+#[cfg(windows)]
+fn wait_until_zombie(child: &mut Child) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Spawn `proc` and wait (up to 10 s) for the READY line proving it holds its
+/// resource; stdout keeps being drained afterwards so it never blocks.
+fn spawn_ready(proc: &Proc) -> Result<Child, String> {
+    let mut child = Command::new(&proc.endpoint.bin)
+        .args(&proc.args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("spawn failed: {e}"))?;
+    let stdout = child.stdout.take();
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        if let Some(s) = stdout {
+            let mut reader = std::io::BufReader::new(s);
+            let mut line = String::new();
+            use std::io::BufRead;
+            if reader.read_line(&mut line).is_ok() {
+                let _ = tx.send(line);
+            }
+            // Keep draining so the child never blocks on stdout.
+            let mut rest = String::new();
+            let _ = reader.read_to_string(&mut rest);
+        }
+    });
+    if matches!(rx.recv_timeout(Duration::from_secs(10)), Ok(l) if l.contains("READY")) {
+        Ok(child)
+    } else {
+        let _ = child.kill();
+        let _ = child.wait();
+        Err("never became READY".into())
     }
 }
 
@@ -255,41 +307,40 @@ fn run_hold_probe(
         clear(bin, channel);
     }
 
-    let mut holder_child = match Command::new(&holder.endpoint.bin)
-        .args(&holder.args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
+    let mut holder_child = match spawn_ready(holder) {
         Ok(c) => c,
-        Err(e) => return (false, format!("spawn holder failed: {e}")),
+        Err(e) => {
+            for bin in &clearers {
+                clear(bin, channel);
+            }
+            return (false, format!("holder {e}"));
+        }
     };
 
-    // Wait for the READY line proving the holder acquired its resource.
-    let stdout = holder_child.stdout.take();
-    let (tx, rx) = std::sync::mpsc::channel::<String>();
-    std::thread::spawn(move || {
-        if let Some(s) = stdout {
-            let mut reader = std::io::BufReader::new(s);
-            let mut line = String::new();
-            use std::io::BufRead;
-            if reader.read_line(&mut line).is_ok() {
-                let _ = tx.send(line);
+    // On Windows a shared-memory section or kernel object is destroyed with
+    // its last handle, so killing the only process that holds the channel
+    // destroys the very state the probes are meant to find (the dead slot, the
+    // abandoned mutex), and every probe meets a fresh channel instead. POSIX
+    // segments outlive their processes. A keeper (the holder's harness, `keep`
+    // verb: the channel and its mutex held open, no slot taken) stands in for
+    // that persistence, so the probes see on every OS what the case describes.
+    let mut keeper = None;
+    if cfg!(windows) && kill_holder {
+        let k = Proc {
+            endpoint: holder.endpoint.clone(),
+            args: vec!["keep".into(), channel.to_string(), "30".into()],
+        };
+        match spawn_ready(&k) {
+            Ok(c) => keeper = Some(c),
+            Err(e) => {
+                let _ = holder_child.kill();
+                let _ = holder_child.wait();
+                for bin in &clearers {
+                    clear(bin, channel);
+                }
+                return (false, format!("keeper {e}"));
             }
-            // Keep draining so the holder never blocks on stdout.
-            let mut rest = String::new();
-            let _ = reader.read_to_string(&mut rest);
         }
-    });
-    let ready = matches!(rx.recv_timeout(Duration::from_secs(10)), Ok(l) if l.contains("READY"));
-    if !ready {
-        let _ = holder_child.kill();
-        let _ = holder_child.wait();
-        for bin in &clearers {
-            clear(bin, channel);
-        }
-        return (false, "holder never became READY".into());
     }
 
     if kill_holder {
@@ -297,7 +348,7 @@ fn run_hold_probe(
         if zombie {
             // Leave it unreaped (a zombie) while the probes run: wait until it
             // has exited, without waitpid.
-            wait_until_zombie(holder_child.id());
+            wait_until_zombie(&mut holder_child);
         } else {
             let _ = holder_child.wait();
         }
@@ -346,6 +397,10 @@ fn run_hold_probe(
         let _ = holder_child.kill();
     }
     let _ = holder_child.wait(); // reaps a zombie, too
+    if let Some(mut k) = keeper {
+        let _ = k.kill();
+        let _ = k.wait();
+    }
     for bin in &clearers {
         clear(bin, channel);
     }

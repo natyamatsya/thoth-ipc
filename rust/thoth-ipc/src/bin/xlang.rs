@@ -9,7 +9,7 @@
 // Verbs (see tools/xlang-runner/README.md for the scenario each serves):
 //   write/read (route), cwrite/cread (multi-writer channel), aread (async),
 //   twrite/tread (typed codec), swrite[-tamper]/sread[-reject|-badkey|-badkeyid]
-//   (AEAD envelope), hold/count/probe (reaping), mhold/mtry/mlock + spost/swait
+//   (AEAD envelope), hold/count/probe/keep (reaping), mhold/mtry/mlock + spost/swait
 //   + cvwait/cvnotify (sync primitives), caps, clear.
 //
 // Payload pattern: byte[i] = 'A' + (i % 26).
@@ -717,6 +717,24 @@ fn main() {
     if verb == "sclaim" {
         let mut s = Route::connect(name, Mode::Sender).expect("connect sender");
         println!("{}", if s.sender_ready() { 1 } else { 0 });
+        exit(0);
+    }
+    // Hold the channel's shared state open without taking a slot in it: neither
+    // the sender slot nor a receiver bit (connect as a sender, then give the
+    // sender claim back), plus the primitives' mutex. Prints READY once open.
+    // On Windows a segment or kernel object is destroyed with its last handle,
+    // so when a test kills the only process holding a channel, the dead slot it
+    // means to probe goes with it; the runner runs this beside the holder there,
+    // so the probes still meet the dead holder's state.
+    if verb == "keep" {
+        let secs: u64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(30);
+        let mut r = Route::connect(name, Mode::Sender).expect("connect sender");
+        r.disconnect();
+        let _m = IpcMutex::open(&format!("{name}_m")).expect("open mutex");
+        println!("READY");
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        std::thread::sleep(std::time::Duration::from_secs(secs));
         exit(0);
     }
     // Connect a receiver and hold it (populating the LV_CONN__ owner table), so a
