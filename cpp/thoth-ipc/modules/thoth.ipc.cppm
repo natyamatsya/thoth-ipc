@@ -100,6 +100,7 @@ using ::thoth::shm::release;
 using ::thoth::shm::remove;      // both overloads
 using ::thoth::shm::get_ref;
 using ::thoth::shm::sub_ref;
+using ::thoth::shm::share_with;
 using ::thoth::shm::handle;
 
 } // export namespace thoth::shm

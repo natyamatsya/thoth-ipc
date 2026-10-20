@@ -90,6 +90,33 @@ std::int32_t get_ref(id_t id) {
     return acc_of(ii->mem_, calc_size(ii->size_)).load(std::memory_order_acquire);
 }
 
+bool share_with(id_t id, std::int32_t pid) noexcept {
+    THOTH_IPC_LOG();
+    if (id == nullptr || pid <= 0) {
+        return false;
+    }
+    auto ii = static_cast<id_info_t*>(id);
+    if (ii->h_ == NULL) {
+        return false;
+    }
+    // A section lives while any process holds a handle to it (or maps a view of
+    // it). Duplicating ours into `pid` makes that process one of the holders,
+    // until it exits; it never needs to know the handle value.
+    HANDLE proc = ::OpenProcess(PROCESS_DUP_HANDLE, FALSE, static_cast<DWORD>(pid));
+    if (proc == NULL) {
+        log.debug("fail OpenProcess[", static_cast<int>(::GetLastError()), "]: pid ", pid);
+        return false;
+    }
+    HANDLE dup = NULL;
+    BOOL ok = ::DuplicateHandle(::GetCurrentProcess(), ii->h_, proc, &dup,
+                                0, FALSE, DUPLICATE_SAME_ACCESS);
+    if (!ok) {
+        log.debug("fail DuplicateHandle[", static_cast<int>(::GetLastError()), "]: pid ", pid);
+    }
+    ::CloseHandle(proc);
+    return ok != FALSE;
+}
+
 void sub_ref(id_t id) {
     THOTH_IPC_LOG();
     if (id == nullptr) {

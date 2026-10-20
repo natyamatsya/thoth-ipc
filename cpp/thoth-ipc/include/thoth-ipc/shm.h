@@ -48,6 +48,17 @@ THOTH_IPC_EXPORT void         remove (char const * name) noexcept;
 THOTH_IPC_EXPORT std::int32_t get_ref(id_t id);
 THOTH_IPC_EXPORT void sub_ref(id_t id);
 
+// Keep the segment alive for as long as process `pid` lives, whether or not
+// that process ever maps it.
+// A POSIX segment outlives every process that opened it (it exists by name
+// until removed), so there this is a no-op that returns true. A Windows section
+// is destroyed with its last handle, so a segment that only the writing process
+// holds dies when that process exits, and a reader that opens it afterwards
+// gets a new, zeroed one. Here the section handle is duplicated into `pid`,
+// where it stays open until that process exits.
+// Returns false when `pid` cannot be opened or the handle cannot be duplicated.
+THOTH_IPC_EXPORT bool share_with(id_t id, std::int32_t pid) noexcept;
+
 class THOTH_IPC_EXPORT handle {
 public:
     handle();
@@ -65,6 +76,9 @@ public:
 
     std::int32_t ref() const noexcept;
     void sub_ref() noexcept;
+
+    // shm::share_with() for this handle's segment.
+    bool share_with(std::int32_t pid) const noexcept;
 
     bool acquire(char const * name, std::size_t size, unsigned mode = create | open);
     std::int32_t release();
