@@ -27,46 +27,36 @@ fn compile_secure_crypto_c() {
     }
 
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let secure_crypto_root = manifest.join("../../secure-crypto-c");
     let source = secure_crypto_root.join("src/secure_crypto_c.c");
     let include_root = secure_crypto_root.join("include");
     let abi_header = include_root.join("thoth-ipc/proto/codecs/secure_crypto_c.h");
-    let object = out_dir.join("secure_crypto_c.o");
-    let static_lib = out_dir.join("libthoth_ipc_secure_crypto_c.a");
-
-    let compiler = cc::Build::new().get_compiler();
-    let mut compile_cmd = compiler.to_command();
-    compile_cmd.arg("-c");
-    compile_cmd.arg(&source);
-    compile_cmd.arg("-o");
-    compile_cmd.arg(&object);
-
-    if compiler.is_like_msvc() {
-        compile_cmd.arg(format!("/I{}", include_root.display()));
-    } else {
-        compile_cmd.arg(format!("-I{}", include_root.display()));
-    }
 
     println!("cargo:rerun-if-changed={}", source.display());
     println!("cargo:rerun-if-changed={}", abi_header.display());
     println!("cargo:rerun-if-env-changed=THOTH_IPC_OPENSSL_PREFIX");
 
+    // cc::Build compiles and archives with the target's own toolchain --
+    // cl.exe + lib.exe for MSVC, which the hand-rolled `-c ... -o` and
+    // `ar`/`libtool` invocations this replaced did not speak -- and emits the
+    // link-search / link-lib directives for the archive itself.
+    let mut build = cc::Build::new();
+    build.file(&source).include(&include_root);
+    // Apple's ld rejects archives from GNU ar ("not 8-byte aligned"), which cc
+    // would pick up from PATH where binutils is installed; this used to call
+    // libtool for the same reason. An explicit AR still wins.
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if target.contains("apple") && std::env::var_os("AR").is_none() {
+        build.archiver("/usr/bin/ar");
+    }
+
     if secure_crypto_openssl_enabled() {
-        if compiler.is_like_msvc() {
-            compile_cmd.arg("/DTHOTH_IPC_SECURE_OPENSSL");
-        } else {
-            compile_cmd.arg("-DTHOTH_IPC_SECURE_OPENSSL");
-        }
+        build.define("THOTH_IPC_SECURE_OPENSSL", None);
         let prefix = std::env::var("THOTH_IPC_OPENSSL_PREFIX")
             .unwrap_or_else(|_| "/opt/homebrew/opt/openssl@3".to_string());
-        if compiler.is_like_msvc() {
-            compile_cmd.arg(format!("/I{prefix}/include"));
-        } else {
-            compile_cmd.arg(format!("-I{prefix}/include"));
-        }
+        build.include(format!("{prefix}/include"));
         println!("cargo:rustc-link-search=native={prefix}/lib");
-        if compiler.is_like_msvc() {
+        if build.get_compiler().is_like_msvc() {
             // Win64 OpenSSL 3 ships import libs as libcrypto.lib, in either
             // lib/ or lib/VC/x64/MD depending on the installer.
             println!("cargo:rustc-link-search=native={prefix}/lib/VC/x64/MD");
@@ -76,32 +66,7 @@ fn compile_secure_crypto_c() {
         }
     }
 
-    let compile_status = compile_cmd
-        .status()
-        .expect("failed to compile secure_crypto_c.c");
-    assert!(compile_status.success(), "secure crypto C compile failed");
-
-    let target = std::env::var("TARGET").unwrap_or_default();
-    let archive_status = if target.contains("apple-darwin") {
-        Command::new("libtool")
-            .arg("-static")
-            .arg("-o")
-            .arg(&static_lib)
-            .arg(&object)
-            .status()
-            .expect("failed to archive secure crypto C library with libtool")
-    } else {
-        Command::new("ar")
-            .arg("crus")
-            .arg(&static_lib)
-            .arg(&object)
-            .status()
-            .expect("failed to archive secure crypto C library with ar")
-    };
-    assert!(archive_status.success(), "secure crypto C archive failed");
-
-    println!("cargo:rustc-link-search=native={}", out_dir.display());
-    println!("cargo:rustc-link-lib=static=thoth_ipc_secure_crypto_c");
+    build.compile("thoth_ipc_secure_crypto_c");
 }
 
 fn find_flatc() -> Option<PathBuf> {
