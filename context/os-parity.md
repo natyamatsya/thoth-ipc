@@ -3,7 +3,8 @@
 **C++↔Rust are now at full parity on macOS, Linux, and Windows** — the byte-exact
 wire ABI, Layer-1 notify, Layer-2 async (C++ stdexec **and** coroutines; Rust
 `AsyncRoute`), and the dead-connection reaper are implemented and **matrix-verified**
-on all three via `tools/xlang-runner` in CI. Swift adds a third language on macOS
+on all three via `tools/xlang-runner` in CI (Windows in full only since
+2026-10-21 — footnote 2). Swift adds a third language on macOS
 (it is a macOS-only SwiftPM package — out of scope on Linux/Windows). FreeBSD /
 other POSIX remain untested. The open items are that last row plus native-runtime
 CI for the new `clear_storage` orphan-safety row (implemented + locally verified;
@@ -43,9 +44,39 @@ Footnotes / code pointers:
    Linux target) and message + chunk-storage interop runs in CI (`matrix-linux`,
    sizes incl. 200/3000 B). Also fixed a latent bug that made the Linux FIFO
    notify backend fail to compile (`sigtimedwait` takes `*mut siginfo_t`).
-2. **Windows ports: done** (2026-07-12). All six phases of
-   [`windows-parity-rfc.md`](windows-parity-rfc.md) landed and the sync (16/16),
-   reap (8/8) and async (36/36) xlang matrices are green on `windows-latest`/MSVC.
+2. **Windows ports: done** (2026-07-12), **matrix-verified 2026-10-21**. All six
+   phases of [`windows-parity-rfc.md`](windows-parity-rfc.md) landed in July, but
+   `matrix-windows` never got past installing OpenSSL from then until October, so
+   the full matrix had not actually run on Windows; the July counts (sync 16/16,
+   reap 8/8, async 36/36) predate most of today's scenarios. Once it ran
+   (2026-10-20) it was 165/175, and `async-matrix-windows` 53/54
+   (intermittently). Three Windows gaps, all fixed on `fix/windows-xlang`:
+   - **conform (5 probes):** a harness artefact, not a port divergence — the C++
+     harness writes stdout in text mode on Windows (CRLF) and the Rust one LF;
+     the traces were otherwise identical. The runner now compares them without
+     line endings.
+   - **Chunk storage (payload mismatch, C++ sender only):** a Windows section is
+     destroyed with its last handle, where a POSIX segment exists by name until
+     removed. A C++ sender that exited before its receivers mapped a chunk
+     segment (they map it lazily, on the first large message) took the payloads
+     with it; the receiver's open created a fresh, zeroed section, so a >64 B
+     message arrived with the right size and zero bytes. The C++ sender now
+     duplicates the segment's section handle into every receiver of the message
+     before publishing it (`shm::share_with`, `DuplicateHandle`, receivers found
+     via the LV_CONN__ owner table). The Rust sender fragments large messages
+     and never used chunk storage, so only C++ was wrong.
+   - **reap `probe-noreap` (4 pairings):** the same section lifetime, in the
+     test: killing the only process holding a channel destroyed the dead slot
+     the probe was meant to see. Neither port's liveness code was at fault. It
+     also meant every other "dead"/"zombie" reap case, and primitives' "killed
+     holding mutex", passed on Windows without exercising the reaper or
+     `WAIT_ABANDONED`. On Windows the runner now runs a **keeper** (the `keep`
+     verb: the channel's segments and mutex held open, no slot taken) beside a
+     holder it kills, so those cases test on Windows what they test on POSIX.
+   With those, run 39515837537 is green on every job: `matrix-windows` 175/175
+   (conform 5, sync 28, contend 4, fanout 4, channel 6, reap 36, primitives 16,
+   typed 12, secure 32 + badkey 8 + negative 24) and `async-matrix-windows`
+   54/54, with Linux and macOS green in the same run.
    The generic `atomic<u32>` spin_lock (same as Linux) gives byte-exact ABI;
    Layer-1 notify is a named auto-reset Event per slot; the reactor is a thin
    registry over the Win32 thread pool (`RegisterWaitForSingleObject`); the reaper
@@ -96,8 +127,9 @@ Notify (FIFO), async (epoll + tokio `AsyncFd`), and the reaper (`kill(pid,0)` +
 full parity.** (Swift remains macOS-only.)
 
 ### Windows — DONE
-All three layers landed and are matrix-verified on `windows-latest`/MSVC (sync
-16/16, reap 8/8, async 36/36):
+All three layers landed and are matrix-verified on `windows-latest`/MSVC
+(`matrix-windows` 175/175, `async-matrix-windows` 54/54, run 39515837537,
+2026-10-21; footnote 2 has what it took):
 1. **Liveness (reaper):** `is_process_alive` via
    `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `GetExitCodeProcess`;
    `start_token` via `GetProcessTimes` creation `FILETIME` packed as u64 (the §9
@@ -115,6 +147,15 @@ All three layers landed and are matrix-verified on `windows-latest`/MSVC (sync
 4. **CI:** `matrix-windows` + `async-matrix-windows` jobs run the C++↔Rust
    matrices on `windows-latest` (`workflow_dispatch`/PR, since push triggers are
    off). Byte-exact ABI comes free from the generic `atomic<u32>` spin_lock.
+5. **Segment lifetime:** Windows named sections and kernel objects die with
+   their last handle; POSIX segments persist until removed. Anything that relies
+   on shared state outliving the process that wrote it has to hand a handle to
+   a process that lives on. Today that is chunk storage (the C++ sender
+   duplicates each chunk segment into its receivers, once per sender process
+   and receiver incarnation; the duplicate stays open in the receiver until it
+   exits, so a long-lived receiver holds one handle per segment per sender
+   process it has served) and the xlang runner's keeper for the kill cases.
+   The ring itself is safe: a sender waits for a receiver, which holds it.
 
 ### FreeBSD / other POSIX
 Likely close (FIFO notify, kqueue reactor, and `kill(pid,0)` are BSD-native), but
@@ -125,7 +166,8 @@ byte-exact asserts + a CI run before claiming parity.
 ## Remaining
 1. ~~**Linux spin_lock byte-exactness**~~ — **done.**
 2. ~~**Windows liveness / notify / reactor / async**~~ — **done** (all six RFC
-   phases; matrices green on `windows-latest`/MSVC).
+   phases; matrices green on `windows-latest`/MSVC since 2026-10-21, after the
+   chunk-segment lifetime fix and the reap keeper — footnote 2).
 3. **FreeBSD / other POSIX validation** — open item (medium; mostly a
    BSD `start_token` source + a CI run). Swift stays macOS-only.
 4. **`clear_storage` orphan-safety native runtime on Linux** — small: the fix is

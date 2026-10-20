@@ -7,6 +7,15 @@ Notable changes to thoth-ipc. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **Large messages from a C++ sender survive the sender on Windows.** A message
+  over 64 B is stored in a chunk segment (`CHUNK_INFO__<size>`), which a receiver
+  maps lazily, on the first large message it reads. A Windows section is
+  destroyed with its last handle (a POSIX segment exists until removed), so a
+  sender that exited first took the payloads with it and the receiver read a
+  fresh, zeroed segment: the right size, all-zero bytes. The C++ sender now
+  duplicates the chunk segment's section handle into each receiver of a message
+  before publishing it (new `shm::share_with` / `shm::handle::share_with`; a
+  no-op on POSIX); the duplicate stays open in the receiver until it exits.
 - **Rust and C++ share mutexes and conditions on Linux.** The C++ Linux backend
   is the vendored alephzero robust PI futex mutex/condition (`a0_mtx_t` /
   `a0_cnd_t`, sync ABI backend 5 = `linux_a0`), but the Rust port used
