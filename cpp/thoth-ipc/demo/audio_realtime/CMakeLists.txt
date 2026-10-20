@@ -67,11 +67,11 @@ if(CARGO_EXECUTABLE)
         OUTPUT  ${RUST_EXE}
         COMMAND ${CMAKE_COMMAND} -E env
             "RT_AUDIO_FFI_LIB_DIR=$<TARGET_FILE_DIR:rt_audio_ffi>"
-            "IPC_LIB_DIR=$<TARGET_FILE_DIR:ipc>"
+            "IPC_LIB_DIR=$<TARGET_FILE_DIR:thoth_ipc>"
             ${CARGO_EXECUTABLE} build ${CARGO_BUILD_FLAGS}
                 --target-dir ${RUST_OUT_DIR}
                 --manifest-path ${RUST_SRC_DIR}/Cargo.toml
-        DEPENDS rt_audio_ffi ipc
+        DEPENDS rt_audio_ffi thoth_ipc
                 ${RUST_SRC_DIR}/Cargo.toml
                 ${RUST_SRC_DIR}/build.rs
                 ${RUST_SRC_DIR}/src/main.rs

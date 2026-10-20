@@ -36,11 +36,11 @@ fn main() {
         println!("cargo:rustc-link-search=native={ipc_dir}");
     }
 
-    // Link the FFI wrapper and the ipc library
+    // Link the FFI wrapper and the thoth_ipc library
     println!("cargo:rustc-link-lib=static=rt_audio_ffi");
-    println!("cargo:rustc-link-lib=static=ipc");
+    println!("cargo:rustc-link-lib=static=thoth_ipc");
 
-    // Windows system libraries needed by ipc
+    // Windows system libraries needed by thoth_ipc
     if cfg!(target_os = "windows") {
         println!("cargo:rustc-link-lib=dylib=advapi32");
         println!("cargo:rustc-link-lib=dylib=user32");

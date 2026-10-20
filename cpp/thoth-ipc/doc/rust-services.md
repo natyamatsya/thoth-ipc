@@ -171,7 +171,7 @@ CMake passes the library search paths as environment variables:
 ```cmake
 ${CMAKE_COMMAND} -E env
     "RT_AUDIO_FFI_LIB_DIR=$<TARGET_FILE_DIR:rt_audio_ffi>"
-    "IPC_LIB_DIR=$<TARGET_FILE_DIR:ipc>"
+    "IPC_LIB_DIR=$<TARGET_FILE_DIR:thoth_ipc>"
     ${CARGO_EXECUTABLE} build --release
 ```
 
