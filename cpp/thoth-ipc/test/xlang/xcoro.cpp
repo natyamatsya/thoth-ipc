@@ -26,6 +26,26 @@ std::vector<char> pattern(std::size_t n) {
     return v;
 }
 
+// Where a received payload first departs from the pattern, appended to the
+// mismatch line. An all-zero payload of the right length is what a reader sees
+// when the chunk segment it was stored in no longer exists.
+void print_mismatch(char const* tag, int i, void const* got_p, std::vector<char> const& want) {
+    auto const* got = static_cast<unsigned char const*>(got_p);
+    std::size_t first = want.size(), differ = 0;
+    bool zero = true;
+    for (std::size_t k = 0; k < want.size(); ++k) {
+        if (got[k] != static_cast<unsigned char>(want[k])) {
+            if (first == want.size()) first = k;
+            ++differ;
+        }
+        if (got[k] != 0) zero = false;
+    }
+    if (first == want.size()) first = 0;
+    std::fprintf(stderr, "[%s] recv %d payload mismatch at byte %zu (got 0x%02x want 0x%02x; %zu of %zu bytes differ%s)\n",
+                 tag, i, first, got[first], static_cast<unsigned char>(want[first]), differ, want.size(),
+                 zero ? ", all zero" : "");
+}
+
 int do_write(const char *name, int count, std::size_t size) {
     thoth::route w{name, thoth::sender};
     if (!w.valid()) { std::fprintf(stderr, "[cpp-coro] connect(sender) failed\n"); return 3; }
@@ -46,7 +66,7 @@ thoth::coro::task<int> recv_loop(thoth::route &r, int count, std::size_t size) {
         if (!res.has_value()) { std::fprintf(stderr, "[cpp-coro] recv %d errc=%d\n", i, int(res.error())); co_return 5; }
         thoth::buff_t const &b = res.value();
         if (b.size() != size) { std::fprintf(stderr, "[cpp-coro] recv %d wrong size %zu\n", i, b.size()); co_return 6; }
-        if (std::memcmp(b.data(), want.data(), size) != 0) { std::fprintf(stderr, "[cpp-coro] recv %d mismatch\n", i); co_return 7; }
+        if (std::memcmp(b.data(), want.data(), size) != 0) { print_mismatch("cpp-coro", i, b.data(), want); co_return 7; }
     }
     std::fprintf(stderr, "[cpp-coro] async-read %d x %zuB OK\n", count, size);
     co_return 0;

@@ -23,6 +23,22 @@ fn pattern(n: usize) -> Vec<u8> {
     (0..n).map(|i| b'A' + (i % 26) as u8).collect()
 }
 
+/// Where a received payload first departs from the pattern, for the mismatch
+/// line: " at byte N (got 0xGG want 0xWW; K of L bytes differ, all zero)". An
+/// all-zero payload of the right length is what a reader sees when the chunk
+/// segment it was stored in no longer exists.
+fn mismatch_detail(got: &[u8], want: &[u8]) -> String {
+    let first = got.iter().zip(want).position(|(g, w)| g != w).unwrap_or(0);
+    let differ = got.iter().zip(want).filter(|(g, w)| g != w).count();
+    let zero = if got.iter().all(|&b| b == 0) { ", all zero" } else { "" };
+    format!(
+        " at byte {first} (got {:#04x} want {:#04x}; {differ} of {} bytes differ{zero})",
+        got.get(first).copied().unwrap_or(0),
+        want.get(first).copied().unwrap_or(0),
+        want.len()
+    )
+}
+
 /// Multi-writer endpoints on thoth::channel (N writers, N readers) — same wire
 /// ABI as route, but exercises the multi-producer claim/CAS paths and cc_id
 /// self-filtering with concurrent senders of different languages.
@@ -63,7 +79,7 @@ fn do_cread(name: &str, count: usize, size: usize) -> i32 {
             return 6;
         }
         if buf.data() != want.as_slice() {
-            eprintln!("[rust-chan] recv {i} payload mismatch");
+            eprintln!("[rust-chan] recv {i} payload mismatch{}", mismatch_detail(buf.data(), &want));
             return 7;
         }
     }
@@ -108,7 +124,7 @@ fn do_read(name: &str, count: usize, size: usize) -> i32 {
             return 6;
         }
         if buf.data() != want.as_slice() {
-            eprintln!("[rust] recv {i} payload mismatch");
+            eprintln!("[rust] recv {i} payload mismatch{}", mismatch_detail(buf.data(), &want));
             return 7;
         }
     }
@@ -495,7 +511,7 @@ fn do_arecv(name: &str, count: usize, size: usize) -> i32 {
             match r.try_recv() {
                 Ok(b) if !b.is_empty() => {
                     if b.len() != size { eprintln!("[rust-async] wrong size {}", b.len()); return 6; }
-                    if b.data() != want.as_slice() { eprintln!("[rust-async] mismatch"); return 7; }
+                    if b.data() != want.as_slice() { eprintln!("[rust-async] mismatch{}", mismatch_detail(b.data(), &want)); return 7; }
                     got += 1;
                     if got == count { break; }
                 }
@@ -535,7 +551,7 @@ fn do_arecv_tokio(name: &str, count: usize, size: usize) -> i32 {
                 Err(e) => { eprintln!("[rust-tokio] recv {i} error: {e}"); return 5; }
             };
             if b.len() != size { eprintln!("[rust-tokio] wrong size {}", b.len()); return 6; }
-            if b.data() != want.as_slice() { eprintln!("[rust-tokio] mismatch"); return 7; }
+            if b.data() != want.as_slice() { eprintln!("[rust-tokio] mismatch{}", mismatch_detail(b.data(), &want)); return 7; }
         }
         eprintln!("[rust-tokio] async-read {count} x {size}B on '{name}' OK");
         0
