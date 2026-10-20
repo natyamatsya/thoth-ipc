@@ -117,6 +117,16 @@ did implement. Split out as `idpool-release` (seeded by writing the pool's
 bytes), and Zig's allocator half was then implemented for symmetry with Rust's,
 closing both remaining gaps. `conform` is 12/12 with no NOT IMPLEMENTED section.
 
+**Sync payloads (2026-10).** The mutex/condition payloads were the last shared
+bytes described only by a size in the SyncAbi stamp, and the gap was live: the
+Rust port ran `pthread_*` on Linux while C++ ran alephzero's PI futexes, so every
+C++↔Rust channel failed to open there. abi.json now carries `ulock_mutex` /
+`ulock_cond` and `a0_mtx` / `a0_cnd` with protocol tags, and Rust implements
+the a0 protocol natively. Those protocols run through the kernel (ulock, PI
+futexes, the robust list) and leave no byte trace, so their probe is the
+`primitives` scenario rather than `conform`: the runner accepts a protocol named
+in `[scenarios.primitives].protocols`.
+
 **Why recommendation 2 was declined.** Each SyncAbi stamp is its own shm object
 (`<name><sidecar_suffix>`), so covering the spin locks means a new segment per
 ring *and* per chunk pool, created and validated by the C++ reference as well —

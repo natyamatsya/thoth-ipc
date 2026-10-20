@@ -23,7 +23,9 @@ We standardize synchronization interop with an explicit cross-language contract.
 
 Each sync primitive has an ABI identity:
 
-- `backend_id` (examples: `posix_pthread`, `apple_ulock`, `apple_mach`, `win32`)
+- `backend_id` — registered in `abi/abi.json` (`syncabi_backend_*`):
+  `posix_pthread` = 1, `apple_ulock` = 2, `apple_mach` = 3, `win32` = 4,
+  `linux_a0` = 5
 - `abi_version_major`
 - `abi_version_minor`
 - `primitive_kind` (`mutex`, `condition`)
@@ -75,7 +77,36 @@ Current implementation status:
 
 If `apple_mach` is selected in one language, all participating language runtimes in that deployment must use `apple_mach` for synchronization primitives.
 
-### 5) Interop tests are required
+### 5) Linux and other POSIX profiles
+
+The backend follows the C++ platform classification (`detect_plat.h`,
+`sync_abi.h` `backend_id()`):
+
+- **Linux (incl. Android, `THOTH_IPC_OS_LINUX`) -> `linux_a0` (5).** The mutex
+  is the vendored alephzero robust, priority-inheriting, error-checking futex
+  mutex `a0_mtx_t` (`{next, prev, ftx}`, 24 B on LP64) and the condition is
+  `a0_cnd_t` (a `u32` futex word, 4 B), vendored in
+  `cpp/thoth-ipc/src/thoth-ipc/platform/linux/a0`. Like every shared protocol,
+  it is a contract a port implements natively, not code it links: the layouts
+  are abi.json `a0_mtx` / `a0_cnd`, the field protocols (`robust-list`,
+  `pi-futex`, `requeue-pi-cond`) are listed in `abi/protocols.txt` and proved by
+  the xlang `primitives` scenario, and the Rust crate ports `mtx.c` / `ftx.h`
+  operation by operation in `platform/linux.rs` (FUTEX_LOCK_PI / FUTEX_UNLOCK_PI
+  behind CAS fast paths, FUTEX_WAIT_REQUEUE_PI / FUTEX_CMP_REQUEUE_PI, the
+  per-thread kernel robust list), as `platform/apple.rs` ports the ulock mutex.
+  Because waiters are requeued onto the mutex futex, notify/broadcast take the
+  paired mutex in every language. Timeouts are milliseconds against
+  CLOCK_BOOTTIME.
+- **FreeBSD, QNX and other POSIX -> `posix_pthread` (1)**: process-shared,
+  robust `pthread_mutex_t` / process-shared `pthread_cond_t`.
+
+Status: C++ and Rust implement `linux_a0` (C++ through the vendored a0 C, Rust
+natively). (Until 2026-10 the Rust port used
+`posix_pthread` on Linux, so every C++<->Rust channel on Linux failed the open
+with a backend 1 vs 5 mismatch.) Swift and Zig are macOS-only and implement
+`apple_ulock` only.
+
+### 6) Interop tests are required
 
 CI must include cross-language tests for every supported profile:
 

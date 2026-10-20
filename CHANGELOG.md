@@ -7,6 +7,23 @@ Notable changes to thoth-ipc. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **Rust and C++ share mutexes and conditions on Linux.** The C++ Linux backend
+  is the vendored alephzero robust PI futex mutex/condition (`a0_mtx_t` /
+  `a0_cnd_t`, sync ABI backend 5 = `linux_a0`), but the Rust port used
+  `pthread_mutex_t` / `pthread_cond_t` (backend 1 = `posix_pthread`) on every
+  non-macOS Unix, so a Rust process opening a channel a C++ process created
+  failed with `sync ABI mismatch for mutex: expected ... backend=1 ... payload=40
+  but found ... backend=5 ... payload=24` (and the Linux xlang matrix with it).
+  The Rust crate now implements the a0 protocol natively on Linux/Android
+  (`platform/linux.rs`: raw futex syscalls over the abi.json `a0_mtx` /
+  `a0_cnd` layouts, no C compiled) — the per-thread kernel robust list,
+  FUTEX_LOCK_PI / FUTEX_UNLOCK_PI with the CAS fast paths, FUTEX_WAIT_REQUEUE_PI
+  / FUTEX_CMP_REQUEUE_PI for the condition, re-registration after fork — with
+  the C++ wrappers' semantics: owner-died recovery (consistent, unlock,
+  re-lock), CLOCK_BOOTTIME millisecond timeouts, `u32::MAX` = no timeout.
+  One difference: a condition wait that re-acquires the mutex from a dead
+  owner makes it consistent (C++ leaves it owner-died, so its next unlock makes
+  it unrecoverable). FreeBSD and other POSIX stay on `posix_pthread`, as in C++.
 - **A killed sender no longer blocks its route for good.** A route's single sender
   was guarded by a one-byte `atomic_flag` in the ring trailer that only a clean
   shutdown cleared, so after a SIGKILLed (or crashed) sender every later sender on
@@ -26,6 +43,10 @@ Notable changes to thoth-ipc. The format follows
   a zombie's receiver slot is reaped and its sender slot taken over.
 
 ### Changed
+- **Rust `IpcCondition::notify` / `broadcast` take the paired mutex**
+  (`notify(&mtx)`, `broadcast(&mtx)`), as C++ `condition::notify(mutex&)` does:
+  the Linux a0 condition requeues woken waiters onto the mutex futex, so it must
+  know it. Other platforms ignore the argument. `Waiter` is unchanged.
 - **Single-sender is enforced across languages.** Rust, Swift and Zig senders now
   claim and honour the route's sole-sender record (they ignored the C++ flag, so a
   port could send alongside a live sender on a single-writer ring). A second live
@@ -37,6 +58,19 @@ Notable changes to thoth-ipc. The format follows
   `route_ring.sender_owner`), not only sizes and constants.
 
 ### Added
+- `abi.json` registers every sync backend id (`syncabi_backend_posix_pthread` = 1,
+  `_apple_mach` = 3, `_win32` = 4, `_linux_a0` = 5, beside `_ulock` = 2); C++
+  `sync_abi.h` static-asserts its `backend_id()` literals against them and the
+  Rust port selects its backend from them.
+- `abi.json` describes the sync payloads (ABI contract 1.1.0 → 1.2.0):
+  `ulock_mutex` / `ulock_cond` (apple_arm64) and `a0_mtx` / `a0_cnd` (x86_64 =
+  LP64 Linux), with protocols `ulock-mutex`, `ulock-cond`, `robust-list`,
+  `pi-futex` and `requeue-pi-cond`. The schema gains a struct-level `targets`
+  list and a `ptr` field type; C++ static-asserts `ulock_mutex_t` /
+  `ulock_cond_t` / `a0_mtx_t` / `a0_cnd_t` and the Rust port its mirrors against
+  the generated constants. The xlang runner accepts a protocol covered by the
+  `primitives` scenario (`[scenarios.primitives].protocols`), since these run
+  through the kernel and leave no byte trace for `conform`.
 - `sole-owner` conformance probe and the `reap` scenario's `shold` / `sclaim` cases
   (every holder × taker language pairing, dead / live / traffic), plus `zombie`
   cases for senders and receivers (the runner kills the holder without reaping it).

@@ -28,6 +28,7 @@ native-runtime CI pending · — n/a.
 | Async recv — Rust `AsyncRoute` | ✅ `AsyncFd` | ✅ `AsyncFd` | ✅ thread-pool² |
 | Async recv — Swift `AsyncRoute` (`DispatchSource`) | ✅ | — | — |
 | Dead-connection reaper (PID-liveness + start-token) | ✅ | ✅ | ✅² |
+| Sync mutex/condition backend C++↔Rust (sync ABI id) | ✅ ulock (2) | 🧪⁵ a0 (5) | ✅ win32 (4)² |
 | Sync `clear_storage` orphan-safety (double-owner) — C++ | 🧪³ | 🧪³ | —⁴ |
 | Sync `clear_storage` orphan-safety (double-owner) — Rust | 🧪³ | 🧪³ | —⁴ |
 | Sync `clear_storage` orphan-safety (double-owner) — Swift | 🧪³ | — | — |
@@ -70,6 +71,16 @@ Footnotes / code pointers:
 4. **Windows mutex `clear_storage` is a no-op** — Windows uses a named kernel
    mutex object with no per-process pointer cache, so there is nothing to orphan
    (matches the C++ Windows backend). n/a.
+5. **Linux sync backend** (2026-10-21). C++ Linux runs the vendored alephzero
+   futex mutex/condition (`a0_mtx_t`/`a0_cnd_t`, backend 5); the Rust port used
+   `pthread_*` (backend 1), so every C++↔Rust channel open on Linux failed the
+   sync ABI guard (every pairing opens a waiter mutex + condition), which
+   qualifies the "Linux: DONE" section below; `matrix-linux` has been red since
+   its last runs (2026-07-12).
+   Rust now implements the a0 protocol natively (`src/platform/linux.rs`, over
+   the abi.json `a0_mtx` / `a0_cnd` layouts; no C compiled). Compile- and
+   link-checked for `x86_64-unknown-linux-gnu`; runtime pending the next
+   `matrix-linux` run.
 
 ## How to reestablish parity
 

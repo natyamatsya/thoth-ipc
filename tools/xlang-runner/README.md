@@ -35,7 +35,7 @@ binary per language, a uniform CLI — but a real framework around it:
 | `fanout`          | 1 writer → N mixed-language readers: every receiver gets every message (rc_ bitmask with N>1) | `write minrecv=N` / `read` |
 | `channel`         | multi-writer `thoth::channel` (2 writers of different languages → 1 reader)  | `cwrite` / `cread`           |
 | `reap`            | dead receivers reclaimed, live never falsely; sender `probe` doesn't reap; traffic flows after a reap; a dead sender's slot is taken over, a live one's never, and a new sender's traffic flows; a killed but unreaped (zombie) holder counts as dead | `hold` / `count` / `probe`, `shold` / `sclaim` |
-| `primitives`      | mutex contention + robust dead-holder recovery, semaphore count exactness, condition wakeup | `mhold`/`mtry`/`mlock`, `spost`/`swait`, `cvnotify`/`cvwait` |
+| `primitives`      | mutex contention + robust dead-holder recovery, semaphore count exactness, condition wakeup; the probe for the sync payload protocols in `[scenarios.primitives].protocols` | `mhold`/`mtry`/`mlock`, `spost`/`swait`, `cvnotify`/`cvwait` |
 | `typed`           | the typed codec layer end-to-end (canonical protobuf message, field-level verify) | `twrite` / `tread`      |
 | `secure`          | AEAD envelope v1 interop: sealed by one language, opened by another         | `swrite` / `sread`           |
 | `secure-badkey`   | fail-closed: a reader keyed with different material rejects every message   | `swrite` / `sread-badkey`    |

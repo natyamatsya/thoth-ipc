@@ -65,6 +65,20 @@ cargo run --manifest-path tools/abi/Cargo.toml
   min(64, alignof(max_align_t))` becomes `targets.apple_arm64.align_size = 8`;
   ring totals become `{ "apple_arm64": 24832 }`. The conformance probe verifies
   the resolved values rather than the tooling re-deriving formulas.
+- **Backend-specific structs name their targets.** A struct only one platform's
+  backend uses — the sync payloads `ulock_mutex` / `ulock_cond` (apple_arm64)
+  and `a0_mtx` / `a0_cnd` (x86_64 = LP64 Linux) — carries `"targets": [...]`;
+  its values need only resolve there (`check` verifies they do). Swift/Zig skip a
+  struct their target lacks; Rust/C++ emit it for every build (a layout constant
+  is harmless where its backend is not compiled in), and the code that uses it
+  asserts against it under its own platform `cfg` / `#if`. A `ptr` field is a
+  pointer-sized, process-local address (the a0 robust-list links).
+- **Protocols, not just bytes.** A field running a coordination algorithm carries
+  `"protocol": "<probe>"`; `generate --lang protocols` lists them in
+  `protocols.txt`, and the xlang runner refuses to run while one has no probe — a
+  `conform` byte-trace case, or, for the kernel-mediated sync protocols
+  (`ulock-*`, `robust-list`, `pi-futex`, `requeue-pi-cond`), the `primitives`
+  scenario (`[scenarios.primitives].protocols`).
 - **C++ as a peer.** `dump_abi.cpp` *extracts* ground truth from C++ to validate
   the spec; it does not make C++ the source. Once generators exist, C++ is
   generated/checked like Rust, Swift and Zig.
@@ -116,8 +130,9 @@ cadence than the software. It is surfaced in generated code as `abi_version`.
   still interoperate.
 - **PATCH** — documentation/description only; no wire impact.
 
-It currently sits at **1.0.0**: the format is byte-exact-stable (inherited from
-cpp-ipc v1.4.1 and proven across four ports). This is the global contract version
+It currently sits at **1.2.0**: the format is byte-exact-stable (inherited from
+cpp-ipc v1.4.1 and proven across four ports); the minors added string constants
+(1.1.0) and the sync backend ids plus the sync payload structs (1.2.0). This is the global contract version
 *above* the per-subsystem wire versions already embedded at runtime (the
 `SyncAbi` stamp's `1.0`, the SIPC envelope's `version: 1`).
 

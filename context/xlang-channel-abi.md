@@ -381,3 +381,71 @@ formula are cross-language ABI.
 `{holder} × {reaper}` pairing, `dead` (holder SIGKILLed → reaper's `count` must be
 1) and `live` (holder alive → `count` must be 2, proving no false reap and thus a
 matching token). Harness verbs `hold` / `probe` / `count` in all three ports.
+
+## 10. Sync primitives — mutex / condition payloads (Waiter, `IpcMutex`, `IpcCondition`)
+
+Every channel opens waiter mutexes and conditions (§1: `_WAITER_LOCK_` /
+`_WAITER_COND_`), so a backend mismatch breaks *every* pairing, not just the sync
+API. Each primitive is a named shm object `<name>` holding a backend payload,
+sized `calc_size(payload)` (payload rounded up to 4 + the trailing `atomic<i32>`
+cross-process ref counter); the first opener (ref count was 0) initialises the
+payload. Beside it, a SyncAbi stamp sidecar (`<name>` +
+`sync_abi_suffix_mutex` / `_condition`, abi.json `syncabi_stamp`) records
+`{magic, version 1.0, backend_id, primitive_id, payload_size}`; an opener whose
+expectation differs refuses the object (`sync ABI mismatch ...`) rather than share
+incompatible bytes. The backend follows the C++ platform
+([ADR-0001](../doc/adr/0001-sync-backend-contract-across-languages.md)):
+
+| backend (id) | where | mutex payload | condition payload |
+|---|---|---|---|
+| `apple_ulock` (2) | macOS (C++, Rust, Swift, Zig) | `ulock_mutex` 8 B | `ulock_cond` 8 B |
+| `linux_a0` (5) | Linux, Android (C++, Rust) | `a0_mtx` 24 B (LP64) | `a0_cnd` 4 B |
+| `posix_pthread` (1) | FreeBSD, QNX, other POSIX | `pthread_mutex_t` | `pthread_cond_t` |
+| `win32` (4) | Windows | 0 (kernel object) | 0 |
+
+The `ulock_*` and `a0_*` layouts are abi.json structs (target-restricted:
+`apple_arm64` / `x86_64`), with their field protocols listed in
+`abi/protocols.txt`; C++ static-asserts its types and Rust const-asserts its
+mirrors against the generated constants.
+
+- **`ulock_mutex`** — `state` u32 @0 (0 unlocked, 1 locked, 2 locked + waiters;
+  the `__ulock_wait`/`__ulock_wake` address, `UL_COMPARE_AND_WAIT_SHARED`),
+  `holder` i32 @4 (owner pid). Lock spins CAS 0→1 (0→2 after sleeping), else
+  marks 2 and waits; unlock clears `holder`, exchanges 0 and wakes one if it was 2.
+  Dead-holder recovery: a timed-out lock or a busy try_lock checks once whether
+  `holder` is dead and, if so, resets both words and wakes everyone.
+- **`ulock_cond`** — `seq` u32 @0, `waiters` i32 @4. Wait reads `seq` under the
+  mutex, counts itself in `waiters`, unlocks, `__ulock_wait(seq, read value)`,
+  relocks; notify/broadcast bump `seq` and wake (one / all) if `waiters > 0`.
+- **`a0_mtx`** — the vendored alephzero `a0_mtx_t`, ported natively by Rust
+  (`platform/linux.rs`): `next` @0, `prev` @8 (pointers), `ftx` u32 @16.
+  - `ftx` (protocol `pi-futex`): 0 unlocked, else holder **TID** (`0x3fffffff`) |
+    `FUTEX_WAITERS` | `FUTEX_OWNER_DIED`. Lock = CAS 0→tid, else `FUTEX_LOCK_PI`
+    (absolute `CLOCK_REALTIME` timeout); unlock (owner thread only, else EPERM) =
+    CAS tid→0, else `FUTEX_UNLOCK_PI`. Acquired with `OWNER_DIED` = EOWNERDEAD:
+    the new owner clears the bit (`consistent`) — the C++ and Rust wrappers then
+    unlock and re-lock — and unlocking without that leaves
+    `0x3fffffff | OWNER_DIED`, i.e. ENOTRECOVERABLE for everyone.
+  - `next`/`prev` (protocol `robust-list`): process-local links of the holder
+    *thread's* kernel robust list (`set_robust_list`, head `futex_offset` = 16,
+    `list_op_pending` set around every lock/unlock). They let the kernel set
+    `OWNER_DIED` when the holder dies; no other process reads them. Consequences:
+    all threads of a process must share one mapping per name (both ports cache
+    it), a held mutex must not be unmapped, and one thread has one robust list —
+    a0 replaces the C library's.
+- **`a0_cnd`** — `seq` u32 @0 (protocol `requeue-pi-cond`). Wait reads `seq`,
+  unlocks, `FUTEX_WAIT_REQUEUE_PI(seq, read value, &mtx.ftx)` (absolute
+  `CLOCK_MONOTONIC` timeout, EINTR retried), and on ETIMEDOUT / EAGAIN re-locks
+  by hand; signal/broadcast bump `seq` and `FUTEX_CMP_REQUEUE_PI` (wake 1,
+  requeue 1 / `INT_MAX`) onto the **paired mutex's** `ftx` — so notify and
+  broadcast take the mutex in every language.
+- **Timeouts** (both a0 ports) are milliseconds from `CLOCK_BOOTTIME` now
+  (`make_timespec`), re-anchored per call on the clock each futex op expects;
+  `u32::MAX` ms (`invalid_value`) = no timeout. `try_lock` is a timed lock at
+  now + 0.
+
+**Verification.** These protocols run through the kernel, so there is no byte
+trace for `conform` to compare; the runner's `primitives` scenario is their probe
+(`[scenarios.primitives].protocols`): every `{a} × {b}` pairing of "a holds the
+mutex → b's try_lock is busy", "a is SIGKILLed holding it → b's timed lock
+recovers it" and "a broadcasts → b's waiter wakes", on the host's own backend.

@@ -209,7 +209,8 @@ C++↔Rust on Linux/Windows). The wire format and shared-memory layout are fixed
   PID-reuse-proof start token; a live receiver is never false-reaped.
 - **Sync primitives** — inter-process mutex (with robust dead-holder recovery),
   condition variable and counting semaphore on the Apple ulock backend
-  (backend_id=2); a lock held or a condition signalled by one language is
+  (backend_id=2) and, C++↔Rust, the Linux alephzero futex backend
+  (backend_id=5); a lock held or a condition signalled by one language is
   observed by another.
 - **Typed codec layer** — a pluggable codec wraps the route with a typed message
   (Protobuf is exercised in the matrix; FlatBuffers / Cap'n Proto are available
