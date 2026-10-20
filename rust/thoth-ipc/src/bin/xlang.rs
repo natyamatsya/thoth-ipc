@@ -677,7 +677,7 @@ fn main() {
         let c = IpcCondition::open(&format!("{name}_c")).expect("open condition");
         for _ in 0..30 {
             m.lock().expect("lock");
-            let _ = c.broadcast();
+            let _ = c.broadcast(&m);
             let _ = m.unlock();
             std::thread::sleep(std::time::Duration::from_millis(100));
         }

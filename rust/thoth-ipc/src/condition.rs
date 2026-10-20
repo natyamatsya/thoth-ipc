@@ -3,6 +3,7 @@
 //
 // Cross-platform named inter-process condition variable.
 // macOS: ulock sequence-counter condition variable in shared memory.
+// Linux/Android: alephzero a0_cnd_t futex condition (platform/linux.rs).
 // Other POSIX: pthread_cond_t in shared memory with PTHREAD_PROCESS_SHARED.
 // Windows: emulated via semaphore + mutex + shared counter (matches C++ impl).
 
@@ -15,11 +16,17 @@ use crate::IpcMutex;
 ///
 /// On macOS this is a ulock sequence-counter condition variable in shared
 /// memory, binary-compatible with the C++ Apple backend.
+/// On Linux/Android this is the alephzero `a0_cnd_t` futex condition shared
+/// with the C++ Linux backend; waiters are requeued onto the paired mutex,
+/// which is why [`notify`](Self::notify) / [`broadcast`](Self::broadcast) take
+/// it (as C++ `condition::notify(mutex&)` does).
 /// On other POSIX platforms this is a `pthread_cond_t` stored in shared memory
 /// with `PTHREAD_PROCESS_SHARED` attribute.
 /// On Windows this is emulated using a semaphore, a lock, and a shared counter.
 pub struct IpcCondition {
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    inner: crate::platform::linux::PlatformCondition,
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
     inner: PosixCondition,
     #[cfg(target_os = "macos")]
     inner: AppleCondition,
@@ -32,7 +39,9 @@ impl IpcCondition {
     /// Open (or create) a named condition variable.
     pub fn open(name: &str) -> io::Result<Self> {
         let abi_guard = crate::sync_abi::open_condition_guard(name)?;
-        #[cfg(all(unix, not(target_os = "macos")))]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let inner = crate::platform::linux::PlatformCondition::open(name)?;
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
         let inner = PosixCondition::open(name)?;
         #[cfg(target_os = "macos")]
         let inner = AppleCondition::open(name)?;
@@ -55,23 +64,51 @@ impl IpcCondition {
     /// If `timeout_ms` is `None`, blocks indefinitely.
     /// Returns `Ok(true)` if signalled, `Ok(false)` on timeout.
     pub fn wait(&self, mtx: &IpcMutex, timeout_ms: Option<u64>) -> io::Result<bool> {
-        self.inner.wait(mtx, timeout_ms)
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            self.inner.wait(mtx.native_mutex_ptr(), timeout_ms)
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            self.inner.wait(mtx, timeout_ms)
+        }
     }
 
-    /// Wake one waiter.
-    pub fn notify(&self) -> io::Result<()> {
-        self.inner.notify()
+    /// Wake one waiter. `mtx` is the mutex the waiters wait with (mirrors C++
+    /// `condition::notify(mutex&)`); the Linux a0 backend requeues the woken
+    /// waiter onto it. The caller need not hold it.
+    pub fn notify(&self, mtx: &IpcMutex) -> io::Result<()> {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            self.inner.notify(mtx.native_mutex_ptr())
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            let _ = mtx;
+            self.inner.notify()
+        }
     }
 
-    /// Wake all waiters.
-    pub fn broadcast(&self) -> io::Result<()> {
-        self.inner.broadcast()
+    /// Wake all waiters. `mtx` as for [`notify`](Self::notify) (mirrors C++
+    /// `condition::broadcast(mutex&)`).
+    pub fn broadcast(&self, mtx: &IpcMutex) -> io::Result<()> {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            self.inner.broadcast(mtx.native_mutex_ptr())
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            let _ = mtx;
+            self.inner.broadcast()
+        }
     }
 
     /// Remove the backing storage for a named condition variable.
     pub fn clear_storage(name: &str) {
         crate::sync_abi::clear_condition_storage(name);
-        #[cfg(all(unix, not(target_os = "macos")))]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        crate::platform::linux::PlatformCondition::clear_storage(name);
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
         PosixCondition::clear_storage(name);
         #[cfg(target_os = "macos")]
         AppleCondition::clear_storage(name);
@@ -83,13 +120,13 @@ impl IpcCondition {
 }
 
 // ---------------------------------------------------------------------------
-// POSIX implementation (non-macOS) — pthread_cond_t in shared memory
+// POSIX implementation (non-macOS, non-Linux) — pthread_cond_t in shared memory
 // ---------------------------------------------------------------------------
 
-#[cfg(unix)]
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
 use std::sync::Arc;
 
-#[cfg(unix)]
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
 use crate::platform::posix::{self, CachedShm};
 
 #[cfg(target_os = "macos")]
@@ -98,13 +135,13 @@ use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 #[cfg(target_os = "macos")]
 use std::time::{Duration, Instant};
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
 struct PosixCondition {
     cached: Arc<CachedShm>,
     name: String,
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
 impl PosixCondition {
     fn open(name: &str) -> io::Result<Self> {
         let shm_size = std::mem::size_of::<libc::pthread_cond_t>();
@@ -202,7 +239,7 @@ impl PosixCondition {
     }
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
 impl Drop for PosixCondition {
     fn drop(&mut self) {
         // Don't call pthread_cond_destroy here. On macOS, the virtual

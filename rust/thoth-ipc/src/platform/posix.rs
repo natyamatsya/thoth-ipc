@@ -41,7 +41,7 @@ impl ShmCache {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn mutex_cache() -> &'static Mutex<ShmCache> {
+pub(crate) fn mutex_cache() -> &'static Mutex<ShmCache> {
     static CACHE: OnceLock<Mutex<ShmCache>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(ShmCache::new()))
 }
@@ -103,13 +103,14 @@ pub(crate) fn cached_shm_purge(cache: &Mutex<ShmCache>, name: &str) {
 
 // ---------------------------------------------------------------------------
 // Robust mutex symbols — not exposed by `libc` crate on all platforms.
-// On macOS robust mutexes are not used (matching the C++ implementation).
+// Only the pthread backend uses them: macOS has the ulock backend (apple.rs)
+// and Linux/Android the a0 futex backend (linux.rs), matching C++.
 // ---------------------------------------------------------------------------
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
 const EOWNERDEAD: i32 = libc::EOWNERDEAD;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
 extern "C" {
     fn pthread_mutexattr_setrobust(
         attr: *mut libc::pthread_mutexattr_t,
@@ -118,7 +119,7 @@ extern "C" {
     fn pthread_mutex_consistent(mutex: *mut libc::pthread_mutex_t) -> libc::c_int;
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
 const PTHREAD_MUTEX_ROBUST: libc::c_int = 1;
 
 // ---------------------------------------------------------------------------
@@ -484,15 +485,19 @@ impl Drop for PlatformShm {
 
 // ---------------------------------------------------------------------------
 // PlatformMutex — POSIX inter-process mutex (pthread_mutex_t in shared memory)
+//
+// Backend `posix_pthread` (sync ABI id 1), as the C++ `platform/posix/mutex.h`
+// uses on FreeBSD/QNX. Linux/Android use the a0 futex backend (linux.rs) and
+// macOS the ulock backend (apple.rs), exactly like C++.
 // ---------------------------------------------------------------------------
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
 pub struct PlatformMutex {
     cached: Arc<CachedShm>,
     name: String,
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
 impl PlatformMutex {
     /// Open (or create) a named inter-process mutex.
     ///
@@ -663,7 +668,7 @@ impl PlatformMutex {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
 impl Drop for PlatformMutex {
     fn drop(&mut self) {
         // Don't call pthread_mutex_destroy here. On macOS, the virtual

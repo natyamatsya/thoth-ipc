@@ -76,7 +76,7 @@ fn wait_notify() {
     thread::sleep(Duration::from_millis(50));
 
     mtx.lock().expect("lock main");
-    cv.notify().expect("notify");
+    cv.notify(&mtx).expect("notify");
     mtx.unlock().expect("unlock main");
 
     waiter.join().unwrap();
@@ -114,7 +114,7 @@ fn broadcast() {
     thread::sleep(Duration::from_millis(100));
 
     mtx.lock().expect("lock broadcaster");
-    cv.broadcast().expect("broadcast");
+    cv.broadcast(&mtx).expect("broadcast");
     mtx.unlock().expect("unlock broadcaster");
 
     for h in handles {
@@ -181,7 +181,7 @@ fn immediate_notify() {
     thread::sleep(Duration::from_millis(10));
 
     mtx.lock().expect("lock main");
-    cv.notify().expect("notify");
+    cv.notify(&mtx).expect("notify");
     mtx.unlock().expect("unlock main");
 
     waiter.join().unwrap();
@@ -212,7 +212,7 @@ fn producer_consumer() {
         mtx_p.lock().expect("lock producer");
         buf_p.store(42, Ordering::SeqCst);
         rdy_p.store(true, Ordering::SeqCst);
-        cv_p.notify().expect("notify");
+        cv_p.notify(&mtx_p).expect("notify");
         mtx_p.unlock().expect("unlock producer");
     });
 
@@ -266,7 +266,7 @@ fn multiple_notify() {
     for _ in 0..num_notifications {
         thread::sleep(Duration::from_millis(50));
         mtx.lock().expect("lock notifier");
-        cv.notify().expect("notify");
+        cv.notify(&mtx).expect("notify");
         mtx.unlock().expect("unlock notifier");
     }
 
@@ -313,7 +313,7 @@ fn spurious_wakeup_pattern() {
 
     mtx.lock().expect("lock main");
     predicate.store(true, Ordering::SeqCst);
-    cv.notify().expect("notify");
+    cv.notify(&mtx).expect("notify");
     mtx.unlock().expect("unlock main");
 
     waiter.join().unwrap();
@@ -346,7 +346,7 @@ fn infinite_wait() {
     thread::sleep(Duration::from_millis(100));
 
     mtx.lock().expect("lock main");
-    cv.notify().expect("notify");
+    cv.notify(&mtx).expect("notify");
     mtx.unlock().expect("unlock main");
 
     waiter.join().unwrap();
@@ -384,7 +384,7 @@ fn broadcast_sequential() {
     thread::sleep(Duration::from_millis(100));
 
     mtx.lock().expect("lock broadcaster");
-    cv.broadcast().expect("broadcast");
+    cv.broadcast(&mtx).expect("broadcast");
     mtx.unlock().expect("unlock broadcaster");
 
     for h in handles {
@@ -423,7 +423,7 @@ fn named_sharing() {
         let cv = IpcCondition::open(&cv_n2).expect("open cv t2");
         let mtx = IpcMutex::open(&mtx_n2).expect("open mtx t2");
         mtx.lock().expect("lock t2");
-        cv.notify().expect("notify t2");
+        cv.notify(&mtx).expect("notify t2");
         mtx.unlock().expect("unlock t2");
     });
 
@@ -466,7 +466,7 @@ fn notify_vs_broadcast() {
 
     thread::sleep(Duration::from_millis(20));
     mtx.lock().expect("lock notify");
-    cv.notify().expect("notify");
+    cv.notify(&mtx).expect("notify");
     mtx.unlock().expect("unlock notify");
 
     // Give the notified thread time to wake, but not enough for timeouts.
@@ -500,7 +500,7 @@ fn notify_vs_broadcast() {
 
     thread::sleep(Duration::from_millis(50));
     mtx.lock().expect("lock bc");
-    cv.broadcast().expect("broadcast");
+    cv.broadcast(&mtx).expect("broadcast");
     mtx.unlock().expect("unlock bc");
 
     for w in waiters2 {

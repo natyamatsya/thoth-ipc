@@ -60,14 +60,14 @@ impl Waiter {
         // Barrier: briefly acquire lock to ensure waiter is in cond_wait
         self.lock.lock()?;
         self.lock.unlock()?;
-        self.cond.notify()
+        self.cond.notify(&self.lock)
     }
 
     /// Wake all waiters.
     pub fn broadcast(&self) -> io::Result<()> {
         self.lock.lock()?;
         self.lock.unlock()?;
-        self.cond.broadcast()
+        self.cond.broadcast(&self.lock)
     }
 
     /// Signal quit and broadcast to wake all waiters.

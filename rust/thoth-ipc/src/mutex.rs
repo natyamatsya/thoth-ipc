@@ -13,6 +13,9 @@ use crate::sync_abi::SyncAbiGuard;
 ///
 /// On macOS this is a ulock-based word mutex in shared memory, binary-compatible
 /// with the C++ Apple backend.
+/// On Linux/Android this is the alephzero robust PI futex mutex (`a0_mtx_t`) in
+/// shared memory — a native port of the a0 code the C++ Linux backend runs,
+/// over the same bytes. It is error-checking: only the locking thread may unlock.
 /// On other POSIX platforms this is a `pthread_mutex_t` stored in shared memory
 /// with `PTHREAD_PROCESS_SHARED` and `PTHREAD_MUTEX_ROBUST` attributes.
 /// On Windows this is a kernel named mutex via `CreateMutex`.
@@ -42,8 +45,9 @@ impl IpcMutex {
 
     /// Lock the mutex (blocking, infinite timeout).
     ///
-    /// On POSIX, handles `EOWNERDEAD` (previous owner died) by calling
-    /// `pthread_mutex_consistent` and returning success.
+    /// Handles a dead previous owner (`EOWNERDEAD`): on Linux by marking the
+    /// a0 mutex consistent, releasing and re-acquiring it (as C++ does); on
+    /// other POSIX by calling `pthread_mutex_consistent` and returning success.
     pub fn lock(&self) -> io::Result<()> {
         self.inner.lock()
     }
@@ -73,8 +77,9 @@ impl IpcMutex {
         PlatformMutex::clear_storage(name);
     }
 
-    /// Raw pointer to the underlying platform mutex.
-    /// Used internally by the non-macOS POSIX condition backend.
+    /// Raw pointer to the underlying platform mutex (`a0_mtx_t` on Linux,
+    /// `pthread_mutex_t` on other non-macOS POSIX). Used internally by the
+    /// matching condition backend.
     #[cfg(all(unix, not(target_os = "macos")))]
     pub(crate) fn native_mutex_ptr(&self) -> *mut u8 {
         self.inner.native_ptr()

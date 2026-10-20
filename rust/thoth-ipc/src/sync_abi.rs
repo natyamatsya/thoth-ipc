@@ -25,12 +25,17 @@ const SYNC_ABI_VERSION_MINOR: u32 = 0;
 /// only a genuinely dead one (crashed mid-init) trips the timeout.
 const SYNC_ABI_INIT_TIMEOUT: Duration = Duration::from_secs(2);
 
+// Backend selection mirrors C++ `sync_abi::backend_id()` (sync/sync_abi.h):
+// Apple -> apple_ulock, Linux/Android (THOTH_IPC_OS_LINUX) -> linux_a0,
+// Windows -> win32, any other POSIX (FreeBSD, QNX, ...) -> posix_pthread.
 #[cfg(target_os = "macos")]
 const SYNC_BACKEND_ID: u32 = abi::syncabi_backend_ulock; // apple_ulock
-#[cfg(all(unix, not(target_os = "macos")))]
-const SYNC_BACKEND_ID: u32 = 1; // posix_pthread
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const SYNC_BACKEND_ID: u32 = abi::syncabi_backend_linux_a0; // linux_a0
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
+const SYNC_BACKEND_ID: u32 = abi::syncabi_backend_posix_pthread; // posix_pthread
 #[cfg(windows)]
-const SYNC_BACKEND_ID: u32 = 4; // win32
+const SYNC_BACKEND_ID: u32 = abi::syncabi_backend_win32; // win32
 
 pub(crate) struct SyncAbiGuard {
     _shm: ShmHandle,
@@ -77,7 +82,11 @@ impl PrimitiveKind {
                 {
                     abi::ulock_mutex_size as u32 // ulock mutex state (u32) + holder (i32)
                 }
-                #[cfg(all(unix, not(target_os = "macos")))]
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                {
+                    crate::platform::linux::MUTEX_PAYLOAD_SIZE as u32 // sizeof(a0_mtx_t)
+                }
+                #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
                 {
                     std::mem::size_of::<libc::pthread_mutex_t>() as u32
                 }
@@ -91,7 +100,11 @@ impl PrimitiveKind {
                 {
                     abi::ulock_cond_size as u32 // ulock condition state: seq (u32) + waiters (i32)
                 }
-                #[cfg(all(unix, not(target_os = "macos")))]
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                {
+                    crate::platform::linux::CONDITION_PAYLOAD_SIZE as u32 // sizeof(a0_cnd_t)
+                }
+                #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
                 {
                     std::mem::size_of::<libc::pthread_cond_t>() as u32
                 }
@@ -372,6 +385,21 @@ mod tests {
             .payload_size
             .store(expected.payload_size, Ordering::Relaxed);
         stamp.magic.store(SYNC_ABI_MAGIC, Ordering::Release);
+    }
+
+    /// The Linux expectation must equal what the C++ Linux build stamps:
+    /// backend 5 (linux_a0), payload sizeof(a0_mtx_t) / sizeof(a0_cnd_t) — the
+    /// abi.json `a0_mtx` / `a0_cnd` sizes (LP64 for the mutex).
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn linux_expects_the_cpp_a0_backend() {
+        let m = expected_for(PrimitiveKind::Mutex);
+        let c = expected_for(PrimitiveKind::Condition);
+        assert_eq!(m.backend_id, abi::syncabi_backend_linux_a0);
+        assert_eq!(c.backend_id, abi::syncabi_backend_linux_a0);
+        assert_eq!(c.payload_size as usize, abi::a0_cnd_size);
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(m.payload_size as usize, abi::a0_mtx_size);
     }
 
     /// macOS stamps the apple_ulock payloads of abi.json `ulock_mutex` / `ulock_cond`.
