@@ -243,6 +243,17 @@ struct AppleCondState {
     waiters: AtomicI32,
 }
 
+// The shared payload is abi.json `ulock_cond` (protocol `ulock-cond`), byte-exact
+// with C++ `ulock_cond_t`.
+#[cfg(target_os = "macos")]
+const _: () = {
+    use crate::abi_generated as abi;
+    assert!(std::mem::size_of::<AppleCondState>() == abi::ulock_cond_size);
+    assert!(std::mem::align_of::<AppleCondState>() == abi::ulock_cond_align);
+    assert!(std::mem::offset_of!(AppleCondState, seq) == abi::ulock_cond_seq_off);
+    assert!(std::mem::offset_of!(AppleCondState, waiters) == abi::ulock_cond_waiters_off);
+};
+
 #[cfg(target_os = "macos")]
 struct AppleCondition {
     cached: Arc<CachedShm>,

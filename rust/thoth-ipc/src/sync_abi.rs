@@ -75,7 +75,7 @@ impl PrimitiveKind {
             PrimitiveKind::Mutex => {
                 #[cfg(target_os = "macos")]
                 {
-                    8 // ulock mutex state (u32) + holder (u32)
+                    abi::ulock_mutex_size as u32 // ulock mutex state (u32) + holder (i32)
                 }
                 #[cfg(all(unix, not(target_os = "macos")))]
                 {
@@ -89,7 +89,7 @@ impl PrimitiveKind {
             PrimitiveKind::Condition => {
                 #[cfg(target_os = "macos")]
                 {
-                    8 // ulock condition state: seq (u32) + waiters (i32)
+                    abi::ulock_cond_size as u32 // ulock condition state: seq (u32) + waiters (i32)
                 }
                 #[cfg(all(unix, not(target_os = "macos")))]
                 {
@@ -372,6 +372,17 @@ mod tests {
             .payload_size
             .store(expected.payload_size, Ordering::Relaxed);
         stamp.magic.store(SYNC_ABI_MAGIC, Ordering::Release);
+    }
+
+    /// macOS stamps the apple_ulock payloads of abi.json `ulock_mutex` / `ulock_cond`.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_expects_the_ulock_payloads() {
+        let m = expected_for(PrimitiveKind::Mutex);
+        let c = expected_for(PrimitiveKind::Condition);
+        assert_eq!(m.backend_id, abi::syncabi_backend_ulock);
+        assert_eq!(m.payload_size as usize, abi::ulock_mutex_size);
+        assert_eq!(c.payload_size as usize, abi::ulock_cond_size);
     }
 
     #[test]

@@ -9,7 +9,9 @@
 //   offset 4: atomic<u32>  holder  — PID of current owner, 0 if unlocked
 //
 // This mirrors `ulock_mutex_t` in the C++ header exactly so both sides can
-// share the same named SHM region and interoperate correctly.
+// share the same named SHM region and interoperate correctly. The layout is the
+// `ulock_mutex` struct of abi/abi.json (protocol `ulock-mutex`); the sizes and
+// offsets below come from the generated `abi` module.
 
 use std::collections::HashMap;
 use std::io;
@@ -17,6 +19,7 @@ use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use crate::abi_generated as abi;
 use crate::shm_name;
 
 // ---------------------------------------------------------------------------
@@ -97,7 +100,7 @@ fn acquire_mutex_shm(logical_name: &str) -> io::Result<Arc<CachedShm>> {
     let posix_name = shm_name::make_shm_name(logical_name);
     // sizeof(ulock_mutex_t) = 8 (u32 state + u32 holder), plus C++'s trailing
     // acc_ ref counter — calc_size(8) = 12, byte-exact with the C++ segment.
-    let user_size = 8usize;
+    let user_size = abi::ulock_mutex_size;
     let size = crate::platform::posix::calc_size(user_size);
 
     let mut cache = mutex_cache().lock().unwrap();
@@ -171,8 +174,8 @@ fn acquire_mutex_shm(logical_name: &str) -> io::Result<Arc<CachedShm>> {
     // already zero in the freshly ftruncated, zero-filled segment.)
     if is_new {
         unsafe {
-            (mem as *mut AtomicU32).write(AtomicU32::new(0));
-            (mem.add(4) as *mut AtomicU32).write(AtomicU32::new(0));
+            (state_ptr(mem) as *mut AtomicU32).write(AtomicU32::new(0));
+            (holder_ptr(mem) as *mut AtomicU32).write(AtomicU32::new(0));
         }
     }
 
@@ -220,17 +223,17 @@ fn purge_mutex_shm(logical_name: &str) {
 }
 
 // ---------------------------------------------------------------------------
-// Helper accessors into the 8-byte SHM block.
+// Helper accessors into the 8-byte SHM block (abi.json `ulock_mutex`).
 // ---------------------------------------------------------------------------
 
 #[inline]
 unsafe fn state_ptr(mem: *mut u8) -> *mut u32 {
-    mem as *mut u32
+    mem.add(abi::ulock_mutex_state_off) as *mut u32
 }
 
 #[inline]
 unsafe fn holder_ptr(mem: *mut u8) -> *mut u32 {
-    mem.add(4) as *mut u32
+    mem.add(abi::ulock_mutex_holder_off) as *mut u32
 }
 
 #[inline]
