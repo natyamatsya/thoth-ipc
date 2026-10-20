@@ -366,7 +366,9 @@ fn probe_stdout(proc: &Proc, cfg: &RunConfig) -> Result<String, String> {
     if r.timed_out {
         return Err("timed out".into());
     }
-    Ok(String::from_utf8_lossy(&r.stdout).trim().to_string())
+    // Line endings are not part of a trace: a C++ harness on Windows writes
+    // stdout in text mode (CRLF), a Rust one writes LF.
+    Ok(String::from_utf8_lossy(&r.stdout).replace("\r\n", "\n").trim().to_string())
 }
 
 /// Compare a port's primitive trace against the reference implementation's.
