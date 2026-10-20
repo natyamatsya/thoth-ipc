@@ -230,26 +230,56 @@ jobs:
         submodules: recursive
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
-    - name: Install OpenSSL (Win64, for the secure scenarios)
-      run: choco install openssl --no-progress -y
+    # OpenSSL 3.5 (LTS), straight from the Shining Light installers that the
+    # Chocolatey package only wraps: unpinned, that package moved to OpenSSL 4
+    # (libcrypto-4-x64.dll) and to another install directory; pinned, it fails,
+    # because slproweb keeps only the newest patch release of each line and the
+    # package lags behind it. So take the newest 3.5.x from slproweb's published
+    # index, check it against the SHA-256 listed there, and install it to a
+    # fixed directory, exported once as OPENSSL_DIR for every later step.
+    - name: Install OpenSSL 3.5 (Win64, for the secure scenarios)
+      run: |
+        read -r url sha256 < <(curl -fsSL https://raw.githubusercontent.com/slproweb/opensslhashes/master/win32_openssl_hashes.json | python -c "
+        import json, sys
+        files = json.load(sys.stdin)['files'].values()
+        line = [f for f in files if f['bits'] == 64 and f['arch'] == 'INTEL' and not f['light']
+                and f['installer'] == 'exe' and f['basever'].startswith('3.5.')]
+        best = max(line, key=lambda f: tuple(int(p) for p in f['basever'].split('.')))
+        print(best['url'], best['sha256'])" | tr -d '\r')
+        installer="$(cygpath -u "$RUNNER_TEMP")/openssl.exe"
+        echo "Installing $url"
+        curl -fsSL -o "$installer" "$url"
+        actual=$(sha256sum "$installer" | cut -d' ' -f1)
+        if [ "$actual" != "$sha256" ]; then
+          echo "::error::$url has SHA-256 $actual, but slproweb's index lists $sha256"; exit 1
+        fi
+        dir='C:\Program Files\OpenSSL-Win64'
+        # Start-Process -Wait: an Inno Setup installer hands off to a child
+        # process, and only -Wait follows it to the end (and its exit code).
+        powershell -NoProfile -Command "\$p = Start-Process -FilePath '$(cygpath -w "$installer")' -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/DIR=\"$dir\"' -Wait -PassThru; exit \$p.ExitCode" \
+          || { rc=$?; echo "::error::the OpenSSL installer exited with $rc"; exit 1; }
+        unix_dir=$(cygpath -u "$dir")
+        if [ ! -f "$unix_dir/include/openssl/ssl.h" ]; then
+          echo "::error::no OpenSSL headers under $dir after install"; ls -d /c/Program\ Files/OpenSSL* || true; exit 1
+        fi
+        ls "$unix_dir/bin" | grep -i '^libcrypto'
+        echo "OPENSSL_DIR=$(cygpath -m "$dir")" >> "$GITHUB_ENV"
     - name: Build C++ harness (MSVC, secure codec enabled)
       run: |
         cmake -B build -DTHOTH_IPC_BUILD_TESTS=ON -DTHOTH_IPC_SECURE_OPENSSL=ON \
-              -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL-Win64"
+              -DOPENSSL_ROOT_DIR="$OPENSSL_DIR"
         cmake --build build --config Release --target xlang_ipc
       working-directory: cpp/thoth-ipc
     - name: Build Rust harness (secure + typed codecs enabled)
-      run: cargo build --release --bin xlang --features secure-crypto-openssl,codec-protobuf
+      run: THOTH_IPC_OPENSSL_PREFIX="$OPENSSL_DIR" cargo build --release --bin xlang --features secure-crypto-openssl,codec-protobuf
       working-directory: rust/thoth-ipc
-      env:
-        THOTH_IPC_OPENSSL_PREFIX: C:/Program Files/OpenSSL-Win64
     - name: Build matrix runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
     # No --scenario filter: every scenario with participants runs.
     - name: Run cross-language matrix (cpp, rust)
       run: |
         # OpenSSL's libcrypto-3-x64.dll must be on PATH at run time.
-        export PATH="/c/Program Files/OpenSSL-Win64/bin:$PATH"
+        export PATH="$(cygpath -u "$OPENSSL_DIR")/bin:$PATH"
         tools/xlang-runner/target/release/xlang-runner \
           --config tools/xlang-ci.toml \
           --require cpp,rust --strict-caps \
