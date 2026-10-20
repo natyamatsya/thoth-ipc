@@ -96,7 +96,7 @@
       "properties": {
         "name": { "$ref": "#/$defs/identifier" },
         "offset": { "$ref": "#/$defs/intOrPerTarget" },
-        "type": { "enum": ["u8", "u16", "u32", "u64", "i32", "bytes", "lock"] },
+        "type": { "enum": ["u8", "u16", "u32", "u64", "i32", "bytes", "lock", "ptr"], "description": "`ptr` = a pointer-sized, process-local address (e.g. a kernel robust-list link); its size comes from the target, and no other process may dereference it" },
         "count": { "type": "integer", "description": "element count for `bytes` (a byte array)" },
         "atomic": { "type": "boolean", "default": false },
         "protocol": {
@@ -114,6 +114,13 @@
         "name": { "$ref": "#/$defs/identifier" },
         "size": { "$ref": "#/$defs/intOrPerTarget" },
         "align": { "$ref": "#/$defs/intOrPerTarget" },
+        "targets": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "the targets whose platform uses this struct (e.g. one sync backend's payload); omitted = every target. Its size/align/offsets need only resolve for these. Single-target ports (Swift, Zig) skip it unless their target is listed; multi-target ports (Rust, C++) emit it for every build, since a layout constant is harmless where its backend is not compiled in"
+        },
         "description": { "type": "string" },
         "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } }
       }

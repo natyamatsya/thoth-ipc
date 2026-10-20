@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstring>
 #include <cassert>
 #include <cstdint>
@@ -16,6 +17,7 @@
 #include <signal.h>
 #include <errno.h>
 
+#include "thoth-ipc/abi_generated.hpp"    // generated thoth::abi (abi/abi.json)
 #include "thoth-ipc/platform/detail.h"
 #include "thoth-ipc/imp/log.h"
 #include "thoth-ipc/utility/scope_guard.h"
@@ -42,6 +44,13 @@ struct ulock_mutex_t {
     std::atomic<std::uint32_t> state;  // 0=unlocked, 1=locked, 2=locked+waiters
     std::atomic<pid_t>         holder; // 0 = no holder
 };
+
+// ABI conformance: the payload every apple_ulock port shares (abi.json
+// ulock_mutex; the SyncAbi stamp's mutex payload_size).
+static_assert(sizeof(ulock_mutex_t)  == thoth::abi::ulock_mutex_size,  "abi drift: ulock_mutex.size");
+static_assert(alignof(ulock_mutex_t) == thoth::abi::ulock_mutex_align, "abi drift: ulock_mutex.align");
+static_assert(offsetof(ulock_mutex_t, state)  == thoth::abi::ulock_mutex_state_off,  "abi drift: ulock_mutex.state_off");
+static_assert(offsetof(ulock_mutex_t, holder) == thoth::abi::ulock_mutex_holder_off, "abi drift: ulock_mutex.holder_off");
 
 // Spin budget before falling back to __ulock_wait.
 static constexpr int kMutexSpinCount = 40;

@@ -175,6 +175,40 @@ fn main() {
 
 // ---------------------------------------------------------------- check -------
 
+/// Self-consistency of target-restricted structs (the schema cannot express it):
+/// every name in a struct's `targets` is a declared target, and its size, align
+/// and field offsets resolve on each of them — what the generators unwrap.
+fn check_struct_targets(abi: &Value) -> bool {
+    let declared: Vec<&str> = abi["targets"].as_object().unwrap().keys().map(String::as_str).collect();
+    let mut bad = 0usize;
+    for s in abi["structs"].as_array().unwrap_or(&vec![]) {
+        let name = s["name"].as_str().unwrap_or("?");
+        let on: Vec<&str> = match struct_target_list(s) {
+            Some(l) => l,
+            None => declared.clone(),
+        };
+        for t in &on {
+            if !declared.contains(t) {
+                bad += 1;
+                println!("  ✗ struct {name}: unknown target '{t}' in `targets`");
+                continue;
+            }
+            let mut need = vec![("size".to_string(), &s["size"]), ("align".to_string(), &s["align"])];
+            need.extend(each_field(s).map(|f| (format!("{}.offset", f["name"].as_str().unwrap_or("?")), &f["offset"])));
+            for (what, v) in need {
+                if resolve_int(v, t).is_none() {
+                    bad += 1;
+                    println!("  ✗ struct {name}: {what} does not resolve for target '{t}'");
+                }
+            }
+        }
+    }
+    if bad == 0 {
+        println!("✓ struct targets: every struct resolves on each target it declares");
+    }
+    bad == 0
+}
+
 /// The target this checker binary was built for — so `check` on a Linux x86_64
 /// CI host resolves the x86_64 abi values, not apple's.
 fn host_target() -> &'static str {
@@ -208,6 +242,9 @@ fn run_check(root: &Path, args: &[String]) {
         std::process::exit(1);
     }
     println!("✓ structural: abi.json valid against abi.schema.json");
+    if !check_struct_targets(&abi) {
+        std::process::exit(1);
+    }
 
     let mut flat: BTreeMap<String, u64> = BTreeMap::new();
     for c in abi["constants"].as_array().unwrap_or(&vec![]) {
@@ -215,7 +252,7 @@ fn run_check(root: &Path, args: &[String]) {
             flat.insert(name.to_string(), u);
         }
     }
-    for s in abi["structs"].as_array().unwrap_or(&vec![]) {
+    for s in abi["structs"].as_array().unwrap_or(&vec![]).iter().filter(|s| struct_on(s, &target)) {
         if let (Some(name), Some(u)) = (s["name"].as_str(), resolve_int(&s["size"], &target)) {
             flat.insert(format!("{name}.size"), u);
         }
@@ -223,7 +260,7 @@ fn run_check(root: &Path, args: &[String]) {
     // Field offsets (`<struct>.<field>`), compared when the dumper emits them;
     // the rest are static_asserted in C++ (ipc.cpp) and not listed as uncovered.
     let mut offsets: BTreeMap<String, u64> = BTreeMap::new();
-    for s in abi["structs"].as_array().unwrap_or(&vec![]) {
+    for s in abi["structs"].as_array().unwrap_or(&vec![]).iter().filter(|s| struct_on(s, &target)) {
         let Some(name) = s["name"].as_str() else { continue };
         for f in s["fields"].as_array().unwrap_or(&vec![]) {
             if let (Some(field), Some(u)) = (f["name"].as_str(), resolve_int(&f["offset"], &target)) {
@@ -395,7 +432,7 @@ fn gen_zig(abi: &Value, target: &str) -> String {
     }
 
     o.push_str("\n// --- struct layout (byte sizes + field offsets) ---\n");
-    for s in abi["structs"].as_array().unwrap() {
+    for s in abi["structs"].as_array().unwrap().iter().filter(|s| struct_on(s, target)) {
         let name = s["name"].as_str().unwrap();
         if let Some(d) = s["description"].as_str() {
             o.push_str(&format!("/// {d}\n"));
@@ -470,6 +507,34 @@ fn gen_header(o: &mut String, lang: &str, target: &str, comment: &str) {
 
 fn each_field(s: &Value) -> impl Iterator<Item = &Value> {
     s["fields"].as_array().map(|v| v.as_slice()).unwrap_or(&[]).iter()
+}
+
+/// A struct's optional `targets` list: the targets whose platform uses it (e.g.
+/// one sync backend's payload). `None` = every target.
+fn struct_target_list(s: &Value) -> Option<Vec<&str>> {
+    s["targets"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect())
+}
+
+/// Whether struct `s` is part of the ABI on `target`.
+fn struct_on(s: &Value, target: &str) -> bool {
+    struct_target_list(s).is_none_or(|l| l.contains(&target))
+}
+
+/// The subset of `ts` struct `s` exists on, in `ts` order.
+fn struct_targets(s: &Value, ts: &[String]) -> Vec<String> {
+    ts.iter().filter(|t| struct_on(s, t)).cloned().collect()
+}
+
+/// Generated-code note for a target-restricted struct, emitted by the
+/// multi-target ports (which emit it for every build).
+fn struct_scope_note(comment: &str, s: &Value) -> Option<String> {
+    struct_target_list(s).map(|l| {
+        format!(
+            "{comment} {}: a layout of target {} only (abi.json `targets`); emitted for every build",
+            s["name"].as_str().unwrap(),
+            l.join(", ")
+        )
+    })
 }
 
 // ---- per-target emission (dedup + align-gating) --------------------------------
@@ -576,14 +641,18 @@ fn gen_rust(abi: &Value, _target: &str) -> String {
     o.push_str("\n// --- struct layout (byte sizes + field offsets) ---\n");
     for s in abi["structs"].as_array().unwrap() {
         let name = s["name"].as_str().unwrap();
-        emit_rust(&mut o, &format!("pub const {name}_size: usize"), &ts, |t| resolve_int(&s["size"], t).unwrap().to_string());
-        emit_rust(&mut o, &format!("pub const {name}_align: usize"), &ts, |t| resolve_int(&s["align"], t).unwrap().to_string());
+        let sts = struct_targets(s, &ts);
+        if let Some(note) = struct_scope_note("//", s) {
+            o.push_str(&format!("{note}\n"));
+        }
+        emit_rust(&mut o, &format!("pub const {name}_size: usize"), &sts, |t| resolve_int(&s["size"], t).unwrap().to_string());
+        emit_rust(&mut o, &format!("pub const {name}_align: usize"), &sts, |t| resolve_int(&s["align"], t).unwrap().to_string());
         for f in each_field(s) {
             let fname = f["name"].as_str().unwrap();
             if let Some(p) = f["protocol"].as_str() {
                 o.push_str(&format!("{}\n", protocol_note("///", p)));
             }
-            emit_rust(&mut o, &format!("pub const {name}_{fname}_off: usize"), &ts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
+            emit_rust(&mut o, &format!("pub const {name}_{fname}_off: usize"), &sts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
         }
     }
 
@@ -647,7 +716,7 @@ fn gen_swift(abi: &Value, target: &str) -> String {
     }
 
     o.push_str("\n    // MARK: struct layout (byte sizes + field offsets)\n");
-    for s in abi["structs"].as_array().unwrap() {
+    for s in abi["structs"].as_array().unwrap().iter().filter(|s| struct_on(s, target)) {
         let name = s["name"].as_str().unwrap();
         o.push_str(&format!("    public static let {name}_size: Int = {}\n", resolve_int(&s["size"], target).unwrap()));
         o.push_str(&format!("    public static let {name}_align: Int = {}\n", resolve_int(&s["align"], target).unwrap()));
@@ -724,14 +793,18 @@ fn gen_cpp(abi: &Value, _target: &str) -> String {
     o.push_str("\n// --- struct layout (byte sizes + field offsets) ---\n");
     for s in abi["structs"].as_array().unwrap() {
         let name = s["name"].as_str().unwrap();
-        emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_size"), "", &ts, |t| resolve_int(&s["size"], t).unwrap().to_string());
-        emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_align"), "", &ts, |t| resolve_int(&s["align"], t).unwrap().to_string());
+        let sts = struct_targets(s, &ts);
+        if let Some(note) = struct_scope_note("//", s) {
+            o.push_str(&format!("{note}\n"));
+        }
+        emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_size"), "", &sts, |t| resolve_int(&s["size"], t).unwrap().to_string());
+        emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_align"), "", &sts, |t| resolve_int(&s["align"], t).unwrap().to_string());
         for f in each_field(s) {
             let fname = f["name"].as_str().unwrap();
             if let Some(p) = f["protocol"].as_str() {
                 o.push_str(&format!("{}\n", protocol_note("//", p)));
             }
-            emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_{fname}_off"), "", &ts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
+            emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_{fname}_off"), "", &sts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
         }
     }
 

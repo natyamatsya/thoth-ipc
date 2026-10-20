@@ -3,12 +3,14 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <atomic>
 #include <chrono>
 
 #include <errno.h>
 
+#include "thoth-ipc/abi_generated.hpp"    // generated thoth::abi (abi/abi.json)
 #include "thoth-ipc/imp/log.h"
 #include "thoth-ipc/mutex.h"
 #include "thoth-ipc/shm.h"
@@ -50,6 +52,13 @@ struct ulock_cond_t {
     std::atomic<std::uint32_t> seq;     // monotonically incremented on notify/broadcast
     std::atomic<std::int32_t>  waiters; // count of threads blocked in __ulock_wait
 };
+
+// ABI conformance: the payload every apple_ulock port shares (abi.json
+// ulock_cond; the SyncAbi stamp's condition payload_size).
+static_assert(sizeof(ulock_cond_t)  == thoth::abi::ulock_cond_size,  "abi drift: ulock_cond.size");
+static_assert(alignof(ulock_cond_t) == thoth::abi::ulock_cond_align, "abi drift: ulock_cond.align");
+static_assert(offsetof(ulock_cond_t, seq)     == thoth::abi::ulock_cond_seq_off,     "abi drift: ulock_cond.seq_off");
+static_assert(offsetof(ulock_cond_t, waiters) == thoth::abi::ulock_cond_waiters_off, "abi drift: ulock_cond.waiters_off");
 
 class condition {
     thoth::shm::handle shm_;

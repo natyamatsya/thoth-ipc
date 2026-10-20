@@ -6,7 +6,7 @@
 // Target: apple_arm64 / x86_64.
 #![allow(non_upper_case_globals, non_camel_case_types, dead_code)]
 
-pub const abi_version: &str = "1.1.0";
+pub const abi_version: &str = "1.2.0";
 
 // --- constants ---
 /// msg_t payload fragment size (large_msg_limit)
@@ -151,6 +151,34 @@ pub const syncabi_stamp_ver_minor_off: usize = 8;
 pub const syncabi_stamp_backend_id_off: usize = 12;
 pub const syncabi_stamp_primitive_id_off: usize = 16;
 pub const syncabi_stamp_payload_size_off: usize = 20;
+// ulock_mutex: a layout of target apple_arm64 only (abi.json `targets`); emitted for every build
+pub const ulock_mutex_size: usize = 8;
+pub const ulock_mutex_align: usize = 4;
+/// protocol: exercised by the `ulock-mutex` conformance probe (byte-for-byte across ports)
+pub const ulock_mutex_state_off: usize = 0;
+/// protocol: exercised by the `ulock-mutex` conformance probe (byte-for-byte across ports)
+pub const ulock_mutex_holder_off: usize = 4;
+// ulock_cond: a layout of target apple_arm64 only (abi.json `targets`); emitted for every build
+pub const ulock_cond_size: usize = 8;
+pub const ulock_cond_align: usize = 4;
+/// protocol: exercised by the `ulock-cond` conformance probe (byte-for-byte across ports)
+pub const ulock_cond_seq_off: usize = 0;
+/// protocol: exercised by the `ulock-cond` conformance probe (byte-for-byte across ports)
+pub const ulock_cond_waiters_off: usize = 4;
+// a0_mtx: a layout of target x86_64 only (abi.json `targets`); emitted for every build
+pub const a0_mtx_size: usize = 24;
+pub const a0_mtx_align: usize = 8;
+/// protocol: exercised by the `robust-list` conformance probe (byte-for-byte across ports)
+pub const a0_mtx_next_off: usize = 0;
+/// protocol: exercised by the `robust-list` conformance probe (byte-for-byte across ports)
+pub const a0_mtx_prev_off: usize = 8;
+/// protocol: exercised by the `pi-futex` conformance probe (byte-for-byte across ports)
+pub const a0_mtx_ftx_off: usize = 16;
+// a0_cnd: a layout of target x86_64 only (abi.json `targets`); emitted for every build
+pub const a0_cnd_size: usize = 4;
+pub const a0_cnd_align: usize = 4;
+/// protocol: exercised by the `requeue-pi-cond` conformance probe (byte-for-byte across ports)
+pub const a0_cnd_seq_off: usize = 0;
 
 // --- shm-name goldens (canonical binding — see abi/README.md) ---
 #[cfg(any(all(target_arch = "aarch64", target_vendor = "apple"), target_env = "msvc"))]

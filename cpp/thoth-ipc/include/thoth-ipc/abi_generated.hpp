@@ -11,7 +11,7 @@
 
 namespace thoth::abi {
 
-inline constexpr const char* abi_version = "1.1.0";
+inline constexpr const char* abi_version = "1.2.0";
 
 // --- constants ---
 /// msg_t payload fragment size (large_msg_limit)
@@ -153,6 +153,34 @@ inline constexpr std::size_t syncabi_stamp_ver_minor_off = 8;
 inline constexpr std::size_t syncabi_stamp_backend_id_off = 12;
 inline constexpr std::size_t syncabi_stamp_primitive_id_off = 16;
 inline constexpr std::size_t syncabi_stamp_payload_size_off = 20;
+// ulock_mutex: a layout of target apple_arm64 only (abi.json `targets`); emitted for every build
+inline constexpr std::size_t ulock_mutex_size = 8;
+inline constexpr std::size_t ulock_mutex_align = 4;
+// protocol: exercised by the `ulock-mutex` conformance probe (byte-for-byte across ports)
+inline constexpr std::size_t ulock_mutex_state_off = 0;
+// protocol: exercised by the `ulock-mutex` conformance probe (byte-for-byte across ports)
+inline constexpr std::size_t ulock_mutex_holder_off = 4;
+// ulock_cond: a layout of target apple_arm64 only (abi.json `targets`); emitted for every build
+inline constexpr std::size_t ulock_cond_size = 8;
+inline constexpr std::size_t ulock_cond_align = 4;
+// protocol: exercised by the `ulock-cond` conformance probe (byte-for-byte across ports)
+inline constexpr std::size_t ulock_cond_seq_off = 0;
+// protocol: exercised by the `ulock-cond` conformance probe (byte-for-byte across ports)
+inline constexpr std::size_t ulock_cond_waiters_off = 4;
+// a0_mtx: a layout of target x86_64 only (abi.json `targets`); emitted for every build
+inline constexpr std::size_t a0_mtx_size = 24;
+inline constexpr std::size_t a0_mtx_align = 8;
+// protocol: exercised by the `robust-list` conformance probe (byte-for-byte across ports)
+inline constexpr std::size_t a0_mtx_next_off = 0;
+// protocol: exercised by the `robust-list` conformance probe (byte-for-byte across ports)
+inline constexpr std::size_t a0_mtx_prev_off = 8;
+// protocol: exercised by the `pi-futex` conformance probe (byte-for-byte across ports)
+inline constexpr std::size_t a0_mtx_ftx_off = 16;
+// a0_cnd: a layout of target x86_64 only (abi.json `targets`); emitted for every build
+inline constexpr std::size_t a0_cnd_size = 4;
+inline constexpr std::size_t a0_cnd_align = 4;
+// protocol: exercised by the `requeue-pi-cond` conformance probe (byte-for-byte across ports)
+inline constexpr std::size_t a0_cnd_seq_off = 0;
 
 // --- shm-name goldens (canonical binding — see abi/README.md) ---
 #if (defined(__APPLE__) && defined(__aarch64__)) || defined(_MSC_VER)

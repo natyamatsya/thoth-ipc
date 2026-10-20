@@ -6,7 +6,7 @@
 // Target: apple_arm64.
 
 public enum ABI {
-    public static let abi_version: String = "1.1.0"
+    public static let abi_version: String = "1.2.0"
 
     // MARK: constants
     /// msg_t payload fragment size (large_msg_limit)
@@ -131,6 +131,18 @@ public enum ABI {
     public static let syncabi_stamp_backend_id_off: Int = 12
     public static let syncabi_stamp_primitive_id_off: Int = 16
     public static let syncabi_stamp_payload_size_off: Int = 20
+    public static let ulock_mutex_size: Int = 8
+    public static let ulock_mutex_align: Int = 4
+    /// protocol: exercised by the `ulock-mutex` conformance probe (byte-for-byte across ports)
+    public static let ulock_mutex_state_off: Int = 0
+    /// protocol: exercised by the `ulock-mutex` conformance probe (byte-for-byte across ports)
+    public static let ulock_mutex_holder_off: Int = 4
+    public static let ulock_cond_size: Int = 8
+    public static let ulock_cond_align: Int = 4
+    /// protocol: exercised by the `ulock-cond` conformance probe (byte-for-byte across ports)
+    public static let ulock_cond_seq_off: Int = 0
+    /// protocol: exercised by the `ulock-cond` conformance probe (byte-for-byte across ports)
+    public static let ulock_cond_waiters_off: Int = 4
 
     // MARK: shm-name goldens (canonical binding — see abi/README.md)
     public static let name_golden_ring: String = "__THOTH_SHM__QU_CONN__xchan__64__8"

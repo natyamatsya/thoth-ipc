@@ -120,7 +120,17 @@ count = 10
 
 # Cross-language sync primitives: mutex contention + robust dead-holder
 # recovery, semaphore count exactness, condition wakeup.
+#
+# These cases are also the conformance probes for the sync payloads' abi.json
+# protocols (abi/protocols.txt), which run through the kernel (ulock, PI
+# futexes, the robust list) and so leave no byte trace for `conform`:
+#   "holds mutex -> try busy"             ulock-mutex / pi-futex
+#   "killed holding mutex -> lock recovers" ulock-mutex dead-holder recovery /
+#                                         robust-list + pi-futex owner-died
+#   "broadcasts -> cond wakes"            ulock-cond / requeue-pi-cond
+# Each host proves its own backend's: apple_ulock on macOS, linux_a0 on Linux.
 [scenarios.primitives]
+protocols = ["ulock-mutex", "ulock-cond", "robust-list", "pi-futex", "requeue-pi-cond"]
 
 # Typed protocol layer: the codec-wrapped route with a canonical hand-rolled
 # wire message, verified field-by-field (no codec library dependence).

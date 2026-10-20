@@ -7,3 +7,11 @@ chunk_info.next idpool
 chunk_info.cursor idpool
 chunk_info.prepared idpool
 chunk_info.lock spinlock
+ulock_mutex.state ulock-mutex
+ulock_mutex.holder ulock-mutex
+ulock_cond.seq ulock-cond
+ulock_cond.waiters ulock-cond
+a0_mtx.next robust-list
+a0_mtx.prev robust-list
+a0_mtx.ftx pi-futex
+a0_cnd.seq requeue-pi-cond

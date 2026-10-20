@@ -126,14 +126,23 @@ fn main() -> ExitCode {
     match protocols_declared(&cli.config) {
         Err(e) => eprintln!("note: protocol coverage unchecked: {e}"),
         Ok(declared) => {
+            // A probe is a `conform` byte-trace case, or — for the sync
+            // payloads, whose protocols run through the kernel and leave no
+            // trace to compare — a protocol the `primitives` scenario covers.
             let missing: Vec<_> = declared
                 .iter()
-                .filter(|(_, probe)| !cfg.scenarios.conform.probes.contains(probe))
+                .filter(|(_, probe)| {
+                    !cfg.scenarios.conform.probes.contains(probe)
+                        && !cfg.scenarios.primitives.protocols.contains(probe)
+                })
                 .collect();
             if !missing.is_empty() {
                 eprintln!("error: abi.json declares protocols with no conformance probe:");
                 for (field, probe) in missing {
-                    eprintln!("  {field} needs probe '{probe}' in [scenarios.conform].probes");
+                    eprintln!(
+                        "  {field} needs probe '{probe}' in [scenarios.conform].probes \
+                         or [scenarios.primitives].protocols"
+                    );
                 }
                 return ExitCode::from(2);
             }

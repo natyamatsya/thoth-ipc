@@ -7,7 +7,7 @@
 
 /// ABI contract version (semver; decoupled from the release version). Peers
 /// interoperate iff they share the same MAJOR. See abi/README.md#abi-versioning.
-pub const abi_version: []const u8 = "1.1.0";
+pub const abi_version: []const u8 = "1.2.0";
 
 // --- constants ---
 /// msg_t payload fragment size (large_msg_limit)
@@ -142,6 +142,20 @@ pub const syncabi_stamp_ver_minor_off: usize = 8;
 pub const syncabi_stamp_backend_id_off: usize = 12;
 pub const syncabi_stamp_primitive_id_off: usize = 16;
 pub const syncabi_stamp_payload_size_off: usize = 20;
+/// apple_ulock mutex payload (C++ platform/apple/mutex.h ulock_mutex_t, Rust platform/apple.rs, Swift, Zig): the lock word is the __ulock_wait/__ulock_wake address (UL_COMPARE_AND_WAIT_SHARED); holder is the owner pid for dead-holder recovery. Followed in shm by C++'s trailing atomic<i32> ref counter (calc_size)
+pub const ulock_mutex_size: usize = 8;
+pub const ulock_mutex_align: usize = 4;
+/// protocol: exercised by the `ulock-mutex` conformance probe (byte-for-byte across ports)
+pub const ulock_mutex_state_off: usize = 0;
+/// protocol: exercised by the `ulock-mutex` conformance probe (byte-for-byte across ports)
+pub const ulock_mutex_holder_off: usize = 4;
+/// apple_ulock condition payload (C++ platform/apple/condition.h ulock_cond_t, Rust condition.rs AppleCondState, Swift, Zig): a sequence-counter condition variable over __ulock_wait/__ulock_wake
+pub const ulock_cond_size: usize = 8;
+pub const ulock_cond_align: usize = 4;
+/// protocol: exercised by the `ulock-cond` conformance probe (byte-for-byte across ports)
+pub const ulock_cond_seq_off: usize = 0;
+/// protocol: exercised by the `ulock-cond` conformance probe (byte-for-byte across ports)
+pub const ulock_cond_waiters_off: usize = 4;
 
 // --- shm-name goldens (canonical binding — see abi/README.md) ---
 pub const name_golden_ring: []const u8 = "__THOTH_SHM__QU_CONN__xchan__64__8";

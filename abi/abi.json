@@ -1,5 +1,5 @@
 {
-   "version": "1.1.0",
+   "version": "1.2.0",
    "$schema": "./abi.schema.json",
    "description": "thoth-ipc cross-language ABI — language-neutral source of truth. Structurally validated by abi.schema.json; semantically validated against the deployed C++ by abi/dump_abi.cpp via the `tools/abi` Rust checker; behaviourally validated by the xlang matrix. This is an initial slice (ring layouts + core constants); extend it as the codegen adopts more of the surface.",
    "targets": {
@@ -504,7 +504,113 @@
                "name": "payload_size",
                "offset": 20,
                "type": "u32",
-               "description": "8 (state+holder / seq+waiters)"
+               "description": "byte size of the backend's shared primitive payload, so peers on different backends or layouts refuse to share it: ulock_mutex_size / ulock_cond_size (apple_ulock), a0_mtx_size / a0_cnd_size (linux_a0), sizeof(pthread_mutex_t / pthread_cond_t) (posix_pthread), 12 / 8 (apple_mach), 0 (win32)"
+            }
+         ]
+      },
+      {
+         "name": "ulock_mutex",
+         "size": 8,
+         "align": 4,
+         "targets": [
+            "apple_arm64"
+         ],
+         "description": "apple_ulock mutex payload (C++ platform/apple/mutex.h ulock_mutex_t, Rust platform/apple.rs, Swift, Zig): the lock word is the __ulock_wait/__ulock_wake address (UL_COMPARE_AND_WAIT_SHARED); holder is the owner pid for dead-holder recovery. Followed in shm by C++'s trailing atomic<i32> ref counter (calc_size)",
+         "fields": [
+            {
+               "name": "state",
+               "offset": 0,
+               "type": "u32",
+               "atomic": true,
+               "protocol": "ulock-mutex",
+               "description": "0 = unlocked, 1 = locked, 2 = locked + waiters. Lock: spin CAS 0->1 (0->2 once the locker has slept), else set 1->2 and __ulock_wait(state, 2); unlock: holder = 0, exchange state 0, __ulock_wake one if it was 2"
+            },
+            {
+               "name": "holder",
+               "offset": 4,
+               "type": "i32",
+               "atomic": true,
+               "protocol": "ulock-mutex",
+               "description": "pid of the holder, 0 = none (stored after acquiring). A timed lock that times out, or a try_lock that finds the mutex held, checks once whether this pid is dead (kill(pid, 0) == ESRCH) and if so recovers: exchange state 0, holder 0, __ulock_wake all if state was 2, then retries"
+            }
+         ]
+      },
+      {
+         "name": "ulock_cond",
+         "size": 8,
+         "align": 4,
+         "targets": [
+            "apple_arm64"
+         ],
+         "description": "apple_ulock condition payload (C++ platform/apple/condition.h ulock_cond_t, Rust condition.rs AppleCondState, Swift, Zig): a sequence-counter condition variable over __ulock_wait/__ulock_wake",
+         "fields": [
+            {
+               "name": "seq",
+               "offset": 0,
+               "type": "u32",
+               "atomic": true,
+               "protocol": "ulock-cond",
+               "description": "wake sequence. Wait: read seq under the mutex, waiters += 1, unlock, __ulock_wait(seq, read value), waiters -= 1, relock. Notify/broadcast: seq += 1, then __ulock_wake (one / ULF_WAKE_ALL) if waiters > 0"
+            },
+            {
+               "name": "waiters",
+               "offset": 4,
+               "type": "i32",
+               "atomic": true,
+               "protocol": "ulock-cond",
+               "description": "threads currently blocked in __ulock_wait on seq (lets notify skip the syscall)"
+            }
+         ]
+      },
+      {
+         "name": "a0_mtx",
+         "size": 24,
+         "align": 8,
+         "targets": [
+            "x86_64"
+         ],
+         "description": "linux_a0 mutex payload: the vendored alephzero a0_mtx_t (C++ platform/linux/a0/mtx.c, Rust platform/linux.rs) - a robust, error-checking, priority-inheriting futex mutex. It \"inherits\" the kernel's struct robust_list: next must be the first field, and robust_list_head.futex_offset = offset of ftx. LP64 layout (x86_64 / aarch64 Linux). Followed in shm by C++'s trailing atomic<i32> ref counter (calc_size)",
+         "fields": [
+            {
+               "name": "next",
+               "offset": 0,
+               "type": "ptr",
+               "protocol": "robust-list",
+               "description": "robust_list.next: links the mutex into its holder THREAD's kernel robust list (set_robust_list; a process-local address, meaningful only to the holder). Set by the locker after acquiring, unlinked before release, with robust_list_head.list_op_pending = this mutex around both, so the kernel marks ftx FUTEX_OWNER_DIED when the holder dies"
+            },
+            {
+               "name": "prev",
+               "offset": 8,
+               "type": "ptr",
+               "protocol": "robust-list",
+               "description": "back link used to unlink in O(1); points at the previous held mutex or at the thread's robust_list_head"
+            },
+            {
+               "name": "ftx",
+               "offset": 16,
+               "type": "u32",
+               "atomic": true,
+               "protocol": "pi-futex",
+               "description": "PI futex word: 0 = unlocked, else holder tid (FUTEX_TID_MASK 0x3fffffff) | FUTEX_WAITERS | FUTEX_OWNER_DIED. Lock: CAS 0->tid, else FUTEX_LOCK_PI (absolute CLOCK_REALTIME timeout); OWNER_DIED after acquiring = EOWNERDEAD until made consistent (clear OWNER_DIED). Unlock (owner tid only, else EPERM): CAS tid->0, else FUTEX_UNLOCK_PI; unlocking while OWNER_DIED leaves FUTEX_TID_MASK|FUTEX_OWNER_DIED = not recoverable (ENOTRECOVERABLE)"
+            }
+         ]
+      },
+      {
+         "name": "a0_cnd",
+         "size": 4,
+         "align": 4,
+         "targets": [
+            "x86_64"
+         ],
+         "description": "linux_a0 condition payload: the alephzero a0_cnd_t, a u32 futex sequence word whose waiters are requeued onto the paired a0_mtx.ftx by the kernel (priority-inheritance-aware). Followed in shm by C++'s trailing atomic<i32> ref counter (calc_size)",
+         "fields": [
+            {
+               "name": "seq",
+               "offset": 0,
+               "type": "u32",
+               "atomic": true,
+               "protocol": "requeue-pi-cond",
+               "description": "wake sequence. Wait: read seq, unlock the mutex, FUTEX_WAIT_REQUEUE_PI(seq, read value, &mtx.ftx, absolute CLOCK_MONOTONIC timeout), retried on EINTR; on ETIMEDOUT / EAGAIN re-lock the mutex manually. Signal/broadcast: seq += 1, then FUTEX_CMP_REQUEUE_PI(seq, wake 1, requeue 1 / INT_MAX, &mtx.ftx, new seq), re-reading seq on EAGAIN"
             }
          ]
       }

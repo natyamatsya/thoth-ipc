@@ -76,6 +76,21 @@ static_assert(3u == thoth::abi::syncabi_backend_apple_mach,    "abi drift: synca
 static_assert(4u == thoth::abi::syncabi_backend_win32,         "abi drift: syncabi_backend_win32");
 static_assert(5u == thoth::abi::syncabi_backend_linux_a0,      "abi drift: syncabi_backend_linux_a0");
 
+// The linux_a0 payloads (abi.json a0_mtx / a0_cnd): the vendored alephzero
+// a0_mtx_t / a0_cnd_t the Linux backend compiles, which the Rust port
+// re-implements natively over the same bytes. abi.json describes the LP64 layout
+// (target x86_64; aarch64 Linux is identical), so a 32-bit Linux build skips it.
+// a0_mtx_t is a plain C struct (standard-layout), so offsetof is well-formed.
+#if defined(THOTH_IPC_OS_LINUX) && defined(__LP64__)
+static_assert(sizeof(a0_mtx_t)  == thoth::abi::a0_mtx_size,  "abi drift: a0_mtx.size");
+static_assert(alignof(a0_mtx_t) == thoth::abi::a0_mtx_align, "abi drift: a0_mtx.align");
+static_assert(offsetof(a0_mtx_t, next) == thoth::abi::a0_mtx_next_off, "abi drift: a0_mtx.next_off");
+static_assert(offsetof(a0_mtx_t, prev) == thoth::abi::a0_mtx_prev_off, "abi drift: a0_mtx.prev_off");
+static_assert(offsetof(a0_mtx_t, ftx)  == thoth::abi::a0_mtx_ftx_off,  "abi drift: a0_mtx.ftx_off");
+static_assert(sizeof(a0_cnd_t)  == thoth::abi::a0_cnd_size,  "abi drift: a0_cnd.size");
+static_assert(alignof(a0_cnd_t) == thoth::abi::a0_cnd_align, "abi drift: a0_cnd.align");
+#endif
+
 static_assert(sizeof(stamp_t) == thoth::abi::syncabi_stamp_size,
               "abi drift: syncabi_stamp.size");
 static_assert(offsetof(stamp_t, magic)             == thoth::abi::syncabi_stamp_magic_off,

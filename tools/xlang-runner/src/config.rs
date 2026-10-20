@@ -168,9 +168,17 @@ impl Default for TypedScenarioConfig {
     }
 }
 
+/// Cross-language sync primitives. Its cases (a mutex held / killed while held
+/// in one language and probed or recovered from another, a condition signalled
+/// across languages) are the conformance probes for the sync payload protocols.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
-pub struct PrimitivesScenarioConfig {}
+pub struct PrimitivesScenarioConfig {
+    /// abi.json protocols (abi/protocols.txt) this scenario covers: a kernel- or
+    /// OS-mediated protocol has no byte trace for `conform` to compare, so it is
+    /// proved end to end here instead.
+    pub protocols: Vec<String>,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, default)]
