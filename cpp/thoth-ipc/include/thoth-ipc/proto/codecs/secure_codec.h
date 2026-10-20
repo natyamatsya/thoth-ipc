@@ -175,9 +175,9 @@ inline bool append_secure_envelope(std::vector<std::uint8_t> &out,
                                    const std::vector<std::uint8_t> &nonce,
                                    const std::vector<std::uint8_t> &ciphertext,
                                    const std::vector<std::uint8_t> &tag) {
-    if (nonce.size() > std::numeric_limits<std::uint16_t>::max()) return false;
-    if (tag.size() > std::numeric_limits<std::uint16_t>::max()) return false;
-    if (ciphertext.size() > std::numeric_limits<std::uint32_t>::max()) return false;
+    if (nonce.size() > (std::numeric_limits<std::uint16_t>::max)()) return false;
+    if (tag.size() > (std::numeric_limits<std::uint16_t>::max)()) return false;
+    if (ciphertext.size() > (std::numeric_limits<std::uint32_t>::max)()) return false;
 
     out.reserve(secure_envelope_fixed_header_size
                 + nonce.size()
