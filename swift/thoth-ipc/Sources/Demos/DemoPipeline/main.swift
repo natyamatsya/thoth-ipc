@@ -57,7 +57,7 @@ private func sink(in inName: String, count: Int, tag: String) {
     eprint("[sink \(tag)] ready on '\(inName)', expecting \(count) items")
     for i in 0..<count {
         guard let buf = try? rx.recv(timeout: .seconds(10)), !buf.isEmpty else {
-            eprint("[sink \(tag)] upstream stalled after \(i)/\(count)"); break
+            eprint("[sink \(tag)] upstream stalled after \(i)/\(count)"); exit(5)
         }
         print("\(decode(buf)) -> [\(tag) sink]")
     }

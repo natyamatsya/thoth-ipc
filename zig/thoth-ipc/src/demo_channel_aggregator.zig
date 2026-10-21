@@ -68,9 +68,17 @@ fn collect(total: usize) u8 {
     }
 
     out("\n[collector] summary — {d} messages from {d} producer(s):", .{ got, tally.count() });
-    var it = tally.iterator();
-    while (it.next()) |e| out("    {s}  {d}", .{ e.key_ptr.*, e.value_ptr.* });
-    return 0;
+    // Sorted by producer, as the other ports print it.
+    const names = alloc.alloc([]const u8, tally.count()) catch return 5;
+    var it = tally.keyIterator();
+    for (names) |*n| n.* = it.next().?.*;
+    std.mem.sort([]const u8, names, {}, struct {
+        fn lt(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.lessThan(u8, a, b);
+        }
+    }.lt);
+    for (names) |n| out("    {s}  {d}", .{ n, tally.get(n).? });
+    return if (got < total) 5 else 0;
 }
 
 /// One of N concurrent writers: sends `count` tagged messages into the channel.
@@ -115,6 +123,10 @@ pub fn main(m: std.process.Init.Minimal) void {
     if (argv.len >= 4 and std.mem.eql(u8, argv[1], "produce")) {
         std.process.exit(produce(argv[2], std.fmt.parseInt(usize, argv[3], 10) catch 0));
     }
-    err("usage:\n  demo_channel_aggregator collect <total>\n  demo_channel_aggregator produce <id> <count>", .{});
+    if (argv.len >= 2 and std.mem.eql(u8, argv[1], "clear")) {
+        channel.clearStorage("", channel_name); // so the next run starts fresh
+        std.process.exit(0);
+    }
+    err("usage:\n  demo_channel_aggregator collect <total>\n  demo_channel_aggregator produce <id> <count>\n  demo_channel_aggregator clear", .{});
     std.process.exit(1);
 }

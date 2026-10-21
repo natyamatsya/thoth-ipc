@@ -87,7 +87,7 @@ fn sink(in_name: []const u8, count: usize, tag: []const u8) u8 {
     while (i < count) : (i += 1) {
         const raw = (rx.recv(deadline(10)) catch return 5) orelse {
             err("[sink {s}] upstream stalled after {d}/{d}", .{ tag, i, count });
-            break;
+            return 5;
         };
         defer alloc.free(raw);
         out("{s} -> [{s} sink]", .{ strip(raw), tag });

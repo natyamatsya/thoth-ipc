@@ -117,10 +117,12 @@ fn consume(total: usize) u8 {
 
     var tally = std.StringHashMap(usize).init(alloc);
     var done: usize = 0;
+    var stalled = false;
     var i: usize = 0;
     while (i < total) : (i += 1) {
         if (!full.waitTimeout(TMO)) {
             err("[consumer] no item within 10s after {d}/{d}", .{ i, total });
+            stalled = true;
             break;
         }
         mtx.lock() catch return 4;
@@ -145,8 +147,25 @@ fn consume(total: usize) u8 {
     }
 
     out("\n[consumer] summary — {d} items from {d} producer(s):", .{ done, tally.count() });
-    var it = tally.iterator();
-    while (it.next()) |e| out("    {s}  {d}", .{ e.key_ptr.*, e.value_ptr.* });
+    // Sorted by producer, as the other ports print it.
+    const names = alloc.alloc([]const u8, tally.count()) catch return 5;
+    var it = tally.keyIterator();
+    for (names) |*n| n.* = it.next().?.*;
+    std.mem.sort([]const u8, names, {}, struct {
+        fn lt(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.lessThan(u8, a, b);
+        }
+    }.lt);
+    for (names) |n| out("    {s}  {d}", .{ n, tally.get(n).? });
+    return if (stalled) 5 else 0;
+}
+
+/// Remove the ring, the mutex and both semaphores, so the next run starts fresh.
+fn clear() u8 {
+    ShmHandle.clearStorage(SHM);
+    Mutex.clearStorage(MUTEX);
+    Semaphore.clearStorage(EMPTY);
+    Semaphore.clearStorage(FULL);
     return 0;
 }
 
@@ -170,6 +189,8 @@ pub fn main(m: std.process.Init.Minimal) void {
         std.process.exit(consume(parse(argv[2])));
     if (argv.len >= 4 and std.mem.eql(u8, argv[1], "produce"))
         std.process.exit(produce(argv[2], parse(argv[3])));
-    err("usage:\n  demo_bounded_buffer consume <total>\n  demo_bounded_buffer produce <id> <count>", .{});
+    if (argv.len >= 2 and std.mem.eql(u8, argv[1], "clear"))
+        std.process.exit(clear());
+    err("usage:\n  demo_bounded_buffer consume <total>\n  demo_bounded_buffer produce <id> <count>\n  demo_bounded_buffer clear", .{});
     std.process.exit(1);
 }

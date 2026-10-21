@@ -65,7 +65,7 @@ int sink(char const *in, std::size_t count, std::string const &tag) {
     std::cerr << "[sink " << tag << "] ready on '" << in << "', expecting " << count << " items" << std::endl;
     for (std::size_t i = 0; i < count; ++i) {
         thoth::buff_t buf = rx.recv(10000);
-        if (buf.empty()) { std::cerr << "[sink " << tag << "] upstream stalled after " << i << "/" << count << std::endl; break; }
+        if (buf.empty()) { std::cerr << "[sink " << tag << "] upstream stalled after " << i << "/" << count << std::endl; return 5; }
         std::cout << decode(buf) << " -> [" << tag << " sink]" << std::endl;
     }
     return 0;

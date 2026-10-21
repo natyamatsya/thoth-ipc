@@ -50,6 +50,7 @@ private func collect(total: Int) {
     for p in tally.keys.sorted() {
         print("    \(p)  \(tally[p]!)")
     }
+    if got < total { exit(5) }
 }
 
 /// One of N concurrent writers: sends `count` tagged messages into the channel.
@@ -76,7 +77,9 @@ case "collect" where args.count >= 3:
     collect(total: Int(args[2]) ?? 0)
 case "produce" where args.count >= 4:
     produce(id: args[2], count: Int(args[3]) ?? 0)
+case "clear":
+    await Channel.clearStorage(name: channelName)   // so the next run starts fresh
 default:
-    eprint("usage:\n  demo-channel-aggregator collect <total>\n  demo-channel-aggregator produce <id> <count>")
+    eprint("usage:\n  demo-channel-aggregator collect <total>\n  demo-channel-aggregator produce <id> <count>\n  demo-channel-aggregator clear")
     exit(1)
 }

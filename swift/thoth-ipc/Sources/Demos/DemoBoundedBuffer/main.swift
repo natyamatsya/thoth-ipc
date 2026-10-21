@@ -35,7 +35,7 @@ private func setHead(_ p: UnsafeMutableRawPointer, _ v: UInt32) { p.storeBytes(o
 private func setTail(_ p: UnsafeMutableRawPointer, _ v: UInt32) { p.storeBytes(of: v, toByteOffset: 4, as: UInt32.self) }
 private func slot(_ p: UnsafeMutableRawPointer, _ idx: UInt32) -> UnsafeMutableRawPointer { p.advanced(by: 8 + Int(idx) * SLOT) }
 
-private func produce(id: String, count: Int) {
+private func produce(id: String, count: Int) async {
     let shm = try! ShmHandle.acquire(name: SHM, size: SHM_SIZE, mode: .createOrOpen)
     let base = shm.ptr
     if shm.refCount <= 1 { setHead(base, 0); setTail(base, 0) }
@@ -44,7 +44,9 @@ private func produce(id: String, count: Int) {
     let full = try! IpcSemaphore.open(name: FULL, count: 0)
 
     for k in 0..<count {
-        try! empty.wait()                     // wait for a free slot (launcher gives exact counts)
+        guard try! await empty.wait(timeout: .seconds(10)) else {   // wait for a free slot
+            eprint("[producer \(id)] no free slot within 10s"); exit(2)
+        }
         try! mtx.lock()
         let idx = head(base)
         setHead(base, (idx + 1) % CAP)
@@ -59,7 +61,7 @@ private func produce(id: String, count: Int) {
     eprint("[producer \(id)] produced \(count) items")
 }
 
-private func consume(total: Int) {
+private func consume(total: Int) async {
     let shm = try! ShmHandle.acquire(name: SHM, size: SHM_SIZE, mode: .createOrOpen)
     let base = shm.ptr
     if shm.refCount <= 1 { setHead(base, 0); setTail(base, 0) }
@@ -69,8 +71,11 @@ private func consume(total: Int) {
     print("[consumer] ready — draining \(total) items through a \(CAP)-slot ring")
 
     var tally: [String: Int] = [:]
+    var stalled = false
     for i in 0..<total {
-        try! full.wait()                      // wait for a filled slot
+        guard try! await full.wait(timeout: .seconds(10)) else {   // wait for a filled slot
+            eprint("[consumer] no item within 10s after \(i)/\(total)"); stalled = true; break
+        }
         try! mtx.lock()
         let idx = tail(base)
         setTail(base, (idx + 1) % CAP)
@@ -87,15 +92,25 @@ private func consume(total: Int) {
 
     print("\n[consumer] summary — \(tally.values.reduce(0, +)) items from \(tally.count) producer(s):")
     for p in tally.keys.sorted() { print("    \(p)  \(tally[p]!)") }
+    if stalled { exit(5) }
+}
+
+// Remove the ring, the mutex and both semaphores, so the next run starts fresh.
+private func clear() async {
+    ShmHandle.clearStorage(name: SHM)
+    await IpcMutex.clearStorage(name: MUTEX)
+    IpcSemaphore.clearStorage(name: EMPTY)
+    IpcSemaphore.clearStorage(name: FULL)
 }
 
 // MARK: - Entry point
 
 let a = CommandLine.arguments
 switch (a.count >= 2 ? a[1] : "") {
-case "consume" where a.count >= 3: consume(total: Int(a[2]) ?? 0)
-case "produce" where a.count >= 4: produce(id: a[2], count: Int(a[3]) ?? 0)
+case "consume" where a.count >= 3: await consume(total: Int(a[2]) ?? 0)
+case "produce" where a.count >= 4: await produce(id: a[2], count: Int(a[3]) ?? 0)
+case "clear": await clear()
 default:
-    eprint("usage:\n  demo-bounded-buffer consume <total>\n  demo-bounded-buffer produce <id> <count>")
+    eprint("usage:\n  demo-bounded-buffer consume <total>\n  demo-bounded-buffer produce <id> <count>\n  demo-bounded-buffer clear")
     exit(1)
 }

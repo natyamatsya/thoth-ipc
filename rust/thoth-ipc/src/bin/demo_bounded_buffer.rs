@@ -56,10 +56,12 @@ fn main() {
     match a.get(1).map(String::as_str) {
         Some("consume") if a.len() >= 3 => consume(a[2].parse().unwrap_or(0)),
         Some("produce") if a.len() >= 4 => produce(&a[2], a[3].parse().unwrap_or(0)),
+        Some("clear") => clear(),
         _ => {
             eprintln!(
                 "usage:\n  demo_bounded_buffer consume <total>\n  \
-                 demo_bounded_buffer produce <id> <count>"
+                 demo_bounded_buffer produce <id> <count>\n  \
+                 demo_bounded_buffer clear"
             );
             std::process::exit(1);
         }
@@ -101,9 +103,11 @@ fn consume(total: usize) {
     println!("[consumer] ready — draining {total} items through a {CAP}-slot ring");
 
     let mut tally: BTreeMap<String, usize> = BTreeMap::new();
+    let mut stalled = false;
     for i in 0..total {
         if !full.wait(Some(10_000)).unwrap_or(false) {
             eprintln!("[consumer] no item within 10s after {i}/{total}");
+            stalled = true;
             break;
         }
         mutex.lock().expect("lock");
@@ -126,4 +130,15 @@ fn consume(total: usize) {
     for (p, n) in &tally {
         println!("    {p:<12} {n}");
     }
+    if stalled {
+        std::process::exit(5);
+    }
+}
+
+/// Remove the ring, the mutex and both semaphores, so the next run starts fresh.
+fn clear() {
+    ShmHandle::clear_storage(SHM);
+    IpcMutex::clear_storage(MUTEX);
+    IpcSemaphore::clear_storage(EMPTY);
+    IpcSemaphore::clear_storage(FULL);
 }

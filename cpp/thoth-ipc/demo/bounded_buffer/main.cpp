@@ -84,9 +84,11 @@ int consume(std::size_t total) {
 
     std::map<std::string, std::size_t> tally;
     std::size_t done = 0;
+    bool stalled = false;
     for (std::size_t i = 0; i < total; ++i) {
         if (!full.wait(10000)) {
             std::cerr << "[consumer] no item within 10s after " << i << "/" << total << std::endl;
+            stalled = true;
             break;
         }
         mtx.lock();
@@ -103,6 +105,15 @@ int consume(std::size_t total) {
     std::cout << "\n[consumer] summary — " << done << " items from " << tally.size()
               << " producer(s):" << std::endl;
     for (auto const &kv : tally) std::cout << "    " << kv.first << "  " << kv.second << std::endl;
+    return stalled ? 5 : 0;
+}
+
+// Remove the ring, the mutex and both semaphores, so the next run starts fresh.
+int clear() {
+    thoth::shm::handle::clear_storage(SHM);
+    thoth::sync::mutex::clear_storage(MUTEX);
+    thoth::sync::semaphore::clear_storage(EMPTY);
+    thoth::sync::semaphore::clear_storage(FULL);
     return 0;
 }
 
@@ -112,7 +123,9 @@ int main(int argc, char **argv) {
     std::string const verb = (argc > 1) ? argv[1] : "";
     if (verb == "consume" && argc >= 3) return consume(std::strtoull(argv[2], nullptr, 10));
     if (verb == "produce" && argc >= 4) return produce(argv[2], std::strtoull(argv[3], nullptr, 10));
+    if (verb == "clear") return clear();
     std::cerr << "usage:\n  bounded_buffer consume <total>\n  "
-                 "bounded_buffer produce <id> <count>" << std::endl;
+                 "bounded_buffer produce <id> <count>\n  "
+                 "bounded_buffer clear" << std::endl;
     return 1;
 }

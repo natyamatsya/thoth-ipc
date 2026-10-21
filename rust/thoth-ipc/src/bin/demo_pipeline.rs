@@ -83,7 +83,7 @@ fn sink(in_: &str, count: usize, tag: &str) {
         let buf = rx.recv(Some(10_000)).expect("recv");
         if buf.is_empty() {
             eprintln!("[sink {tag}] upstream stalled after {i}/{count}");
-            break;
+            std::process::exit(5);
         }
         println!("{} -> [{tag} sink]", decode(buf.data()));
     }

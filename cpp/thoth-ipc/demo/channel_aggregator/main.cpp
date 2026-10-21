@@ -52,7 +52,7 @@ int collect(std::size_t total) {
     for (auto const &kv : tally) {
         std::cout << "    " << kv.first << "  " << kv.second << std::endl;
     }
-    return 0;
+    return got < total ? 5 : 0;
 }
 
 int produce(std::string const &id, std::size_t count) {
@@ -83,7 +83,12 @@ int main(int argc, char **argv) {
     if (verb == "produce" && argc > 3) {
         return produce(argv[2], std::strtoull(argv[3], nullptr, 10));
     }
+    if (verb == "clear") {
+        thoth::channel::clear_storage(channel__); // so the next run starts fresh
+        return 0;
+    }
     std::cerr << "usage:\n  channel_aggregator collect <total>\n  "
-                 "channel_aggregator produce <id> <count>" << std::endl;
+                 "channel_aggregator produce <id> <count>\n  "
+                 "channel_aggregator clear" << std::endl;
     return 1;
 }

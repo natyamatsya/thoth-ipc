@@ -21,6 +21,13 @@ Notable changes to thoth-ipc. The format follows
   a SIGBUS.
 
 ### Fixed
+- **Demos report a stall as a failure.** A pipeline sink, a bounded-buffer
+  consumer or a channel-aggregator collector that timed out waiting printed a
+  note and exited 0, in every port; it now exits 5. The Swift bounded buffer
+  waited on its semaphores without a timeout and could hang forever; it now
+  times out after 10 s like the other ports. The bounded buffer and channel
+  aggregator gained a `clear` verb that removes their fixed-name IPC objects,
+  and the Zig ports print their summaries sorted by producer, as the others do.
 - **A Rust semaphore on Linux stays shared until its last handle closes.**
   Dropping an `IpcSemaphore` unlinked its name unconditionally, so a later
   opener in any process got a fresh semaphore while the others kept the old one:

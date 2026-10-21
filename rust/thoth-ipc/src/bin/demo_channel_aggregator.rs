@@ -28,10 +28,12 @@ fn main() {
             let id = args.get(2).cloned().unwrap_or_else(|| "p".into());
             produce(&id, parse(&args, 3, 0));
         }
+        Some("clear") => Channel::clear_storage(CHANNEL), // so the next run starts fresh
         _ => {
             eprintln!(
                 "usage:\n  demo_channel_aggregator collect <total>\n  \
-                 demo_channel_aggregator produce <id> <count>"
+                 demo_channel_aggregator produce <id> <count>\n  \
+                 demo_channel_aggregator clear"
             );
             std::process::exit(1);
         }
@@ -66,6 +68,9 @@ fn collect(total: usize) {
     println!("\n[collector] summary — {got} messages from {} producer(s):", tally.len());
     for (p, n) in &tally {
         println!("    {p:<16} {n}");
+    }
+    if got < total {
+        std::process::exit(5);
     }
 }
 
