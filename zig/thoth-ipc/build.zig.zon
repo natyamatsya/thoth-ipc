@@ -1,6 +1,6 @@
 .{
     .name = .thoth_ipc,
-    .version = "0.6.0",
+    .version = "0.7.0",
     .fingerprint = 0x23abd461ff2eef7a,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{},

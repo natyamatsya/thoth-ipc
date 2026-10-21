@@ -6,6 +6,8 @@ Notable changes to thoth-ipc. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-21
+
 ### Fixed
 - **Large messages from a C++ sender survive the sender on Windows.** A message
   over 64 B is stored in a chunk segment (`CHUNK_INFO__<size>`), which a receiver
@@ -67,6 +69,34 @@ Notable changes to thoth-ipc. The format follows
   (macOS `sysctl KERN_PROC_PID` → `p_stat == SZOMB`, Linux `/proc` state `Z`), so
   a zombie's receiver slot is reaped and its sender slot taken over.
 
+- **The in-shm locks are taken the way C++ takes them, in every port.** The
+  ring header's `lc_` and the chunk pool's `lock_` are `thoth::spin_lock`, an
+  atomic test-and-set, on every target. Rust, Swift and Zig drove
+  `os_unfair_lock` over the same bytes on Apple instead, following ABI notes that
+  said so; the ports and the notes now agree.
+- **Rust drops half-reassembled messages when a receiver disconnects**, as C++
+  `disconnect_receiver()` does. The cache is keyed by the sender's message id, so
+  a stale partial could be completed by a later message's fragments.
+- **The Rust route slot is 16-byte aligned off Apple and MSVC.** `ElemT` was
+  `align(8)` everywhere (88 bytes); C++ aligns the slot to `AlignSize`, which is
+  16 on x86_64 Linux.
+- **Linux builds of `ipc.cpp` compile again.** The SIGPIPE guard passed an `int*`
+  to `sigtimedwait`, which takes a `siginfo_t*`.
+- **The secure codec builds with MSVC.** `secure_codec.h` spells
+  `(std::numeric_limits<T>::max)()` like the other public headers, so
+  `<windows.h>`'s `max` macro no longer breaks it, and the Rust crate builds its
+  secure-crypto C archive with `cc::Build` (cl.exe and lib.exe on MSVC) instead of
+  hand-rolled `cc -c` and `ar`/`libtool` calls.
+- **The Windows cross-language matrix runs, and passes.** It had stopped at
+  configure since July (the unpinned Chocolatey OpenSSL moved to 4.0 and to
+  another directory); it now installs OpenSSL 3.5 from slproweb, checked against
+  slproweb's published SHA-256. The runner compares `conform` traces without the
+  CRLF the Windows C++ harness writes, and keeps a killed holder's channel alive
+  on Windows, where killing its only holder destroyed the segment the `reap`
+  probes inspect.
+- **The `audio_realtime` demo names the `thoth_ipc` target**, so configuring with
+  demos (and the C/C++ CI) works again after the rebrand.
+
 ### Changed
 - **Rust `IpcCondition::notify` / `broadcast` take the paired mutex**
   (`notify(&mtx)`, `broadcast(&mtx)`), as C++ `condition::notify(mutex&)` does:
@@ -96,6 +126,17 @@ Notable changes to thoth-ipc. The format follows
   the generated constants. The xlang runner accepts a protocol covered by the
   `primitives` scenario (`[scenarios.primitives].protocols`), since these run
   through the kernel and leave no byte trace for `conform`.
+- **Opt-in C++20 named module `thoth.ipc`** (`THOTH_IPC_BUILD_MODULES`, off by
+  default), re-exporting the core surface from the existing headers; builds under
+  MSVC's C++20 modules.
+- **An importable Zig module `thoth-ipc`**, and the Zig chunk allocator half
+  (`poolPrepare` / `poolAcquire` / `acquireStorage`).
+- `abi.json` describes `chunk_info_t`, and a field that runs a coordination
+  algorithm carries a `protocol` tag naming its conformance probe
+  (`abi/protocols.txt`); the xlang runner fails when a listed probe has no case.
+- xlang `conform` scenario (each port's byte trace of `spinlock` / `idpool`
+  sequences diffed against C++) and `contend` scenario (contended chunk-pool
+  paths across languages); payload mismatches report where and how they differ.
 - `sole-owner` conformance probe and the `reap` scenario's `shold` / `sclaim` cases
   (every holder × taker language pairing, dead / live / traffic), plus `zombie`
   cases for senders and receivers (the runner kills the holder without reaping it).
