@@ -68,8 +68,8 @@ cargo run --manifest-path tools/abi/Cargo.toml
 - **Backend-specific structs name their targets.** A struct only one platform's
   backend uses — the sync payloads `ulock_mutex` / `ulock_cond` (apple_arm64)
   and `a0_mtx` / `a0_cnd` (x86_64 = LP64 Linux) — carries `"targets": [...]`;
-  its values need only resolve there (`check` verifies they do). Swift/Zig skip a
-  struct their target lacks; Rust/C++ emit it for every build (a layout constant
+  its values need only resolve there (`check` verifies they do). Swift skips a
+  struct its target lacks; Rust/C++/Zig emit it for every build (a layout constant
   is harmless where its backend is not compiled in), and the code that uses it
   asserts against it under its own platform `cfg` / `#if`. A `ptr` field is a
   pointer-sized, process-local address (the a0 robust-list links).

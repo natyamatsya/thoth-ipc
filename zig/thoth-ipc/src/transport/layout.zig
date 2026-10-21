@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Byte-exact ABI layout for the C++ `thoth::route` broadcast ring
-// (elem_array<broadcast, DataSize=80, AlignSize=8>) on Apple arm64.
+// (elem_array<broadcast, DataSize=80, AlignSize>): AlignSize 8 on Apple arm64,
+// 16 on x86-64 / Linux aarch64.
 // See context/xlang-channel-abi.md §2/§3/§4. All offsets/sizes are verified
 // against the real C++ types and the Swift/Rust ports; comptime asserts guard
 // against drift.
@@ -52,8 +53,8 @@ pub const ring_user_size: usize = abi.route_ring_size; // ftruncate target
 
 comptime {
     // Cross-check the generated layout against the structural invariants.
-    std.debug.assert(off_block + elem_stride * ring_size == 22720);
-    std.debug.assert(align_size == 8); // Apple arm64 (this port is macOS-first)
+    std.debug.assert(off_block + elem_stride * ring_size == off_sender_owner);
+    std.debug.assert(align_size == abi.route_elem_align); // the generated layout is for this target
     std.debug.assert(msg_payload + data_length == 80); // sizeof(msg_t<64,8>)
 }
 
