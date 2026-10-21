@@ -20,6 +20,7 @@
 #include <vector>
 #include "thoth-ipc/mutex.h"
 #include "thoth-ipc/def.h"
+#include "thoth-ipc/imp/detect_plat.h"
 
 using namespace thoth;
 using namespace thoth::sync;
@@ -178,7 +179,13 @@ TEST_F(MutexTest, ClearStorageOrphansSharedNode) {
   mutex D, E;
   ASSERT_TRUE(D.open(name.c_str()));
   ASSERT_TRUE(E.open(name.c_str()));   // shares D's node (ref == 2)
+#if !defined(THOTH_IPC_OS_WIN)
+  // POSIX: one process-local cache node per name, so both handles see the same
+  // mutex object. Windows has no such cache (each open is its own HANDLE on the
+  // named kernel mutex, and clear_storage is a no-op), so there is no node to
+  // share; the rest of the test still holds there.
   EXPECT_EQ(D.native(), E.native());
+#endif
 
   mutex::clear_storage(name.c_str());  // ref == 2 -> orphaned, both stay valid
 
