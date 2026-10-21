@@ -8,6 +8,8 @@ edition = "2024"
 description = "Cross-language IPC ABI test framework: plans and runs writer x reader matrices over the per-language harness binaries"
 license = "MIT"
 publish = false
+# `cargo run` without --bin runs the ABI matrix, as before demo-runner existed.
+default-run = "xlang-runner"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

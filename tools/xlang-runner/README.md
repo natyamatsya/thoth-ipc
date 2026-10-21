@@ -109,6 +109,51 @@ Useful flags: `--list` (plan only), `--scenario secure,secure-badkey` (filter),
 silent skips). Exit codes: 0 all passed, 1 case failures, 2 config/planning
 error.
 
+## Demo matrix
+
+`demo-runner`, the crate's second binary, applies the same idea to the demos
+(`cpp/thoth-ipc/demo`, `rust/thoth-ipc/src/bin/demo_*`, `swift/thoth-ipc/Sources/Demos`,
+`zig/thoth-ipc/src/demo_*`). Their roles share a CLI and a wire format across the
+ports, so [`tools/demos.toml`](../demos.toml) describes each demo once: its
+binary per language, its processes in start order with the role they play, and
+what each must print. A process takes its language from a **slot** (the planner
+assigns every present language to every slot: the Cartesian product) or is
+started once per language (`each_language`, for fan-in roles such as producers).
+A process waits for the previous one's `ready` line before starting, the case
+has one deadline, and the verdict is every process's exit code plus exact counts
+of matching stdout lines, so a timeout that exits 0, a lost message or a hung
+role fails the case. Demos with fixed IPC names run serially (`serial`), with the
+demo's `clear` verb before and after each case.
+
+| demo | roles (slots) | languages |
+|---|---|---|
+| pipeline | source x stage x stage x sink | C++, Rust, Swift, Zig |
+| bounded_buffer | consumer + one producer per language | C++, Rust, Swift, Zig |
+| channel_aggregator | collector + one producer per language | C++, Rust, Swift, Zig |
+| secure_pos | pinpad x gateway x POS | C++, Rust, Zig |
+| msg_que | receiver x sender | C++, Rust, Swift, Zig |
+| send_recv | receiver x sender | C++, Rust, Swift, Zig |
+| chat | bot x bot | C++, Rust, Swift, Zig |
+| linux_service | client x service | C++, Rust, Zig |
+| async_gateway | gateway + one agent per language | Rust, Zig |
+| audio_service | host x service (the host spawns the service) | C++, Rust |
+| audio_realtime | host x service (the host spawns the service) | C++, Rust |
+
+```sh
+# From the repo root, with the demos built (see .github/workflows/demos.yml):
+export DEMO_CPP_DIR=cpp/thoth-ipc/build/bin DEMO_RUST_DIR=rust/thoth-ipc/target/release \
+       DEMO_ZIG_DIR=zig/thoth-ipc/zig-out/bin   # + DEMO_SWIFT_DIR on macOS
+cargo run --release --manifest-path tools/xlang-runner/Cargo.toml --bin demo-runner -- \
+    --require cpp,rust,zig
+```
+
+Flags as above: `--list` prints every case with its commands, `--demo pipeline,chat`
+filters, and `--require` fails the run when a language that has a port of a demo
+is missing its binary. Placeholders for `args`, `ready` and `expect` are
+documented in [`src/demo/config.rs`](src/demo/config.rs). To add a demo, give it the
+same CLI and success lines in every port, a `clear` verb if its names are fixed,
+and an entry in `tools/demos.toml`.
+
 ## Adding a language
 
 1. Implement the harness CLI in the new language (see
