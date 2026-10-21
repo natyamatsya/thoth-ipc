@@ -280,9 +280,19 @@ struct conn_info_head {
         return static_cast<acc_t*>(acc_h_.get());
     }
 
-    auto& recv_cache() {
-        thread_local thoth::unordered_map<msg_id_t, cache_t> tls;
-        return tls;
+    // The fragments of the messages this handle is part-way through receiving,
+    // by msg_t.id_. Per handle, not per thread: async_recv / coro_recv try a
+    // receive on the consumer thread and then on the reactor thread, so the
+    // fragments of one message can be popped on two threads. A thread-local
+    // cache split such a message in two (the second thread took its next
+    // fragment for a new first one and returned a short message), and mixed
+    // up the ids of every channel received on one thread. A handle is not
+    // received on from two threads at once (its ring cursor is not shared
+    // either), so this needs no lock.
+    thoth::unordered_map<msg_id_t, cache_t> recv_cache_;
+
+    auto& recv_cache() noexcept {
+        return recv_cache_;
     }
 };
 
