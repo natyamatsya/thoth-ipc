@@ -117,3 +117,100 @@ args = ["produce", "{lang}", "{count}"]
 expect = [
   { line = '^\[producer {lang}\] sent {count} messages', count = "1" },
 ]
+
+# --- secure_pos: AEAD-sealed broadcast bus (C++, Rust, Zig) ------------------
+# A pinpad seals card events onto a broadcast route; the gateway (key holder)
+# must open every one, the POS (no key) must fail to open every one. The 70 B
+# envelope size checks the SIPC framing byte-for-byte across languages.
+[demos.secure_pos]
+description = "AEAD envelopes on a broadcast route: one key holder, one fail-closed reader"
+bins.main = { cpp = "secure_pos", rust = "demo_secure_pos", zig = "demo_secure_pos" }
+serial = true
+clear = ["clear"]
+count = 2
+
+[[demos.secure_pos.procs]]
+role = "gateway"
+slot = "gateway"
+args = ["gateway", "{count}"]
+ready = '^\[gateway\] subscribed'
+expect = [
+  { line = '^\[gateway\] authorised \*\*\*\*-\*\*\*\*-\*\*\*\*-1111 for \d+c \(event #\d+\)$', count = "{count}" },
+]
+
+[[demos.secure_pos.procs]]
+role = "pos"
+slot = "pos"
+args = ["pos", "{count}"]
+ready = '^\[pos\] subscribed'
+expect = [
+  { line = '^\[pos\] event #\d+: sealed envelope observed', count = "{count}" },
+]
+
+[[demos.secure_pos.procs]]
+role = "pinpad"
+slot = "pinpad"
+args = ["pinpad", "{count}"]
+expect = [
+  { line = '^\[pinpad\] captured .* -> sealed event #\d+ \(70B on the bus\)$', count = "{count}" },
+]
+
+# --- audio_service: FlatBuffers control channel + service_group failover -----
+# The host spawns two replicas of the service binary it is given, drives them
+# over FlatBuffers control/reply channels, kills the primary, promotes the
+# standby, respawns, and resumes. Host language x service language.
+[demos.audio_service]
+description = "service_group failover with a FlatBuffers control protocol"
+bins.main = { cpp = "audio_host", rust = "demo_audio_host" }
+bins.service = { cpp = "audio_service", rust = "demo_audio_service" }
+serial = true
+count = 1
+
+[[demos.audio_service.procs]]
+role = "host"
+slot = "host"
+args = ["{path:service@service}"]
+expect = [
+  { line = '^host:\s+ack ref_seq=\d+ status=0$', count = "3" },
+  { line = '^host:\s+param 0 = 1\.000000$', count = "1" },
+  { line = '^host: 2 instances alive after respawn$', count = "1" },
+  { line = '^host: done$', count = "1" },
+]
+
+# A slot with no process of its own: the host above runs its binary.
+[[demos.audio_service.procs]]
+role = "service"
+slot = "service"
+bin = "service"
+args = []
+spawned_by = "host"
+
+# --- audio_realtime: shm_ring audio + shared_state heartbeat, warm standby ---
+# The host consumes audio blocks from the primary's lock-free ring, watches its
+# heartbeat in shared state, fails over to the warm standby and consumes again.
+# The heartbeat is a steady_clock timestamp both languages write and read.
+[demos.audio_realtime]
+description = "lock-free shm_ring audio with a shared-state heartbeat and warm standby"
+bins.main = { cpp = "rt_audio_host", rust = "demo_rt_audio_host" }
+bins.service = { cpp = "rt_audio_service", rust = "demo_rt_audio_service" }
+serial = true
+count = 1
+
+[[demos.audio_realtime.procs]]
+role = "host"
+slot = "host"
+args = ["{path:service@service}"]
+expect = [
+  { line = '^host: consumed [1-9]\d* blocks$', count = "1" },
+  { line = '^host: heartbeat age = \d ms \(should be <10\)$', count = "1" },
+  { line = '^host: replicated state to new standby ', count = "1" },
+  { line = '^host: consumed [1-9]\d* blocks from new primary$', count = "1" },
+  { line = '^host: done$', count = "1" },
+]
+
+[[demos.audio_realtime.procs]]
+role = "service"
+slot = "service"
+bin = "service"
+args = []
+spawned_by = "host"

@@ -124,6 +124,11 @@ pub struct ProcSpec {
     pub exit: i32,
     #[serde(default)]
     pub expect: Vec<Expect>,
+    /// This role's process is started by the named role, not by the runner
+    /// (e.g. a service the host spawns from `{path:BIN@SLOT}`): it only adds
+    /// its slot to the matrix.
+    #[serde(default)]
+    pub spawned_by: Option<String>,
 }
 
 fn main_bin() -> String {
@@ -158,6 +163,14 @@ pub fn load(path: &std::path::Path) -> Result<DemoFile, String> {
             }
             if !demo.bins.contains_key(&p.bin) {
                 return Err(format!("demo '{name}', role '{}': unknown bin '{}'", p.role, p.bin));
+            }
+            if let Some(by) = &p.spawned_by {
+                if p.slot.is_none() || !demo.procs.iter().any(|q| &q.role == by) {
+                    return Err(format!(
+                        "demo '{name}', role '{}': `spawned_by` needs a `slot` and an existing role",
+                        p.role
+                    ));
+                }
             }
         }
     }

@@ -238,7 +238,7 @@ pub fn plan(file: &DemoFile, filter: &[String]) -> Result<DemoPlan, String> {
             let id = id_parts.join(" ");
 
             let mut procs = Vec::new();
-            for spec in &demo.procs {
+            for spec in demo.procs.iter().filter(|p| p.spawned_by.is_none()) {
                 let run_langs: Vec<&String> = match &spec.slot {
                     Some(s) => vec![&assign[s]],
                     None => langs.iter().collect(),
