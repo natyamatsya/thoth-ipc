@@ -38,6 +38,7 @@ pub fn build(b: *std.Build) void {
         "demo_pipeline", // thoth::route hops, one process per stage
         "demo_bounded_buffer", // shm ring + named mutex + two semaphores
         "demo_secure_pos", // AEAD-sealed broadcast bus
+        "demo_msg_que", // thoth::route, 128 B - 16 KB messages (fragmented)
     };
     var demo_tests: [demos.len]*std.Build.Step.Compile = undefined;
     for (demos, &demo_tests) |name, *t| {

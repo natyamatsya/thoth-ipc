@@ -6,10 +6,22 @@
 // Usage:
 //   demo_msg_que s    (sender — measures throughput)
 //   demo_msg_que r    (receiver — measures throughput)
+//   demo_msg_que s <count>   (sender — count mode, see below)
+//   demo_msg_que r <count>   (receiver — count mode, see below)
+//   demo_msg_que clear       (remove the route's IPC objects)
 //
 // Uses thoth::route (single-producer, multi-consumer broadcast).
 // The sender sends random-sized messages (128 B – 16 KB) as fast as
 // possible and prints throughput every second.  The receiver does the same.
+//
+// Count mode is bounded and verifiable (wire- and output-identical across the
+// C++/Rust/Swift/Zig ports): the sender waits up to 5 s for a receiver (else
+// exit 2), then sends <count> messages, the k-th being size_k bytes all equal to
+// k % 251, size_k = 128 + (k * 7919) % 16257 (2 s send timeout, else exit 4),
+// and prints `do_send: sent <count> messages, <bytes> bytes`. The receiver
+// prints `do_recv: ready`, checks every message (10 s recv timeout: exit 5;
+// wrong size or bytes: exit 6) and prints
+// `do_recv: received <count> messages, <bytes> bytes`.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -115,11 +127,105 @@ fn do_recv(quit: Arc<AtomicBool>) {
     println!("do_recv: quit...");
 }
 
+// --- Count mode (deterministic, verifiable; used by the cross-language runner) ---
+
+/// Size of the k-th count-mode message: 128 B .. 16 KB, spread by a prime stride.
+fn size_of_k(k: usize) -> usize {
+    MIN_SZ + (k * 7919) % (MAX_SZ - MIN_SZ + 1)
+}
+
+/// Fill byte of the k-th count-mode message.
+fn byte_of_k(k: usize) -> u8 {
+    (k % 251) as u8
+}
+
+fn do_send_count(count: usize) -> i32 {
+    let mut que = match Route::connect(CHANNEL_NAME, Mode::Sender) {
+        Ok(q) => q,
+        Err(e) => {
+            eprintln!("do_send: connect failed: {e}");
+            return 3;
+        }
+    };
+    if !que.wait_for_recv(1, Some(5000)).unwrap_or(false) {
+        eprintln!("do_send: no receiver within 5 s.");
+        return 2;
+    }
+    let mut buf = vec![0u8; MAX_SZ];
+    let mut total = 0usize;
+    for k in 0..count {
+        let sz = size_of_k(k);
+        buf[..sz].fill(byte_of_k(k));
+        if !que.send(&buf[..sz], 2000).unwrap_or(false) {
+            eprintln!("do_send: send of message {k} failed.");
+            return 4;
+        }
+        total += sz;
+    }
+    println!("do_send: sent {count} messages, {total} bytes");
+    0
+}
+
+fn do_recv_count(count: usize) -> i32 {
+    let mut que = match Route::connect(CHANNEL_NAME, Mode::Receiver) {
+        Ok(q) => q,
+        Err(e) => {
+            eprintln!("do_recv: connect failed: {e}");
+            return 3;
+        }
+    };
+    println!("do_recv: ready");
+    let mut total = 0usize;
+    for k in 0..count {
+        let msg = match que.recv(Some(10_000)) {
+            Ok(m) if !m.is_empty() => m,
+            _ => {
+                eprintln!("do_recv: timed out after {k}/{count} messages.");
+                return 5;
+            }
+        };
+        let data = msg.data();
+        let ok = (MIN_SZ..=MAX_SZ).contains(&data.len())
+            && data.len() == size_of_k(k)
+            && data[0] == byte_of_k(k)
+            && data.iter().all(|&b| b == data[0]);
+        if !ok {
+            eprintln!(
+                "do_recv: message {k} is corrupt ({} bytes, expected {} bytes of {}).",
+                data.len(),
+                size_of_k(k),
+                byte_of_k(k)
+            );
+            return 6;
+        }
+        total += data.len();
+    }
+    println!("do_recv: received {count} messages, {total} bytes");
+    0
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: demo_msg_que s|r");
+        eprintln!("usage: demo_msg_que s|r [<count>] | clear");
         std::process::exit(1);
+    }
+
+    if args[1] == "clear" {
+        Route::clear_storage(CHANNEL_NAME);
+        return;
+    }
+    if args.len() >= 3 && (args[1] == "s" || args[1] == "r") {
+        let Ok(count) = args[2].parse::<usize>() else {
+            eprintln!("invalid count: {}", args[2]);
+            std::process::exit(1);
+        };
+        let code = if args[1] == "s" {
+            do_send_count(count)
+        } else {
+            do_recv_count(count)
+        };
+        std::process::exit(code);
     }
 
     let quit = Arc::new(AtomicBool::new(false));
