@@ -721,7 +721,7 @@ fn runProbe(which: []const u8) u8 {
 /// they are this process's. Must print exactly what the C++ reference prints.
 fn probeSoleOwner() void {
     const dead_pid: i32 = 0x7fff_fffe; // above every OS's pid limit: a dead holder
-    var rec: [16]u8 align(8) = [_]u8{0} ** 16;
+    var rec: [16]u8 align(8) = @splat(0);
     const o: [*]u8 = &rec;
     const pid_p: *u32 = @ptrCast(@alignCast(o + abi.liveness_slot_pid_off));
     const tok_p: *u64 = @ptrCast(@alignCast(o + abi.liveness_slot_start_tok_off));
