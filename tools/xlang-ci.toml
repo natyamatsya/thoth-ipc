@@ -36,10 +36,8 @@ modes = ["sync", "channel", "reap", "primitives", "typed", "secure"]
 bin = "${XLANG_SWIFT_BIN}"
 modes = ["sync", "channel", "reap", "primitives", "typed", "secure"]
 
-# Native Zig port (macOS-first). Implements the core transport (sync + fanout,
-# both Mode::Sync) and the dead-connection reaper (reap); it advertises no caps,
-# so the cap-gated phases (primitives/typed/secure/channel/async) are skipped
-# until each ABI surface lands.
+# Native Zig port (macOS and Linux). Joins every scenario; its caps verb
+# advertises the sync primitives, typed codec, secure envelope and notify.
 [languages.zig]
 bin = "${XLANG_ZIG_BIN}"
 modes = ["sync", "reap", "primitives", "typed", "secure", "channel"]
@@ -62,8 +60,8 @@ modes = ["async"]
 bin = "${XLANG_SWIFT_ASYNC_BIN}"
 modes = ["async"]
 
-# Zig reuses its main harness for async (notify/AsyncRoute are always-on on
-# macOS — no separate feature build), like Rust and Swift.
+# Zig reuses its main harness for async (notify is always on — libnotify on
+# macOS, FIFOs on Linux — so no separate feature build), like Rust and Swift.
 [languages.zig-async]
 bin = "${XLANG_ZIG_ASYNC_BIN}"
 modes = ["async"]

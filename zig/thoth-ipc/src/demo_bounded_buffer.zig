@@ -89,7 +89,7 @@ fn produce(id: []const u8, count: usize) u8 {
             err("[producer {s}] no free slot within 10s", .{id});
             return 2;
         }
-        mtx.lock();
+        mtx.lock() catch return 4;
         const idx = ring.head();
         ring.setHead((idx + 1) % CAP);
         var mbuf: [SLOT]u8 = undefined;
@@ -123,7 +123,7 @@ fn consume(total: usize) u8 {
             err("[consumer] no item within 10s after {d}/{d}", .{ i, total });
             break;
         }
-        mtx.lock();
+        mtx.lock() catch return 4;
         const idx = ring.tail();
         ring.setTail((idx + 1) % CAP);
         const p = ring.slot(idx);

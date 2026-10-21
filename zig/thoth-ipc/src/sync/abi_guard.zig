@@ -6,10 +6,11 @@
 // it was created with, so a peer of a different language fails fast on mismatch
 // instead of corrupting shared state. Stamp = 6×u32:
 //   [0] magic "LISA" (0x4C495341)  [1] major  [2] minor
-//   [3] backend_id (2 = apple_ulock)  [4] primitive_id (1=mutex,2=condition)
-//   [5] payload_size (8)
+//   [3] backend_id (2 = apple_ulock, 5 = linux_a0)  [4] primitive_id (1=mutex,2=condition)
+//   [5] payload_size (8 for both on apple_ulock; 24 / 4 on linux_a0)
 
 const std = @import("std");
+const builtin = @import("builtin");
 const shm = @import("../platform/shm.zig");
 // Numeric ABI constants/offsets are generated from abi/abi.json (single source
 // of truth) by `tools/abi`; re-export the wire-visible ones so drift is caught.
@@ -21,8 +22,12 @@ const MAGIC: u32 = abi.syncabi_magic; // "LISA" (0x4C495341)
 const INIT_IN_PROGRESS: u32 = 0xFFFF_FFFF;
 const VERSION_MAJOR: u32 = 1;
 const VERSION_MINOR: u32 = 0;
-const BACKEND_APPLE_ULOCK: u32 = abi.syncabi_backend_ulock; // apple_ulock = 2
-const PAYLOAD_SIZE: u32 = 8; // both mutex (state+holder) and condition (seq+waiters)
+/// The sync backend this platform runs, as the C++ `sync_abi.h` selects it.
+const BACKEND_ID: u32 = switch (builtin.os.tag) {
+    .linux => abi.syncabi_backend_linux_a0,
+    .macos => abi.syncabi_backend_ulock,
+    else => @compileError("no sync backend for this OS"),
+};
 const INIT_WAIT_LIMIT: u32 = 16_384;
 const STAMP_SIZE: usize = abi.syncabi_stamp_size; // 6 x u32 = 24
 
@@ -46,6 +51,21 @@ pub const Primitive = enum(u32) {
         return switch (self) {
             .mutex => abi.sync_abi_suffix_mutex,
             .condition => abi.sync_abi_suffix_condition,
+        };
+    }
+
+    /// The backend's shared payload size, so peers on a different backend or
+    /// layout refuse to share it.
+    fn payloadSize(self: Primitive) u32 {
+        return switch (builtin.os.tag) {
+            .linux => switch (self) {
+                .mutex => abi.a0_mtx_size,
+                .condition => abi.a0_cnd_size,
+            },
+            else => switch (self) {
+                .mutex => abi.ulock_mutex_size,
+                .condition => abi.ulock_cond_size,
+            },
         };
     }
 };
@@ -91,9 +111,9 @@ fn initOrValidate(base: [*]u8, primitive: Primitive) Error!void {
             if (@cmpxchgWeak(u32, word(base, 0), 0, INIT_IN_PROGRESS, .acq_rel, .acquire) != null) continue;
             @atomicStore(u32, word(base, 1), VERSION_MAJOR, .monotonic);
             @atomicStore(u32, word(base, 2), VERSION_MINOR, .monotonic);
-            @atomicStore(u32, word(base, 3), BACKEND_APPLE_ULOCK, .monotonic);
+            @atomicStore(u32, word(base, 3), BACKEND_ID, .monotonic);
             @atomicStore(u32, word(base, 4), @intFromEnum(primitive), .monotonic);
-            @atomicStore(u32, word(base, 5), PAYLOAD_SIZE, .monotonic);
+            @atomicStore(u32, word(base, 5), primitive.payloadSize(), .monotonic);
             @atomicStore(u32, word(base, 0), MAGIC, .release);
             return;
         }
@@ -104,9 +124,9 @@ fn initOrValidate(base: [*]u8, primitive: Primitive) Error!void {
 fn validate(base: [*]u8, primitive: Primitive) Error!void {
     if (@atomicLoad(u32, word(base, 1), .acquire) != VERSION_MAJOR) return Error.SyncAbiMismatch;
     if (@atomicLoad(u32, word(base, 2), .acquire) != VERSION_MINOR) return Error.SyncAbiMismatch;
-    if (@atomicLoad(u32, word(base, 3), .acquire) != BACKEND_APPLE_ULOCK) return Error.SyncAbiMismatch;
+    if (@atomicLoad(u32, word(base, 3), .acquire) != BACKEND_ID) return Error.SyncAbiMismatch;
     if (@atomicLoad(u32, word(base, 4), .acquire) != @intFromEnum(primitive)) return Error.SyncAbiMismatch;
-    if (@atomicLoad(u32, word(base, 5), .acquire) != PAYLOAD_SIZE) return Error.SyncAbiMismatch;
+    if (@atomicLoad(u32, word(base, 5), .acquire) != primitive.payloadSize()) return Error.SyncAbiMismatch;
 }
 
 pub fn clearStorage(name: []const u8, primitive: Primitive) void {

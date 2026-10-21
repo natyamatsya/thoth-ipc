@@ -35,7 +35,7 @@ pub const Error = error{
     SenderBusy, // another live sender holds the route (its one sender slot)
     Full,
     OutOfMemory,
-} || shm.ShmError;
+} || shm.ShmError || waiter.Error;
 
 const Frag = struct { offset: usize, buf: []u8 };
 
@@ -59,6 +59,8 @@ pub const ChanInner = struct {
     rd_waiter: Waiter,
     wt_waiter: Waiter,
     cc_waiter: Waiter,
+    // Layer-1 readiness signal to async receivers (notify.zig).
+    notify_src: notify.Source = .{},
     disconnected: bool = false,
     // Sender: whether this endpoint holds the ring's sole-sender owner record
     // (xlang-channel-abi.md §2a). Claimed on connect, retried on send.
@@ -129,7 +131,7 @@ pub const ChanInner = struct {
             self.read_cursor = @atomicLoad(u32, layout.u32ptr(base, layout.off_wt), .acquire);
             liveness.setOwner(lv, self.conn_id);
             // Wake any sender parked in waitForRecv (CC waiter).
-            self.cc_waiter.broadcast();
+            try self.cc_waiter.broadcast();
         } else {
             // A route has one sender: claim it (taking over from a dead holder).
             _ = self.senderReady();
@@ -171,6 +173,7 @@ pub const ChanInner = struct {
         var cit = self.chunk_shms.valueIterator();
         while (cit.next()) |h| h.release();
         self.chunk_shms.deinit();
+        self.notify_src.close();
         self.cc_waiter.release();
         self.wt_waiter.release();
         self.rd_waiter.release();
@@ -206,7 +209,7 @@ pub const ChanInner = struct {
         }
         // Layer 1: wake any async receiver parked on its readiness fd (byte-exact
         // with C++/Rust/Swift notify_post; a no-op if nobody is listening).
-        notify.post(self.prefix, self.name);
+        self.notify_src.signal(self.prefix, self.name, @atomicLoad(u32, layout.u32ptr(self.ring.ptr(), layout.off_cc), .acquire), self.conn_id);
         return true;
     }
 
@@ -248,7 +251,7 @@ pub const ChanInner = struct {
         layout.writeMsgHeader(sb, .{ .cc_id = self.cc_id, .id = msg_id, .remain = remain, .storage = false });
         @memcpy((sb + layout.msg_payload)[0..payload.len], payload);
         _ = @atomicRmw(u32, wt_p, .Add, 1, .release);
-        self.rd_waiter.broadcast(); // wake a reader parked on the empty ring
+        try self.rd_waiter.broadcast(); // wake a reader parked on the empty ring
         return true;
     }
 
@@ -300,7 +303,7 @@ pub const ChanInner = struct {
                 layout.adaptiveYield(&k);
             }
             self.read_cursor +%= 1;
-            self.wt_waiter.broadcast(); // wake a sender parked on the full ring
+            try self.wt_waiter.broadcast(); // wake a sender parked on the full ring
 
             if (!keep) continue;
 

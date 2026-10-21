@@ -390,13 +390,19 @@ fn openSemaphore(name: []const u8) ?Semaphore {
     };
 }
 
+/// Report a failed sync-primitive operation; the harness exit code.
+fn primFailed(what: []const u8, err: anyerror) u8 {
+    perr("[zig-prim] {s} failed: {t}", .{ what, err });
+    return 4;
+}
+
 /// Lock the mutex and hold it (READY once held) so a peer can probe contention
 /// or, after SIGKILL, robust dead-holder recovery.
 fn doMhold(name: []const u8, secs: u64) u8 {
     var m = openMutex(name) orelse return 3;
     // No deinit: a `mhold` process is often SIGKILLed, and even on clean exit we
     // must not unlink the segment out from under a concurrent prober.
-    m.lock();
+    m.lock() catch |err| return primFailed("lock", err);
     pout("READY", .{});
     channel.sleepNs(secs * std.time.ns_per_s);
     m.unlock();
@@ -406,7 +412,7 @@ fn doMhold(name: []const u8, secs: u64) u8 {
 fn doMtry(name: []const u8) u8 {
     var m = openMutex(name) orelse return 3;
     defer m.deinit();
-    if (m.tryLock()) {
+    if (m.tryLock() catch |err| return primFailed("try-lock", err)) {
         m.unlock();
         pout("acquired", .{});
     } else {
@@ -418,7 +424,7 @@ fn doMtry(name: []const u8) u8 {
 fn doMlock(name: []const u8, ms: u64) u8 {
     var m = openMutex(name) orelse return 3;
     defer m.deinit();
-    if (m.lockTimeout(@as(i128, ms) * std.time.ns_per_ms)) {
+    if (m.lockTimeout(@as(i128, ms) * std.time.ns_per_ms) catch |err| return primFailed("timed lock", err)) {
         m.unlock();
         pout("acquired", .{});
     } else {
@@ -459,8 +465,8 @@ fn doCvwait(name: []const u8, ms: u64) u8 {
     defer m.deinit();
     var c = openCondition(name) orelse return 3;
     defer c.deinit();
-    m.lock();
-    const woke = c.wait(&m, @as(i128, ms) * std.time.ns_per_ms);
+    m.lock() catch |err| return primFailed("lock", err);
+    const woke = c.wait(&m, @as(i128, ms) * std.time.ns_per_ms) catch |err| return primFailed("condition wait", err);
     m.unlock();
     if (woke) {
         perr("[zig-prim] condition woke on '{s}_c'", .{name});
@@ -478,8 +484,8 @@ fn doCvnotify(name: []const u8) u8 {
     defer c.deinit();
     var i: u32 = 0;
     while (i < 30) : (i += 1) {
-        m.lock();
-        c.broadcast();
+        m.lock() catch |err| return primFailed("lock", err);
+        c.broadcast(&m) catch |err| return primFailed("broadcast", err);
         m.unlock();
         channel.sleepNs(100 * std.time.ns_per_ms);
     }
@@ -522,7 +528,7 @@ fn doAread(name: []const u8, count: usize, size: usize) u8 {
         return 3;
     };
     defer ch.deinit();
-    var sink = notify.Sink.open("", name);
+    var sink = notify.Sink.open("", name, ch.conn_id);
     defer sink.close();
 
     const want = alloc.alloc(u8, size) catch return 5;
@@ -801,7 +807,7 @@ pub fn main(m: std.process.Init.Minimal) void {
     if (std.mem.eql(u8, verb, "caps")) {
         // Advertised capabilities: sync-primitive verbs ("prim"), the typed
         // protobuf codec, the AEAD secure envelope (pure Zig std.crypto), and the
-        // Layer-1 notify/async readiness. All always available on macOS, so the
+        // Layer-1 notify/async readiness. All available on macOS and Linux, so the
         // runner joins every scenario except multi-writer channel.
         const caps = "prim typed:protobuf notify async secure secure:aes256gcm secure:chacha20poly1305\n";
         _ = std.c.write(1, caps, caps.len);

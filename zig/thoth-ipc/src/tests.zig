@@ -4,6 +4,7 @@
 // Aggregates the byte-exact ABI unit tests. `zig build test`.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 test {
     std.testing.refAllDecls(@import("platform/shmname.zig"));
@@ -15,7 +16,11 @@ test {
     std.testing.refAllDecls(@import("transport/notify.zig"));
     std.testing.refAllDecls(@import("transport/channel.zig"));
     std.testing.refAllDecls(@import("transport/channel_multi.zig"));
-    std.testing.refAllDecls(@import("sync/ulock.zig"));
+    switch (builtin.os.tag) {
+        .linux => std.testing.refAllDecls(@import("sync/a0.zig")),
+        .macos => std.testing.refAllDecls(@import("sync/ulock.zig")),
+        else => {},
+    }
     std.testing.refAllDecls(@import("sync/abi_guard.zig"));
     std.testing.refAllDecls(@import("sync/mutex.zig"));
     std.testing.refAllDecls(@import("sync/condition.zig"));

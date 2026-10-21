@@ -10,17 +10,18 @@
 // (shm_open/shm_unlink have no std.posix wrapper). No hand-rolled externs.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const posix = std.posix;
 const c = std.c;
 const shmname = @import("shmname.zig");
-
-comptime {
-    // macOS-first port: the ftruncate-once-on-create quirk below is Darwin.
-    std.debug.assert(builtin.os.tag == .macos);
-}
+const layout = @import("../transport/layout.zig");
 
 const perms: c.mode_t = 0o666;
+
+/// How long an opener waits for the creator of a fresh object to size it
+/// before assuming the creator died and sizing it itself (Rust
+/// `SHM_SIZE_WAIT_TIMEOUT`). The real wait is one syscall on the creator's
+/// side; this is a liveness backstop.
+const size_wait_timeout_ns: i128 = 2 * std.time.ns_per_s;
 const o_create: c_int = @bitCast(c.O{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true });
 const o_open: c_int = @bitCast(c.O{ .ACCMODE = .RDWR });
 
@@ -84,10 +85,15 @@ pub const ShmHandle = struct {
 
         _ = c.fchmod(fd, perms);
 
-        // macOS: ftruncate only on first creation — it errors on an
-        // already-sized shm object.
+        // Only the exclusive creator sizes the object: XNU accepts exactly one
+        // sizing ftruncate per shm object. Everyone else waits for that size to
+        // become visible — mapping (and touching) it earlier is a SIGBUS.
         if (need_truncate) {
-            if (c.ftruncate(fd, @intCast(total)) != 0) return ShmError.OsError;
+            try truncate(fd, total);
+        } else if (mode == .create_or_open and !waitUntilSized(fd, total)) {
+            // Still undersized: the creator crashed between shm_open(O_EXCL)
+            // and its ftruncate, leaving a zero-length husk. Size it ourselves.
+            try truncate(fd, total);
         }
 
         self.mem = posix.mmap(
@@ -124,9 +130,16 @@ pub const ShmHandle = struct {
 
     /// Decrement the ref-counter, unmap, and unlink when we were the last.
     pub fn release(self: *ShmHandle) void {
+        _ = self.releaseRef();
+    }
+
+    /// `release`, returning the ref count from before it (C++ `shm::release`):
+    /// 1 means this was the last handle and the segment is gone.
+    pub fn releaseRef(self: *ShmHandle) i32 {
         const prev = @atomicRmw(i32, self.refCountPtr(), .Sub, 1, .acq_rel);
         posix.munmap(self.mem);
         if (prev <= 1) unlinkName(self.posixName());
+        return prev;
     }
 
     /// Remove the backing storage for a named shm segment without a handle.
@@ -135,6 +148,31 @@ pub const ShmHandle = struct {
         unlinkName(shmname.makeShmName(&buf, name));
     }
 };
+
+fn objectSize(fd: c_int) usize {
+    const end = c.lseek(fd, 0, c.SEEK.END);
+    return if (end < 0) 0 else @intCast(end);
+}
+
+/// ftruncate to `total`, tolerating the EINVAL XNU returns when a peer already
+/// sized the object, as long as it ended up at least that large.
+fn truncate(fd: c_int, total: usize) ShmError!void {
+    if (c.ftruncate(fd, @intCast(total)) == 0) return;
+    if (posix.errno(-1) == .INVAL and objectSize(fd) >= total) return;
+    return ShmError.OsError;
+}
+
+/// Wait for the creator to size the object to at least `total` bytes. False
+/// if the deadline passes first, which means the creator died mid-create.
+fn waitUntilSized(fd: c_int, total: usize) bool {
+    const deadline = layout.nowNs() + size_wait_timeout_ns;
+    var k: u32 = 0;
+    while (objectSize(fd) < total) {
+        if (layout.nowNs() >= deadline) return false;
+        layout.adaptiveYield(&k);
+    }
+    return true;
+}
 
 fn unlinkName(posix_name: []const u8) void {
     var cbuf: [257]u8 = undefined;

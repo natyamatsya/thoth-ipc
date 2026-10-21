@@ -14,6 +14,7 @@
 // precisely this).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const shm = @import("../platform/shm.zig");
 const shmname = @import("../platform/shmname.zig");
 const layout = @import("layout.zig");
@@ -27,14 +28,6 @@ pub const slot_stride: usize = abi.liveness_slot_size; // sizeof(slot_owner) = 1
 const pid_off: usize = abi.liveness_slot_pid_off; // int32 @0
 const tok_off: usize = abi.liveness_slot_start_tok_off; // uint64 @8
 pub const shm_size_bytes: usize = max_slots * slot_stride; // 512
-
-// Darwin proc_pidinfo — no std.c wrapper; the BSD start time is the process
-// incarnation id that defeats PID reuse (ABI §9).
-const PROC_PIDTBSDINFO: c_int = 3;
-const PROC_BSDINFO_SIZE: c_int = 136;
-const PBI_START_TVSEC_OFF: usize = 120; // uint64 in proc_bsdinfo
-const PBI_START_TVUSEC_OFF: usize = 128; // uint64 in proc_bsdinfo
-extern "c" fn proc_pidinfo(pid: c_int, flavor: c_int, arg: u64, buffer: *anyopaque, buffersize: c_int) c_int;
 
 pub fn livenessName(buf: []u8, prefix: []const u8, name: []const u8) []const u8 {
     return std.fmt.bufPrint(buf, "{s}__THOTH_SHM__LV_CONN__{s}", .{ prefix, name }) catch unreachable;
@@ -54,42 +47,100 @@ pub fn selfPid() i32 {
     return std.c.getpid();
 }
 
-/// Process start token — byte-exact with C++/Rust/Swift: BSD start time packed
-/// as tvsec * 1_000_000 + tvusec. 0 == "couldn't determine".
+/// Process start token — byte-exact with C++/Rust/Swift (C++ `start_token`).
+/// 0 == "couldn't determine".
 pub fn startToken(pid: i32) u64 {
     if (pid <= 0) return 0;
-    var info: [136]u8 = undefined;
-    const n = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, PROC_BSDINFO_SIZE);
-    if (n != PROC_BSDINFO_SIZE) return 0;
-    const tvsec = std.mem.readInt(u64, info[PBI_START_TVSEC_OFF..][0..8], .little);
-    const tvusec = std.mem.readInt(u64, info[PBI_START_TVUSEC_OFF..][0..8], .little);
-    return tvsec *% 1_000_000 +% tvusec;
+    return os.startToken(pid);
 }
-
-// Darwin sysctl — the kinfo_proc image read for the zombie check.
-const CTL_KERN: c_int = 1;
-const KERN_PROC: c_int = 14;
-const KERN_PROC_PID: c_int = 1;
-const KINFO_PROC_SIZE: usize = 648; // sizeof(struct kinfo_proc), arm64 and x86_64
-const P_STAT_OFF: usize = 36; // kp_proc (@0) .p_stat
-const SZOMB: u8 = 5;
-extern "c" fn sysctl(name: [*]c_int, namelen: c_uint, oldp: ?*anyopaque, oldlenp: ?*usize, newp: ?*anyopaque, newlen: usize) c_int;
 
 /// Whether `pid` is a zombie: it has exited and only waits for its parent to
 /// reap it, which may never happen (e.g. a parent that cannot wait for a child a
 /// debugger traces). A zombie holds nothing, but kill(pid, 0) still succeeds for
 /// it and its start token can no longer be read, so without this check it would
-/// count as alive for as long as its parent lives. Byte-exact with C++ is_zombie
-/// (liveness.h): sysctl KERN_PROC_PID (what ps reads; proc_pidinfo fails for
-/// zombies), kp_proc.p_stat == SZOMB.
+/// count as alive for as long as its parent lives (C++ `is_zombie`).
 pub fn isZombie(pid: i32) bool {
     if (pid <= 0) return false;
-    var mib = [_]c_int{ CTL_KERN, KERN_PROC, KERN_PROC_PID, pid };
-    var buf: [KINFO_PROC_SIZE]u8 = undefined;
-    var len: usize = KINFO_PROC_SIZE;
-    if (sysctl(&mib, 4, &buf, &len, null, 0) != 0 or len != KINFO_PROC_SIZE) return false;
-    return buf[P_STAT_OFF] == SZOMB;
+    return os.isZombie(pid);
 }
+
+const os = switch (builtin.os.tag) {
+    .linux => procfs,
+    .macos => darwin,
+    else => @compileError("thoth-ipc: no liveness backend for " ++ @tagName(builtin.os.tag)),
+};
+
+/// Linux: /proc/<pid>/stat. Field 2 (comm) is parenthesised and may contain
+/// spaces or parentheses, so fields are counted from after the LAST ')'.
+const procfs = struct {
+    /// The fields after `comm`, starting at field 3 (state); null if unreadable.
+    fn statFields(buf: []u8, pid: i32) ?[]const u8 {
+        var pbuf: [32]u8 = undefined;
+        const path = std.fmt.bufPrintSentinel(&pbuf, "/proc/{d}/stat", .{pid}, 0) catch unreachable;
+        const fd = std.c.open(path.ptr, .{ .ACCMODE = .RDONLY, .CLOEXEC = true });
+        if (fd == -1) return null;
+        defer _ = std.c.close(fd);
+        const n = std.c.read(fd, buf.ptr, buf.len);
+        if (n <= 0) return null;
+        const stat = buf[0..@intCast(n)];
+        const end = std.mem.lastIndexOfScalar(u8, stat, ')') orelse return null;
+        return std.mem.trimStart(u8, stat[end + 1 ..], " ");
+    }
+
+    /// The raw starttime jiffies, field 22.
+    fn startToken(pid: i32) u64 {
+        var buf: [1024]u8 = undefined;
+        var it = std.mem.tokenizeScalar(u8, statFields(&buf, pid) orelse return 0, ' ');
+        for (3..22) |_| _ = it.next() orelse return 0;
+        return std.fmt.parseInt(u64, it.next() orelse return 0, 10) catch 0;
+    }
+
+    /// State (field 3) `Z`, or `X` (dead).
+    fn isZombie(pid: i32) bool {
+        var buf: [1024]u8 = undefined;
+        const fields = statFields(&buf, pid) orelse return false;
+        return fields.len > 0 and (fields[0] == 'Z' or fields[0] == 'X');
+    }
+};
+
+/// macOS: the BSD start time from proc_pidinfo is the process incarnation id
+/// that defeats PID reuse (ABI §9); the zombie state comes from sysctl.
+const darwin = struct {
+    // proc_pidinfo — no std.c wrapper.
+    const PROC_PIDTBSDINFO: c_int = 3;
+    const PROC_BSDINFO_SIZE: c_int = 136;
+    const PBI_START_TVSEC_OFF: usize = 120; // uint64 in proc_bsdinfo
+    const PBI_START_TVUSEC_OFF: usize = 128; // uint64 in proc_bsdinfo
+    extern "c" fn proc_pidinfo(pid: c_int, flavor: c_int, arg: u64, buffer: *anyopaque, buffersize: c_int) c_int;
+
+    /// BSD start time packed as tvsec * 1_000_000 + tvusec.
+    fn startToken(pid: i32) u64 {
+        var info: [136]u8 = undefined;
+        const n = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, PROC_BSDINFO_SIZE);
+        if (n != PROC_BSDINFO_SIZE) return 0;
+        const tvsec = std.mem.readInt(u64, info[PBI_START_TVSEC_OFF..][0..8], .little);
+        const tvusec = std.mem.readInt(u64, info[PBI_START_TVUSEC_OFF..][0..8], .little);
+        return tvsec *% 1_000_000 +% tvusec;
+    }
+
+    // sysctl — the kinfo_proc image `ps` reads (proc_pidinfo fails for zombies).
+    const CTL_KERN: c_int = 1;
+    const KERN_PROC: c_int = 14;
+    const KERN_PROC_PID: c_int = 1;
+    const KINFO_PROC_SIZE: usize = 648; // sizeof(struct kinfo_proc), arm64 and x86_64
+    const P_STAT_OFF: usize = 36; // kp_proc (@0) .p_stat
+    const SZOMB: u8 = 5;
+    extern "c" fn sysctl(name: [*]c_int, namelen: c_uint, oldp: ?*anyopaque, oldlenp: ?*usize, newp: ?*anyopaque, newlen: usize) c_int;
+
+    /// kp_proc.p_stat == SZOMB.
+    fn isZombie(pid: i32) bool {
+        var mib = [_]c_int{ CTL_KERN, KERN_PROC, KERN_PROC_PID, pid };
+        var buf: [KINFO_PROC_SIZE]u8 = undefined;
+        var len: usize = KINFO_PROC_SIZE;
+        if (sysctl(&mib, 4, &buf, &len, null, 0) != 0 or len != KINFO_PROC_SIZE) return false;
+        return buf[P_STAT_OFF] == SZOMB;
+    }
+};
 
 /// Is the recorded process (pid + token) still alive? Conservative: any
 /// "can't determine" answer errs toward ALIVE so a live peer is never false-reaped.

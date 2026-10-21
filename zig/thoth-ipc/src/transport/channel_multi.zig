@@ -94,6 +94,8 @@ pub const ChannelInner = struct {
     rd_waiter: Waiter,
     wt_waiter: Waiter,
     cc_waiter: Waiter,
+    // Layer-1 readiness signal to async receivers (notify.zig).
+    notify_src: notify.Source = .{},
     disconnected: bool = false,
 
     pub fn open(alloc: std.mem.Allocator, prefix: []const u8, name: []const u8, mode: Mode) Error!ChannelInner {
@@ -161,7 +163,7 @@ pub const ChannelInner = struct {
             // would start past that message. setOwner reads /proc on Linux.
             self.read_cursor = @atomicLoad(u32, layout.u32ptr(base, off_ct), .acquire);
             liveness.setOwner(lv, self.conn_id);
-            self.cc_waiter.broadcast();
+            try self.cc_waiter.broadcast();
         }
         return self;
     }
@@ -189,6 +191,7 @@ pub const ChannelInner = struct {
         var cit = self.chunk_shms.valueIterator();
         while (cit.next()) |h| h.release();
         self.chunk_shms.deinit();
+        self.notify_src.close();
         self.cc_waiter.release();
         self.wt_waiter.release();
         self.rd_waiter.release();
@@ -233,7 +236,7 @@ pub const ChannelInner = struct {
             const remain: i32 = @as(i32, @intCast(tail)) - @as(i32, @intCast(layout.data_length));
             if (!try self.pushFragment(msg_id, remain, data[offset..], deadline_ns)) return false;
         }
-        notify.post(self.prefix, self.name);
+        self.notify_src.signal(self.prefix, self.name, @atomicLoad(u32, layout.u32ptr(self.ring.ptr(), layout.off_cc), .acquire), self.conn_id);
         return true;
     }
 
@@ -293,7 +296,7 @@ pub const ChannelInner = struct {
         layout.writeMsgHeader(sb, .{ .cc_id = self.cc_id, .id = msg_id, .remain = remain, .storage = false });
         @memcpy((sb + layout.msg_payload)[0..payload.len], payload);
         @atomicStore(u64, slotFct(sb), ~@as(u64, claimed_ct), .release);
-        self.rd_waiter.broadcast();
+        try self.rd_waiter.broadcast();
         return true;
     }
 
@@ -350,7 +353,7 @@ pub const ChannelInner = struct {
                 layout.adaptiveYield(&k);
             }
             self.read_cursor = cur_post;
-            self.wt_waiter.broadcast();
+            try self.wt_waiter.broadcast();
 
             if (!keep) continue;
 

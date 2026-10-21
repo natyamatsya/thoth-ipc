@@ -19,8 +19,8 @@ languages into one reader), async notify wakeup, dead-connection reaping, sync
 primitives (mutex/condition/semaphore), the typed codec layer, and **encrypted
 channels**: AEAD envelopes (AES-256-GCM, ChaCha20-Poly1305) sealed by one
 language open in every other, with tampered, wrong-key, wrong-key-id or
-algorithm-mismatched envelopes rejected fail-closed. (Zig is macOS-first; on
-Linux and Windows the matrix pairs C++ and Rust.) Every pairing the matrix
+algorithm-mismatched envelopes rejected fail-closed. (On Linux the matrix pairs C++, Rust and Zig; on
+Windows, C++ and Rust.) Every pairing the matrix
 exercises now passes byte-exact — the expected-failure list is empty.
 
 **Dead-connection reaping.** A `SIGKILL`ed broadcast receiver used to leave a
@@ -46,7 +46,7 @@ and ABI [§9](context/xlang-channel-abi.md).
 cpp/thoth-ipc/    — C++ library (upstream core, extended; Linux/Windows/macOS/FreeBSD)
 rust/thoth-ipc/   — Pure Rust port (Linux/Windows/macOS)
 swift/thoth-ipc/  — Swift package (macOS 14+; byte-exact with C++/Rust/Zig)
-zig/thoth-ipc/    — Native Zig port (macOS; byte-exact, full cross-language parity)
+zig/thoth-ipc/    — Native Zig port (macOS, Linux; byte-exact, full cross-language parity)
 ```
 
 ## Language implementations
@@ -146,22 +146,25 @@ while true {
 
 ### Zig — [`zig/thoth-ipc/`](zig/thoth-ipc/)
 
-Native Zig port (macOS-first), independently reimplementing the `thoth::route`
+Native Zig port (macOS and Linux), independently reimplementing the `thoth::route`
 wire ABI — not an FFI wrapper of the C/C++ core. It covers the **core broadcast
-transport**: byte-exact shm ring (`elem_array<80,8>`, 22784B), DCLP header init
-over `os_unfair_lock`, the broadcast push/pop CAS protocol, prefix-global
+transport**: byte-exact shm ring (`elem_array<80,AlignSize>`: 22784 B on Apple arm64,
+24832 B on x86-64 / Linux aarch64), DCLP header init over the `thoth::spin_lock`, the broadcast push/pop CAS protocol, prefix-global
 `cc_id` identity, fragment reassembly, and receive-side chunk-storage decode for
 large (>64B) messages; the **dead-connection reaper** (the `LV_CONN__` owner
-table with a `proc_pidinfo` start token that defeats PID reuse); and the
-**sync primitives** — an Apple-ulock word-lock mutex (with robust dead-holder
-recovery), a seq-counter condition variable, and a `sem_open` semaphore, each
-carrying the `SyncAbi` guard stamp. It also carries the **typed codec** (a thin protobuf-framed wrapper over the
+table with a process start token that defeats PID reuse); and the
+**sync primitives**, each carrying the `SyncAbi` guard stamp — on macOS an
+Apple-ulock word-lock mutex (with robust dead-holder recovery), a seq-counter
+condition variable and a shm-ulock counting semaphore; on Linux the alephzero
+robust priority-inheriting futex mutex and requeue-PI condition (`linux_a0`)
+and a `sem_open` semaphore, as C++ and Rust run there. It also carries the **typed codec** (a thin protobuf-framed wrapper over the
 route — field 1 varint `seq`, field 2 bytes `payload`, no protobuf library
 needed) and the **secure AEAD envelope** (SIPC v1 framing with AES-256-GCM and
 ChaCha20-Poly1305 done in pure Zig `std.crypto` — a standardized algorithm is
-byte-identical to the OpenSSL-backed ports, so no C crypto is linked). It also has the **Layer-1 notify readiness** for async receive: a sender posts
-on the libnotify service keyed by `fnv1a_64("<prefix>__THOTH_SHM__NOTIFY__<name>")`,
-and an `aread` receiver wakes on that fd. Like the other ports, Zig targets the
+byte-identical to the OpenSSL-backed ports, so no C crypto is linked). It also has the **Layer-1 notify readiness** for async receive, keyed by
+`fnv1a_64("<prefix>__THOTH_SHM__NOTIFY__<name>")`: a sender posts on that
+libnotify service (macOS) or pokes each connected reader's FIFO (Linux), and an
+`aread` receiver wakes on its fd. Like the other ports, Zig targets the
 single-writer `thoth::route`, and it joins **every cross-language matrix
 scenario** — `sync`, `fanout`, `reap`, `primitives`, `typed`,
 `secure`/`secure-badkey`/`secure-negative`, and `async` — proven byte-exact with
@@ -176,15 +179,15 @@ rejected fail-closed); and a Zig `send` wakes a C++ stdexec / coroutine, Rust
 senders of different languages into one reader, byte-exact on the 96-byte
 commit-flag slot layout and the shared `AC_CONN__` message-id counter.
 
-Idiomatic Zig: `std.posix`/`std.c` for the syscalls, native `@atomic*`
-builtins over the shm fields, and `extern struct` with comptime `@sizeOf`/
-`@offsetOf` guards for the byte-exact layouts. The only unavoidable C
-dependencies are Apple-specific primitives with no Zig equivalent: `os_unfair_lock`
-(the header lock a C++ peer contends on during DCLP init), the `__ulock_wait`/
-`__ulock_wake` futex the sync primitives are built on, and `proc_pidinfo` (the
-reaper's start token). One sharp edge worth noting: `sem_open` is variadic, and
-on Apple arm64 variadic args pass on the stack — so it must be declared variadic
-(std.c's fixed-arg wrapper corrupts the mode/value → `EINVAL`).
+Idiomatic Zig: `std.posix`/`std.c`/`std.os.linux` for the syscalls, native
+`@atomic*` builtins and `std.atomic.Value` over the shm fields, `extern struct`
+with comptime `@sizeOf`/`@offsetOf` guards for the byte-exact layouts, and one
+type per primitive whose platform backend is chosen at comptime. The ABI
+constants come from `abi_generated.zig`, generated for both alignment classes.
+The only C dependencies on macOS are Apple primitives with no Zig equivalent:
+the `__ulock_wait`/`__ulock_wake` futex the sync primitives are built on,
+libnotify, and `proc_pidinfo` (the reaper's start token). On Linux the futexes
+and the robust list are raw syscalls; libc provides `sem_open` and `mkfifo`.
 
 ```sh
 cd zig/thoth-ipc && zig build          # -> zig-out/bin/xlang harness
@@ -225,7 +228,7 @@ C++↔Rust on Linux/Windows). The wire format and shared-memory layout are fixed
   receiver.
 
 **Platforms** — C++: Linux, Windows, macOS, FreeBSD. Rust: Linux, Windows,
-macOS. Swift: macOS 14+. Zig: macOS (arm64).
+macOS. Swift: macOS 14+. Zig: macOS (arm64), Linux (x86-64).
 
 Every port targets both the single-writer `thoth::route` and the multi-writer
 `thoth::channel`; both are cross-language byte-exact across all four ports.

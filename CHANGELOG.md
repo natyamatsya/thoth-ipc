@@ -6,6 +6,20 @@ Notable changes to thoth-ipc. The format follows
 
 ## [Unreleased]
 
+### Added
+- **The Zig port runs on Linux.** It joins every xlang scenario there, byte-exact
+  with the C++ and Rust Linux ports: the `linux_a0` robust priority-inheriting
+  futex mutex and requeue-PI condition (a port of the C++/Rust alephzero code,
+  robust list included), the `sem_open` semaphore with C++'s naming and
+  last-handle unlink, per-reader FIFO notify readiness, a `/proc/<pid>/stat`
+  start token and zombie check for the reaper, and the align-16 ring layout.
+  Route waiters on Linux wake a parked C++/Rust peer by requeueing it onto the
+  waiter's mutex, as a0 requires. The macOS backends are unchanged; each
+  primitive is one type whose backend is chosen at comptime, so `Condition`'s
+  `notify`/`broadcast` now take the paired mutex on both platforms. An opener
+  of a fresh shm segment now waits for its creator to size it instead of risking
+  a SIGBUS.
+
 ### Fixed
 - **Rust `ShmHandle::grow` keeps the segment's contents on Linux.** It reopened
   the segment by name at the new size and then dropped the old handle; the ref
