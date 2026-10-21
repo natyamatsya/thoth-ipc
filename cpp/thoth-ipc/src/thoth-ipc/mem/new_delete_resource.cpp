@@ -11,6 +11,14 @@
 #include "thoth-ipc/mem/memory_resource.h"
 #include "thoth-ipc/mem/verify_args.h"
 
+// std::aligned_alloc where the C library has it; MSVC's CRT does not (its
+// aligned blocks come from _aligned_malloc and must go back through
+// _aligned_free). allocate() and deallocate() must agree on this: freeing an
+// _aligned_malloc block with std::free corrupts the MSVC heap.
+#if defined(THOTH_IPC_CPP_17) && !defined(THOTH_IPC_CC_MSVC) && !defined(__MINGW32__) && !defined(__WEBOS__)
+#  define THOTH_IPC_MEM_ALIGNED_ALLOC 1
+#endif
+
 namespace thoth {
 namespace mem {
 
@@ -39,7 +47,7 @@ void *new_delete_resource::allocate(std::size_t bytes, std::size_t alignment) no
     log.error("invalid bytes = ", bytes, ", alignment = ", alignment);
     return nullptr;
   }
-#if defined(THOTH_IPC_CPP_17) && !defined(THOTH_IPC_CC_MSVC) && !defined(__MINGW32__) && !defined(__WEBOS__)
+#if defined(THOTH_IPC_MEM_ALIGNED_ALLOC)
   /// \see https://en.cppreference.com/w/cpp/memory/c/aligned_alloc
   /// \remark The size parameter must be an integral multiple of alignment.
   /// macOS requires alignment >= sizeof(void*).
@@ -65,7 +73,7 @@ void *new_delete_resource::allocate(std::size_t bytes, std::size_t alignment) no
   }
   return p;
 #endif
-#endif // defined(THOTH_IPC_CPP_17)
+#endif // defined(THOTH_IPC_MEM_ALIGNED_ALLOC)
 }
 
 /**
@@ -85,7 +93,7 @@ void new_delete_resource::deallocate(void *p, std::size_t bytes, std::size_t ali
     log.error("invalid bytes = ", bytes, ", alignment = ", alignment);
     return;
   }
-#if defined(THOTH_IPC_CPP_17)
+#if defined(THOTH_IPC_MEM_ALIGNED_ALLOC)
   /// \see https://en.cppreference.com/w/cpp/memory/c/free
   std::free(p);
 #else
@@ -99,7 +107,7 @@ void new_delete_resource::deallocate(void *p, std::size_t bytes, std::size_t ali
 #else // try posix
   ::free(p);
 #endif
-#endif // defined(THOTH_IPC_CPP_17)
+#endif // defined(THOTH_IPC_MEM_ALIGNED_ALLOC)
 }
 
 } // namespace mem
