@@ -791,13 +791,21 @@ static thoth::buff_t recv(thoth::handle_t h, std::uint64_t tm) {
     for (;;) {
         // pop a new message
         typename queue_t::value_t msg {};
-        if (!wait_for(inf->rd_waiter_, [que, &msg, &h] {
+        bool popped = false;
+        if (!wait_for(inf->rd_waiter_, [que, &msg, &h, &popped] {
                 if (!que->connected()) {
                     reconnect(&h, true);
                 }
-                return !que->pop(msg);
+                popped = que->pop(msg);
+                return !popped;
             }, tm)) {
             // pop failed, just return.
+            return {};
+        }
+        if (!popped) {
+            // Woken without a message: disconnect() quit the waiter, whose
+            // wait_if returns at once without running the predicate. `msg` is
+            // still zeroed and would read as a 64-byte fragment.
             return {};
         }
         inf->wt_waiter_.broadcast();

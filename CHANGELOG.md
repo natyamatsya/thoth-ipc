@@ -44,6 +44,12 @@ Notable changes to thoth-ipc. The format follows
   and Zig on Linux, in about 30 s).
 
 ### Fixed
+- **A C++ `recv` blocked during `disconnect()` returns an empty buffer.** It
+  returned 64 zero bytes instead: `disconnect` quits the handle's waiter, whose
+  wait returns at once without popping a message, and `recv` then read its
+  zeroed message slot as a 64-byte fragment. A quit path that disconnects a
+  receiver from another thread (the interactive C++ chat) printed them. `recv`
+  now returns an empty buffer unless a message was actually popped.
 - **Demos report a stall as a failure.** A pipeline sink, a bounded-buffer
   consumer or a channel-aggregator collector that timed out waiting printed a
   note and exited 0, in every port; it now exits 5. The Swift bounded buffer

@@ -631,6 +631,37 @@ TEST_F(ChannelTest, SendTimeout) {
   bool sent = ch.send(std::string("Timeout Test"), 1);
 }
 
+// A recv blocked when its handle is disconnected (e.g. by a quit path on another
+// thread) returns an empty buffer: it was woken, but no message was popped.
+template <typename Chan>
+void expect_disconnect_wakes_recv_empty(char const *prefix) {
+  std::string name = generate_unique_ipc_name(prefix);
+  Chan sender_ch(name.c_str(), sender); // keeps the ring alive and connected
+  Chan receiver_ch(name.c_str(), receiver);
+  ASSERT_TRUE(receiver_ch.valid());
+
+  std::atomic<bool> returned{false};
+  buffer got;
+  std::thread t([&] {
+    got = receiver_ch.recv(); // no timeout: only the disconnect ends it
+    returned.store(true);
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  EXPECT_FALSE(returned.load()); // still blocked: nothing was sent
+  receiver_ch.disconnect();
+  t.join();
+
+  EXPECT_TRUE(got.empty()) << "recv returned " << got.size() << " bytes after disconnect";
+}
+
+TEST_F(RouteTest, DisconnectWakesBlockedRecvEmpty) {
+  expect_disconnect_wakes_recv_empty<route>("route_disconnect_recv");
+}
+
+TEST_F(ChannelTest, DisconnectWakesBlockedRecvEmpty) {
+  expect_disconnect_wakes_recv_empty<channel>("channel_disconnect_recv");
+}
+
 // Test clear and clear_storage
 TEST_F(ChannelTest, ClearStorage) {
   std::string name = generate_unique_ipc_name("channel_clear");
