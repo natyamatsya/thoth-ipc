@@ -12,10 +12,26 @@ Notable changes to thoth-ipc. The format follows
   maps lazily, on the first large message it reads. A Windows section is
   destroyed with its last handle (a POSIX segment exists until removed), so a
   sender that exited first took the payloads with it and the receiver read a
-  fresh, zeroed segment: the right size, all-zero bytes. The C++ sender now
-  duplicates the chunk segment's section handle into each receiver of a message
-  before publishing it (new `shm::share_with` / `shm::handle::share_with`; a
-  no-op on POSIX); the duplicate stays open in the receiver until it exits.
+  fresh, zeroed segment: the right size, all-zero bytes. On Windows the C++
+  sender no longer uses chunk storage: it splits a large message into 64 B
+  fragments carried in the ring, which every receiver holds from connect — the
+  wire form the Rust sender always uses, which every receiver already
+  reassembles. POSIX keeps chunk storage, and receivers on every OS still read
+  chunk-storage messages. The cost is on Windows only: a large message takes
+  ⌈size / 64⌉ ring slots and pushes instead of one, the receiver copies it out
+  of the ring instead of reading it in place, and a message over the ring's
+  16 KiB (256 × 64 B) needs its receiver reading while it is sent, as with a
+  Rust sender.
+- **C++ async receivers no longer split fragmented messages.** The C++
+  receiver reassembled fragments in a thread-local cache, but `async_recv` /
+  `coro_recv` receive on the consumer thread first and then on the reactor
+  thread, so a message whose fragments were popped on both arrived short (its
+  tail only). The cache is now per handle. Fragmented messages come from any
+  Rust sender and, now, from a C++ sender on Windows.
+- **`new_delete_resource` frees over-aligned blocks correctly on MSVC.**
+  `allocate()` used `_aligned_malloc` for alignments over `max_align_t` but
+  `deallocate()` used `std::free`, corrupting the heap; `test-ipc` died in
+  `memory_resource.new_delete_resource` on Windows.
 - **Rust and C++ share mutexes and conditions on Linux.** The C++ Linux backend
   is the vendored alephzero robust PI futex mutex/condition (`a0_mtx_t` /
   `a0_cnd_t`, sync ABI backend 5 = `linux_a0`), but the Rust port used

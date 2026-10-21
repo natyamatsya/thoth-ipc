@@ -60,11 +60,19 @@ Footnotes / code pointers:
      removed. A C++ sender that exited before its receivers mapped a chunk
      segment (they map it lazily, on the first large message) took the payloads
      with it; the receiver's open created a fresh, zeroed section, so a >64 B
-     message arrived with the right size and zero bytes. The C++ sender now
-     duplicates the segment's section handle into every receiver of the message
-     before publishing it (`shm::share_with`, `DuplicateHandle`, receivers found
-     via the LV_CONN__ owner table). The Rust sender fragments large messages
-     and never used chunk storage, so only C++ was wrong.
+     message arrived with the right size and zero bytes. The Rust sender
+     fragments large messages and never used chunk storage, so only C++ was
+     wrong. On Windows the C++ sender now does the same: a message over 64 B
+     goes as 64 B fragments in the ring (`large_msg_in_chunk_storage` in
+     `ipc.cpp`), byte-identical to the Rust sender's (the cost is under
+     "Windows — DONE", item 5).
+     A first fix that kept chunk storage and duplicated each segment's handle
+     into the message's receivers (`DuplicateHandle`) was green too, but left
+     a long-lived receiver holding a handle per segment per sender process and
+     needed the owner table at every send; it was dropped for this.
+     Fragmenting from C++ exposed a C++ receiver bug: the reassembly cache
+     was thread-local, and `async_recv`/`coro_recv` receive on two threads, so
+     cpp-async -> cpp-async 3000 B arrived short. It is per handle now.
    - **reap `probe-noreap` (4 pairings):** the same section lifetime, in the
      test: killing the only process holding a channel destroyed the dead slot
      the probe was meant to see. Neither port's liveness code was at fault. It
@@ -73,10 +81,17 @@ Footnotes / code pointers:
      `WAIT_ABANDONED`. On Windows the runner now runs a **keeper** (the `keep`
      verb: the channel's segments and mutex held open, no slot taken) beside a
      holder it kills, so those cases test on Windows what they test on POSIX.
-   With those, run 39515837537 is green on every job: `matrix-windows` 175/175
+   With those, xlang run 39519283876 (C++ fragmenting on Windows) is green on
+   every job, as was 39515837537 with the dropped handle-duplication fix:
+   `matrix-windows` 175/175
    (conform 5, sync 28, contend 4, fanout 4, channel 6, reap 36, primitives 16,
    typed 12, secure 32 + badkey 8 + negative 24) and `async-matrix-windows`
-   54/54, with Linux and macOS green in the same run.
+   54/54, with Linux and macOS green in the same run. `c-cpp.yml`'s
+   `build-windows`, which had not built since July, then showed two more
+   Windows-only C++ faults: `new_delete_resource` freeing `_aligned_malloc`
+   blocks with `std::free` (heap corruption, `test-ipc` died silently), and
+   `MutexTest.ClearStorageOrphansSharedNode` expecting the POSIX per-name
+   cache node that Windows does not have (item 4); both fixed.
    The generic `atomic<u32>` spin_lock (same as Linux) gives byte-exact ABI;
    Layer-1 notify is a named auto-reset Event per slot; the reactor is a thin
    registry over the Win32 thread pool (`RegisterWaitForSingleObject`); the reaper
@@ -128,7 +143,7 @@ full parity.** (Swift remains macOS-only.)
 
 ### Windows — DONE
 All three layers landed and are matrix-verified on `windows-latest`/MSVC
-(`matrix-windows` 175/175, `async-matrix-windows` 54/54, run 39515837537,
+(`matrix-windows` 175/175, `async-matrix-windows` 54/54, run 39519283876,
 2026-10-21; footnote 2 has what it took):
 1. **Liveness (reaper):** `is_process_alive` via
    `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `GetExitCodeProcess`;
@@ -150,12 +165,27 @@ All three layers landed and are matrix-verified on `windows-latest`/MSVC
 5. **Segment lifetime:** Windows named sections and kernel objects die with
    their last handle; POSIX segments persist until removed. Anything that relies
    on shared state outliving the process that wrote it has to hand a handle to
-   a process that lives on. Today that is chunk storage (the C++ sender
-   duplicates each chunk segment into its receivers, once per sender process
-   and receiver incarnation; the duplicate stays open in the receiver until it
-   exits, so a long-lived receiver holds one handle per segment per sender
-   process it has served) and the xlang runner's keeper for the kill cases.
-   The ring itself is safe: a sender waits for a receiver, which holds it.
+   a process that lives on, or not rely on it. The ring is safe: a sender waits
+   for a receiver, which holds the ring from connect. Chunk storage is not —
+   receivers map a `CHUNK_INFO__<size>` segment lazily — so on Windows the C++
+   sender, like the Rust one everywhere, sends a message over 64 B as 64 B
+   fragments in the ring instead (`large_msg_in_chunk_storage` in `ipc.cpp`;
+   POSIX keeps chunk storage). The wire form is the existing fragment form,
+   byte-identical between the ports: every fragment shares the message's
+   `id_`, `remain_ = size - offset - 64` (≤ 0 marks the last), `storage_ = 0`,
+   pushed in order. Receivers still read chunk-storage messages on Windows (an
+   older C++ sender's), subject to the same lifetime race.
+   The cost, Windows only, for messages over 64 B: ⌈size / 64⌉ ring pushes
+   (each a slot claim, a waiter broadcast and a notify signal) instead of one
+   copy into a chunk and one push; the receiver reassembles into a heap buffer
+   instead of reading the chunk in place; and a message holds ring slots
+   until it is read, so one larger than the ring (256 × 64 B = 16 KiB) needs
+   its receiver reading while it is sent — a receiver that stops reading for the
+   send timeout is dropped by `force_push`, as with a Rust sender. Large-message
+   throughput and latency on Windows are therefore those of the Rust sender,
+   not of C++ chunk storage; the `contend` scenario no longer exercises the
+   chunk pool on Windows (the abi `idpool` conformance probes still do). The
+   other case is the xlang runner's keeper for the kill cases.
 
 ### FreeBSD / other POSIX
 Likely close (FIFO notify, kqueue reactor, and `kill(pid,0)` are BSD-native), but
