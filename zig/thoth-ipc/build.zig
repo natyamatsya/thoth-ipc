@@ -42,6 +42,7 @@ pub fn build(b: *std.Build) void {
         "demo_linux_service", // request/reply over two thoth::channel
         "demo_linux_client", // its counterpart
         "demo_chat", // multi-party chat over one multi-writer thoth::channel
+        "demo_async_gateway", // N routes on one thread via notify readiness fds
     };
     var demo_tests: [demos.len]*std.Build.Step.Compile = undefined;
     for (demos, &demo_tests) |name, *t| {

@@ -19,6 +19,12 @@
 //   demo_async_gateway demo [devices] [readings]   one-command demo (spawns agents)
 //   demo_async_gateway gateway <devices> <readings>  the multiplexing event loop
 //   demo_async_gateway agent <id> <readings>       one device agent (own process)
+//   demo_async_gateway clear <devices>             remove gw-dev-0 .. gw-dev-<devices-1>
+//
+// The gateway gives its whole run a 20 s deadline, so a dead agent cannot
+// park it forever: on expiry it reports on stderr and exits 5. The Zig port
+// (zig/thoth-ipc/src/demo_async_gateway.zig) is wire- and output-identical,
+// so gateways and agents mix across languages.
 //
 // Build with:
 //   cargo build --features async-tokio --bin demo_async_gateway
@@ -52,6 +58,9 @@ fn agent(id: usize, readings: usize) -> i32 {
     0
 }
 
+/// The whole gateway run must finish within this, or it exits 5.
+const GATEWAY_DEADLINE: Duration = Duration::from_secs(20);
+
 /// The gateway: one current-thread tokio runtime, one task per device
 /// channel, all awaiting concurrently — plus a stats timer sharing the same
 /// loop, exactly like the network I/O would in a real bridge.
@@ -64,8 +73,9 @@ fn gateway(devices: usize, per_device: usize) -> i32 {
         .expect("tokio runtime");
     let local = tokio::task::LocalSet::new();
     let received = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    let progress = received.clone();
 
-    rt.block_on(local.run_until(async move {
+    let run = async move {
         let mut tasks = Vec::new();
         for id in 0..devices {
             let received = received.clone();
@@ -115,8 +125,23 @@ fn gateway(devices: usize, per_device: usize) -> i32 {
             "[gateway] done: {} readings from {devices} devices on ONE thread.",
             received.get()
         );
+    };
+    // The deadline is just one more timer on the same loop (created inside the
+    // runtime: a tokio timer needs its reactor).
+    let outcome = rt.block_on(local.run_until(async move {
+        tokio::time::timeout(GATEWAY_DEADLINE, run).await
     }));
-    0
+    match outcome {
+        Ok(()) => 0,
+        Err(_) => {
+            eprintln!(
+                "[gateway] timed out after {}s: {}/{total} readings",
+                GATEWAY_DEADLINE.as_secs(),
+                progress.get()
+            );
+            5
+        }
+    }
 }
 
 /// Convenience: spawn the agents as child processes, then run the gateway.
@@ -150,8 +175,14 @@ fn main() {
         Some("demo") => demo(arg(2, 4), arg(3, 10)),
         Some("gateway") => gateway(arg(2, 4), arg(3, 10)),
         Some("agent") => agent(arg(2, 0), arg(3, 10)),
+        Some("clear") => {
+            for id in 0..arg(2, 4) {
+                Route::clear_storage(&chan(id));
+            }
+            0
+        }
         _ => {
-            eprintln!("usage: demo_async_gateway <demo|gateway|agent> [args]");
+            eprintln!("usage: demo_async_gateway <demo|gateway|agent|clear> [args]");
             2
         }
     };
