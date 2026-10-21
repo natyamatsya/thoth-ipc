@@ -171,7 +171,6 @@ pub struct PlatformShm {
     mem: *mut u8,
     size: usize,      // total mapped size (including ref counter)
     user_size: usize, // user-requested size
-    logical_name: String,
     name: String,  // POSIX name (with leading '/')
     prev_ref: i32, // ref count *before* our fetch_add (0 means we were first)
 }
@@ -298,7 +297,7 @@ impl PlatformShm {
             }
         }
 
-        Self::mmap_and_finish(fd, total_size, user_size, name.to_owned(), posix_name)
+        Self::mmap_and_finish(fd, total_size, user_size, posix_name)
     }
 
     /// `ftruncate(fd, total_size)`, tolerating the macOS one-shot-sizing EINVAL.
@@ -354,7 +353,6 @@ impl PlatformShm {
         fd: i32,
         total_size: usize,
         user_size: usize,
-        logical_name: String,
         posix_name: String,
     ) -> io::Result<Self> {
         let mem = unsafe {
@@ -380,7 +378,6 @@ impl PlatformShm {
             mem: mem as *mut u8,
             size: total_size,
             user_size,
-            logical_name,
             name: posix_name,
             prev_ref: prev,
         })
@@ -411,10 +408,64 @@ impl PlatformShm {
             ));
         }
 
-        let logical_name = self.logical_name.clone();
-        let replacement = Self::acquire(&logical_name, new_user_size, ShmMode::CreateOrOpen)?;
-        let previous = std::mem::replace(self, replacement);
-        drop(previous);
+        // Grow the existing object in place. Re-acquiring by name instead (as
+        // this used to) drops the old handle afterwards: as the sole owner its
+        // trailing ref counter hits zero and unlinks the name, so the next
+        // opener created a fresh, zeroed object and the contents were lost.
+        // It also stalled for SHM_SIZE_WAIT_TIMEOUT waiting for a size no
+        // creator would ever publish.
+        let c_name = CString::new(self.name.as_bytes())
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_RDWR, 0o666 as libc::c_uint) };
+        if fd == -1 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let total_size = calc_size(new_user_size);
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstat(fd, &mut st) } == -1 {
+            let err = io::Error::last_os_error();
+            unsafe { libc::close(fd) };
+            return Err(err);
+        }
+        // A peer may already have grown it at least this far; never shrink.
+        if (st.st_size as usize) < total_size {
+            if let Err(err) = Self::ftruncate_to_size(fd, total_size) {
+                unsafe { libc::close(fd) };
+                return Err(err);
+            }
+        }
+
+        let mem = unsafe {
+            libc::mmap(
+                ptr::null_mut(),
+                total_size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            )
+        };
+        unsafe { libc::close(fd) };
+        if mem == libc::MAP_FAILED {
+            return Err(io::Error::last_os_error());
+        }
+        let mem = mem as *mut u8;
+
+        // The ref counter trails the mapped size, so it moves with it: take a
+        // reference on the new counter (zero-filled by the extension, or a
+        // peer's count if it grew to this size first), then give up ours on
+        // the old one without unlinking — the object lives on at its new size.
+        let prev = unsafe { acc_of(mem, total_size).fetch_add(1, Ordering::AcqRel) };
+        unsafe {
+            acc_of(self.mem, self.size).fetch_sub(1, Ordering::AcqRel);
+            libc::munmap(self.mem as *mut libc::c_void, self.size);
+        }
+
+        self.mem = mem;
+        self.size = total_size;
+        self.user_size = new_user_size;
+        self.prev_ref = prev;
         Ok(())
     }
 

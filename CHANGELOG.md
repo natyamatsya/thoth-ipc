@@ -6,6 +6,14 @@ Notable changes to thoth-ipc. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Rust `ShmHandle::grow` keeps the segment's contents on Linux.** It reopened
+  the segment by name at the new size and then dropped the old handle; the ref
+  counter trails the mapped size, so the old counter fell to zero and unlinked
+  the name, and the next opener created a fresh, zeroed segment. It also waited
+  out the 2 s creator-sizing timeout on every call. `grow` now enlarges the
+  object in place and moves its reference to the new counter.
+
 ## [0.7.0] - 2026-10-21
 
 ### Fixed
