@@ -19,6 +19,14 @@ Notable changes to thoth-ipc. The format follows
   `notify`/`broadcast` now take the paired mutex on both platforms. An opener
   of a fresh shm segment now waits for its creator to size it instead of risking
   a SIGBUS.
+- **A cross-language demo matrix.** `demo-runner` (a second binary of
+  `tools/xlang-runner`) runs every demo in `tools/demos.toml` with every present
+  language in every role: the Cartesian product over the demo's slots (all 81
+  four-hop source/stage/stage/sink pipelines for three languages), plus fan-in
+  roles started once per language. It checks each process's exit code and
+  stdout, so a lost message or a hung role fails the case; demos with fixed IPC
+  names run one case at a time. Console, JUnit and JSON reporting as in
+  `xlang-runner`.
 
 ### Fixed
 - **Demos report a stall as a failure.** A pipeline sink, a bounded-buffer

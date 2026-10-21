@@ -1,0 +1,119 @@
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
+# SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
+#
+# Cross-language demo matrix for tools/xlang-runner's `demo-runner`.
+#
+# Every demo exists in several ports with one CLI, and because the wire format
+# is byte-exact their roles mix across languages. For each demo the runner
+# assigns every present language to every `slot` (the Cartesian product) and
+# starts `each_language` processes once per present language, then checks exit
+# codes and stdout. Placeholders are documented in src/demo/config.rs.
+#
+# Language dirs are environment variables, as in xlang-ci.toml: a language whose
+# variable is unset (Swift on Linux) is absent on that host. Use --require in CI
+# so a demo binary that failed to build cannot be skipped silently.
+
+[run]
+jobs = 4
+retries = 0
+case_timeout_secs = 60
+ready_timeout_secs = 10
+start_gap_ms = 300
+failure_grace_ms = 2000
+
+[languages.cpp]
+dir = "${DEMO_CPP_DIR}"      # cpp/thoth-ipc/build/bin (-DTHOTH_IPC_BUILD_DEMOS=ON)
+
+[languages.rust]
+dir = "${DEMO_RUST_DIR}"     # rust/thoth-ipc/target/release
+
+[languages.swift]
+dir = "${DEMO_SWIFT_DIR}"    # swift build -c release --show-bin-path (macOS)
+
+[languages.zig]
+dir = "${DEMO_ZIG_DIR}"      # zig/thoth-ipc/zig-out/bin
+
+# --- pipeline: source -> stage -> stage -> sink over thoth::route hops -------
+# One process (and language) per hop; the sink prints each item with the tag of
+# every language it crossed, so the line proves the whole chain.
+[demos.pipeline]
+description = "polyglot thoth::route chain, one process per hop"
+bins.main = { cpp = "pipeline", rust = "demo_pipeline", swift = "demo-pipeline", zig = "demo_pipeline" }
+count = 3
+
+[[demos.pipeline.procs]]
+role = "sink"
+slot = "sink"
+args = ["sink", "{ch:C}", "{count}", "{lang}"]
+ready = '^\[sink .*\] ready on'
+expect = [
+  { line = '^item-\d+ \[{lang:source}\] -> {lang:stage1} -> {lang:stage2} -> \[{lang:sink} sink\]$', count = "{count}" },
+]
+
+[[demos.pipeline.procs]]
+role = "stage2"
+slot = "stage2"
+args = ["stage", "{ch:B}", "{ch:C}", "{count}", "{lang}"]
+
+[[demos.pipeline.procs]]
+role = "stage1"
+slot = "stage1"
+args = ["stage", "{ch:A}", "{ch:B}", "{count}", "{lang}"]
+
+[[demos.pipeline.procs]]
+role = "source"
+slot = "source"
+args = ["source", "{ch:A}", "{count}", "{lang}"]
+
+# --- bounded_buffer: shm ring + named mutex + two counting semaphores --------
+# One consumer, one producer per language, all through a 4-slot ring, so the
+# semaphores block and every language contends on the mutex. Fixed IPC names.
+[demos.bounded_buffer]
+description = "producer/consumer ring over a named mutex and two semaphores"
+bins.main = { cpp = "bounded_buffer", rust = "demo_bounded_buffer", swift = "demo-bounded-buffer", zig = "demo_bounded_buffer" }
+serial = true
+clear = ["clear"]
+count = 3
+
+[[demos.bounded_buffer.procs]]
+role = "consumer"
+slot = "consumer"
+args = ["consume", "{total}"]
+ready = '^\[consumer\] ready'
+expect = [
+  { line = '^\[consumer\]\s+\d+/{total}\s+\S+ #\d+$', count = "{total}" },
+  { line = '^\s+{each}\s+{count}$', for_each_language = true, count = "1" },
+]
+
+[[demos.bounded_buffer.procs]]
+role = "producer"
+each_language = true
+args = ["produce", "{lang}", "{count}"]
+
+# --- channel_aggregator: multi-writer thoth::channel fan-in ------------------
+# One collector, one producer per language writing concurrently into one
+# channel (what a single-writer route cannot do). Fixed channel name.
+[demos.channel_aggregator]
+description = "multi-writer thoth::channel fan-in into one collector"
+bins.main = { cpp = "channel_aggregator", rust = "demo_channel_aggregator", swift = "demo-channel-aggregator", zig = "demo_channel_aggregator" }
+serial = true
+clear = ["clear"]
+count = 5
+
+[[demos.channel_aggregator.procs]]
+role = "collector"
+slot = "collector"
+args = ["collect", "{total}"]
+ready = '^\[collector\] ready on'
+expect = [
+  { line = '^\[collector\]\s+\d+/{total}\s+\S+ #\d+$', count = "{total}" },
+  { line = '^\s+{each}\s+{count}$', for_each_language = true, count = "1" },
+]
+
+[[demos.channel_aggregator.procs]]
+role = "producer"
+each_language = true
+args = ["produce", "{lang}", "{count}"]
+expect = [
+  { line = '^\[producer {lang}\] sent {count} messages', count = "1" },
+]

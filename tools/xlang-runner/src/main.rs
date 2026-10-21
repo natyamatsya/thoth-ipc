@@ -21,18 +21,14 @@
 //
 // Exit codes: 0 all passed, 1 case failures, 2 configuration/planning error.
 
-mod cases;
-mod config;
-mod exec;
-mod harness;
-mod report;
+use xlang_runner::{cases, config, exec, harness, report};
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
 
-use crate::exec::{CaseResult, Status};
+use exec::{CaseResult, Status};
 
 #[derive(Parser)]
 #[command(name = "xlang-runner", about = "Cross-language IPC ABI matrix runner")]

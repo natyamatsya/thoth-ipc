@@ -33,6 +33,7 @@ pub fn summarize(results: &[CaseResult]) -> bool {
         }
     }
 
+    let width = by_scenario.keys().map(|s| s.len()).max().unwrap_or(0).max(14);
     println!();
     for (scenario, t) in &by_scenario {
         let total = t.pass + t.flaky + t.fail;
@@ -51,11 +52,11 @@ pub fn summarize(results: &[CaseResult]) -> bool {
         }
         if total > 0 {
             println!(
-                "  {scenario:<14} {:>3}/{total} passed{extras}",
+                "  {scenario:<width$} {:>3}/{total} passed{extras}",
                 t.pass + t.flaky
             );
         } else {
-            println!("  {scenario:<14} (no strict cases){extras}");
+            println!("  {scenario:<width$} (no strict cases){extras}");
         }
     }
 
