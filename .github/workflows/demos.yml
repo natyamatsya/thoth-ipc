@@ -1,0 +1,129 @@
+name: Cross-language demos
+
+# Runs every demo with every built language in every role: the demo matrix of
+# tools/xlang-runner's `demo-runner` (config: tools/demos.toml). The demos'
+# roles are wire-identical across the C++, Rust, Swift and Zig ports, so a
+# pipeline may run its source in Zig, its stages in Rust and Swift and its sink
+# in C++; the matrix plans every such assignment (the Cartesian product over a
+# demo's slots, plus fan-in roles started once per language) and checks each
+# process's exit code and stdout.
+#
+# --require makes a demo binary that failed to build fail the job instead of
+# being skipped. Linux has no Swift toolchain in this project.
+
+# Push triggers disabled to conserve CI budget; run manually via the Actions tab
+# (workflow_dispatch) or on pull requests.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  # Every C++ demo the matrix runs (the FFI Rust audio service, which needs
+  # bindgen, is not one of them).
+  CPP_DEMOS: >-
+    pipeline bounded_buffer channel_aggregator secure_pos chat msg_que send_recv
+    linux_service linux_client audio_host audio_service rt_audio_host rt_audio_service
+  RUST_FEATURES: secure-crypto-openssl,codec-protobuf,audio-demos,async-tokio
+
+jobs:
+  demos-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    # GCC 14 for the C++23 <print> the audio services use.
+    - name: Install GCC 14 and OpenSSL headers
+      run: sudo apt-get update && sudo apt-get install -y g++-14 libssl-dev
+    - name: Build C++ demos
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DTHOTH_IPC_BUILD_DEMOS=ON \
+              -DTHOTH_IPC_BUILD_PROTO=ON -DTHOTH_IPC_SECURE_OPENSSL=ON .
+        cmake --build build -j --target $CPP_DEMOS
+      working-directory: cpp/thoth-ipc
+      env:
+        CC: gcc-14
+        CXX: g++-14
+    - name: Build Rust demos
+      run: cargo build --release --bins --features "$RUST_FEATURES"
+      working-directory: rust/thoth-ipc
+      env:
+        THOTH_IPC_OPENSSL_PREFIX: /usr
+        FLATC: ${{ github.workspace }}/cpp/thoth-ipc/build/bin/flatc
+    - name: Set up Zig
+      uses: mlugg/setup-zig@v2
+      with:
+        version: 0.17.0
+    - name: Build Zig demos
+      run: zig build -Doptimize=ReleaseSafe
+      working-directory: zig/thoth-ipc
+    - name: Build demo runner
+      run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
+    - name: Run demo matrix (cpp, rust, zig)
+      run: |
+        tools/xlang-runner/target/release/demo-runner \
+          --config tools/demos.toml \
+          --require cpp,rust,zig \
+          --junit demo-results.xml
+      env:
+        DEMO_CPP_DIR: cpp/thoth-ipc/build/bin
+        DEMO_RUST_DIR: rust/thoth-ipc/target/release
+        DEMO_ZIG_DIR: zig/thoth-ipc/zig-out/bin
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: demo-results-linux
+        path: demo-results.xml
+
+  demos-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+    - name: Build C++ demos
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DTHOTH_IPC_BUILD_DEMOS=ON \
+              -DTHOTH_IPC_BUILD_PROTO=ON -DTHOTH_IPC_SECURE_OPENSSL=ON \
+              -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" .
+        cmake --build build -j --target $CPP_DEMOS
+      working-directory: cpp/thoth-ipc
+    - name: Build Rust demos
+      run: cargo build --release --bins --features "$RUST_FEATURES"
+      working-directory: rust/thoth-ipc
+      env:
+        THOTH_IPC_OPENSSL_PREFIX: /opt/homebrew/opt/openssl@3
+        FLATC: ${{ github.workspace }}/cpp/thoth-ipc/build/bin/flatc
+    - name: Build Swift demos
+      run: swift build -c release
+      working-directory: swift/thoth-ipc
+    - name: Set up Zig
+      uses: mlugg/setup-zig@v2
+      with:
+        version: 0.17.0
+    - name: Build Zig demos
+      run: zig build -Doptimize=ReleaseSafe
+      working-directory: zig/thoth-ipc
+    - name: Build demo runner
+      run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
+    - name: Run demo matrix (cpp, rust, swift, zig)
+      run: |
+        export DEMO_SWIFT_DIR="$(cd swift/thoth-ipc && swift build -c release --show-bin-path)"
+        tools/xlang-runner/target/release/demo-runner \
+          --config tools/demos.toml \
+          --require cpp,rust,swift,zig \
+          --junit demo-results.xml
+      env:
+        DEMO_CPP_DIR: cpp/thoth-ipc/build/bin
+        DEMO_RUST_DIR: rust/thoth-ipc/target/release
+        DEMO_ZIG_DIR: zig/thoth-ipc/zig-out/bin
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: demo-results-macos
+        path: demo-results.xml
