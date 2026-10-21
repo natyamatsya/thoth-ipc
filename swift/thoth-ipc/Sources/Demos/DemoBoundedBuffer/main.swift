@@ -105,6 +105,9 @@ private func clear() async {
 
 // MARK: - Entry point
 
+// Line-buffer stdout so each status line shows up immediately when piped.
+setvbuf(stdout, nil, _IOLBF, 0)
+
 let a = CommandLine.arguments
 switch (a.count >= 2 ? a[1] : "") {
 case "consume" where a.count >= 3: await consume(total: Int(a[2]) ?? 0)

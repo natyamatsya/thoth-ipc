@@ -11,8 +11,9 @@
 // shared bus: the pinpad seals each card event, the POS app sees only opaque
 // envelopes (fail-closed), and only the payment gateway holds the key.
 //
-// Roles are wire-identical with the Rust counterpart
-// (rust/thoth-ipc/src/bin/demo_secure_pos.rs) — mix languages freely:
+// Roles are wire-identical with the Rust and Zig counterparts
+// (rust/thoth-ipc/src/bin/demo_secure_pos.rs, zig/thoth-ipc/src/demo_secure_pos.zig)
+// — mix languages freely:
 //   secure_pos gateway [count]    payment gateway: opens sealed events
 //   secure_pos pos     [count]    merchant POS: has NO key, must reject
 //   secure_pos pinpad  [count]    card reader: seals + broadcasts events
@@ -152,7 +153,10 @@ std::string mask(const std::string &pan) {
 int pinpad(int count) {
     sealed_bus<processor_key> bus {bus_name, thoth::sender};
     std::printf("[pinpad] waiting for POS + gateway to subscribe...\n");
-    if (!bus.raw().wait_for_recv(2, 30000)) return 1;
+    if (!bus.raw().wait_for_recv(2, 30000)) {
+        std::fprintf(stderr, "[pinpad] POS and gateway did not both subscribe within 30s\n");
+        return 1;
+    }
     for (int seq = 0; seq < count; ++seq) {
         card_event ev;
         ev.pan_ = "4111111111111111";
@@ -177,7 +181,13 @@ int gateway(int count) {
     sealed_bus<processor_key> bus {bus_name, thoth::receiver};
     std::printf("[gateway] subscribed (holds the processor key).\n");
     for (int i = 0; i < count; ++i) {
-        auto msg = bus.recv(30000);
+        // Receive the raw envelope first: an empty one is a timeout, not a rejection.
+        thoth::buff_t buf = bus.raw().recv(30000);
+        if (buf.empty()) {
+            std::fprintf(stderr, "[gateway] no event within 30s\n");
+            return 1;
+        }
+        auto msg = sealed_codec<processor_key>::decode<card_event>(std::move(buf));
         const card_event *ev = msg.root();
         if (ev == nullptr) {
             std::fprintf(stderr, "[gateway] REJECTED an event (bad envelope?)\n");
@@ -198,7 +208,13 @@ int pos(int count) {
     sealed_bus<merchant_no_key> bus {bus_name, thoth::receiver};
     std::printf("[pos] subscribed (no processor key).\n");
     for (int i = 0; i < count; ++i) {
-        auto msg = bus.recv(30000);
+        // Receive the raw envelope first: an empty one is a timeout, not a pass.
+        thoth::buff_t buf = bus.raw().recv(30000);
+        if (buf.empty()) {
+            std::fprintf(stderr, "[pos] no event within 30s\n");
+            return 1;
+        }
+        auto msg = sealed_codec<merchant_no_key>::decode<card_event>(std::move(buf));
         if (msg.root() != nullptr) {
             std::fprintf(stderr, "[pos] SECURITY FAILURE: opened a sealed event without the key!\n");
             return 1;
@@ -212,6 +228,8 @@ int pos(int count) {
 } // namespace
 
 int main(int argc, char **argv) {
+    // Line-buffer stdout so each status line shows up immediately when piped.
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
     if (thoth_ipc_secure_crypto_available() == 0) {
         std::fprintf(stderr, "crypto backend unavailable — build with -DTHOTH_IPC_SECURE_OPENSSL=ON\n");
         return 2;
@@ -221,6 +239,10 @@ int main(int argc, char **argv) {
     if (role == "pinpad") return pinpad(count);
     if (role == "gateway") return gateway(count);
     if (role == "pos") return pos(count);
-    std::fprintf(stderr, "usage: secure_pos <pinpad|gateway|pos> [count]\n");
+    if (role == "clear") {
+        thoth::route::clear_storage(bus_name); // so the next run starts fresh
+        return 0;
+    }
+    std::fprintf(stderr, "usage: secure_pos <pinpad|gateway|pos> [count] | clear\n");
     return 2;
 }

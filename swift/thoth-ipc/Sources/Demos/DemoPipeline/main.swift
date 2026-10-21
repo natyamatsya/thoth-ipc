@@ -65,6 +65,9 @@ private func sink(in inName: String, count: Int, tag: String) {
 
 // MARK: - Entry point
 
+// Line-buffer stdout so each status line shows up immediately when piped.
+setvbuf(stdout, nil, _IOLBF, 0)
+
 let a = CommandLine.arguments
 func num(_ i: Int) -> Int { i < a.count ? (Int(a[i]) ?? 0) : 0 }
 switch (a.count >= 2 ? a[1] : "") {

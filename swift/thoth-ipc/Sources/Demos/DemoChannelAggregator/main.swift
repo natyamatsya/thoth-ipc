@@ -71,6 +71,9 @@ private func produce(id: String, count: Int) {
 
 // MARK: - Entry point
 
+// Line-buffer stdout so each status line shows up immediately when piped.
+setvbuf(stdout, nil, _IOLBF, 0)
+
 let args = CommandLine.arguments
 switch (args.count >= 2 ? args[1] : "") {
 case "collect" where args.count >= 3:

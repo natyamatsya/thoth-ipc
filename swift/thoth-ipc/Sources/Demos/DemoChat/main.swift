@@ -58,6 +58,9 @@ private func recvLoop(id: String, ch: Channel) async {
 
 // MARK: - Entry point
 
+// Line-buffer stdout so each status line shows up immediately when piped.
+setvbuf(stdout, nil, _IOLBF, 0)
+
 let id = "c\(calcUniqueId())"
 
 let sender   = try await Channel.connect(name: channelName, mode: .sender)

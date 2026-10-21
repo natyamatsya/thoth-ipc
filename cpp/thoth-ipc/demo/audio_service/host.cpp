@@ -64,6 +64,8 @@ static bool connect_to_primary(const thoth::proto::managed_instance &primary,
 // --- Main ---
 
 int main(int argc, char *argv[]) {
+    // Line-buffer stdout so each status line shows up immediately when piped.
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
     if (argc < 2) {
         std::printf("usage: audio_host <path_to_audio_service>\n");
         return 1;

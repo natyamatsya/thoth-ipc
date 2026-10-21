@@ -11,8 +11,8 @@
 // shared bus: the pinpad seals each card event, the POS app sees only opaque
 // envelopes (fail-closed), and only the payment gateway holds the key.
 //
-// Usage (each role in its own terminal, any language mix — the C++
-// counterpart is cpp/thoth-ipc/demo/secure_pos):
+// Usage (each role in its own terminal, any language mix — the C++ and Zig
+// counterparts are cpp/thoth-ipc/demo/secure_pos and zig/thoth-ipc/src/demo_secure_pos.zig):
 //   demo_secure_pos gateway [count]    payment gateway: opens sealed events
 //   demo_secure_pos pos     [count]    merchant POS: has NO key, must reject
 //   demo_secure_pos pinpad  [count]    card reader: seals + broadcasts events
@@ -27,9 +27,10 @@ use std::process::exit;
 use std::time::Duration;
 
 use thoth_ipc::channel::Mode;
+use thoth_ipc::proto::codec::Codec;
 use thoth_ipc::proto::{
-    OpenSslEvpKeyProvider, ProtobufBuilder, ProtobufWireMessage, SecureBuilder,
-    SecureOpenSslEvpBackend, SecureOpenSslEvpCipherAes256Gcm, TypedRouteSecure,
+    OpenSslEvpKeyProvider, ProtobufBuilder, ProtobufCodec, ProtobufWireMessage, SecureBuilder,
+    SecureCodec, SecureOpenSslEvpBackend, SecureOpenSslEvpCipherAes256Gcm, TypedRouteSecure,
 };
 
 const BUS: &str = "pos-bus";
@@ -56,8 +57,8 @@ impl OpenSslEvpKeyProvider for MerchantNoKey {
     const KEY_BYTES: &'static [u8] = &[0u8; 32];
 }
 
-type Sealed<K> = TypedRouteSecure<CardEvent, thoth_ipc::proto::ProtobufCodec,
-    SecureOpenSslEvpCipherAes256Gcm<K>>;
+type Sealed<K> = TypedRouteSecure<CardEvent, ProtobufCodec, SecureOpenSslEvpCipherAes256Gcm<K>>;
+type SealedCodec<K> = SecureCodec<ProtobufCodec, SecureOpenSslEvpCipherAes256Gcm<K>>;
 
 /// One card capture. Canonical protobuf wire (field 1 bytes pan, field 2
 /// varint amount_cents, field 3 varint seq) — byte-identical with the C++
@@ -140,7 +141,10 @@ fn mask(pan: &str) -> String {
 fn pinpad(count: u32) -> i32 {
     let mut bus = Sealed::<ProcessorKey>::connect(BUS, Mode::Sender).expect("connect");
     println!("[pinpad] waiting for POS + gateway to subscribe...");
-    bus.raw().wait_for_recv(2, Some(30_000)).expect("wait_for_recv");
+    if !bus.raw().wait_for_recv(2, Some(30_000)).expect("wait_for_recv") {
+        eprintln!("[pinpad] POS and gateway did not both subscribe within 30s");
+        return 1;
+    }
     for seq in 0..count {
         let event = CardEvent {
             pan: "4111111111111111".into(),
@@ -168,7 +172,12 @@ fn gateway(count: u32) -> i32 {
     let mut bus = Sealed::<ProcessorKey>::connect(BUS, Mode::Receiver).expect("connect");
     println!("[gateway] subscribed (holds the processor key).");
     for _ in 0..count {
-        let msg = bus.recv(Some(30_000)).expect("recv");
+        let buf = bus.raw().recv(Some(30_000)).expect("recv");
+        if buf.is_empty() {
+            eprintln!("[gateway] no event within 30s");
+            return 1;
+        }
+        let msg = <SealedCodec<ProcessorKey> as Codec<CardEvent>>::decode(buf);
         match msg.root() {
             Some(ev) => println!(
                 "[gateway] authorised {} for {}c (event #{})",
@@ -193,7 +202,13 @@ fn pos(count: u32) -> i32 {
     let mut bus = Sealed::<MerchantNoKey>::connect(BUS, Mode::Receiver).expect("connect");
     println!("[pos] subscribed (no processor key).");
     for i in 0..count {
-        let msg = bus.recv(Some(30_000)).expect("recv");
+        // Receive the raw envelope first: an empty one is a timeout, not a pass.
+        let buf = bus.raw().recv(Some(30_000)).expect("recv");
+        if buf.is_empty() {
+            eprintln!("[pos] no event within 30s");
+            return 1;
+        }
+        let msg = <SealedCodec<MerchantNoKey> as Codec<CardEvent>>::decode(buf);
         if msg.root().is_some() {
             eprintln!("[pos] SECURITY FAILURE: opened a sealed event without the key!");
             return 1;
@@ -215,8 +230,12 @@ fn main() {
         Some("pinpad") => pinpad(count),
         Some("gateway") => gateway(count),
         Some("pos") => pos(count),
+        Some("clear") => {
+            Sealed::<ProcessorKey>::clear_storage(BUS); // so the next run starts fresh
+            0
+        }
         _ => {
-            eprintln!("usage: demo_secure_pos <pinpad|gateway|pos> [count]");
+            eprintln!("usage: demo_secure_pos <pinpad|gateway|pos> [count] | clear");
             2
         }
     };

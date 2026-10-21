@@ -106,6 +106,9 @@ private func doRecv() async {
 
 // MARK: - Entry point
 
+// Line-buffer stdout so each status line shows up immediately when piped.
+setvbuf(stdout, nil, _IOLBF, 0)
+
 installSignalHandlers()
 
 let args = CommandLine.arguments

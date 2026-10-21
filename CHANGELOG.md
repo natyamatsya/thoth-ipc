@@ -36,6 +36,14 @@ Notable changes to thoth-ipc. The format follows
   times out after 10 s like the other ports. The bounded buffer and channel
   aggregator gained a `clear` verb that removes their fixed-name IPC objects,
   and the Zig ports print their summaries sorted by producer, as the others do.
+- **The secure_pos demo no longer passes a role that saw nothing.** The POS
+  role counted an empty receive (a timeout) as "sealed envelope observed", and
+  the gateway reported a timeout as a rejected envelope; both now receive the
+  raw envelope first and fail on a timeout. The Rust pinpad ignored a failed
+  wait for its two subscribers and sent anyway; it now stops, as the C++ one
+  does. secure_pos gained a `clear` verb. C++ secure_pos, the C++ audio hosts
+  and the Swift demos line-buffer stdout, so their status lines appear
+  immediately when piped instead of at exit.
 - **A Rust semaphore on Linux stays shared until its last handle closes.**
   Dropping an `IpcSemaphore` unlinked its name unconditionally, so a later
   opener in any process got a fresh semaphore while the others kept the old one:
