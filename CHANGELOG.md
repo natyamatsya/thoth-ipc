@@ -40,6 +40,17 @@ Notable changes to thoth-ipc. The format follows
   times out after 10 s like the other ports. The bounded buffer and channel
   aggregator gained a `clear` verb that removes their fixed-name IPC objects,
   and the Zig ports print their summaries sorted by producer, as the others do.
+- **The realtime audio demo works across C++ and Rust.** The Rust host and
+  service stamped and read the shared heartbeat with the wall clock
+  (`SystemTime`), the C++ ones with `std::chrono::steady_clock`, so a mixed pair
+  reported a heartbeat age of decades. Rust now uses
+  `thoth_ipc::proto::steady_clock_ns()`, which reads the clock C++'s
+  steady_clock does on each platform. The native Rust service ignored SIGTERM and
+  was killed after the grace period without unregistering; it now stops. Both
+  hosts remove their instances' ring and state segments at shutdown (the crash
+  simulation SIGKILLs a primary, whose segments otherwise outlived the run and
+  carried its counters into the next). The Rust audio hosts print roles, statuses
+  and parameters in the C++ hosts' format.
 - **The secure_pos demo no longer passes a role that saw nothing.** The POS
   role counted an empty receive (a timeout) as "sealed envelope observed", and
   the gateway reported a timeout as a rejected envelope; both now receive the

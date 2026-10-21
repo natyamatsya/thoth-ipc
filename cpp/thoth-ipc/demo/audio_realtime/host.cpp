@@ -8,6 +8,7 @@
 #include <thread>
 #include <chrono>
 #include <string>
+#include <vector>
 
 #include "rt_audio_common.h"
 #include "thoth-ipc/proto/shm_ring.h"
@@ -72,6 +73,8 @@ static void stop_stream(shared_state &s) {
 // ---------------------------------------------------------------------------
 
 int main(int argc, char *argv[]) {
+    // Line-buffer stdout so each status line shows up immediately when piped.
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
     if (argc < 2) {
         std::printf("usage: rt_audio_host <path_to_rt_audio_service>\n");
         return 1;
@@ -276,7 +279,16 @@ int main(int argc, char *argv[]) {
     std::printf("\nhost: shutting down...\n");
     stop_stream(*conn.state);
     std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    // The crash simulation SIGKILLs a primary, which never releases its ring and
+    // state (its respawn reuses the names), so remove them once the group is
+    // down: otherwise they outlive the run and carry its counters into the next.
+    std::vector<std::string> segments;
+    for (auto &inst : group.instances()) {
+        segments.emplace_back(inst.entry.control_channel); // ring
+        segments.emplace_back(inst.entry.reply_channel);   // state
+    }
     group.stop();
+    for (auto const &name : segments) thoth::shm::handle::clear_storage(name.c_str());
     std::printf("host: done\n");
     return 0;
 }

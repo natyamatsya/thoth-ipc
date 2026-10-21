@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use thoth_ipc::proto::rt_prio::{audio_period_ns, set_realtime_priority};
 use thoth_ipc::proto::service_registry::ServiceRegistry;
 use thoth_ipc::proto::shm_ring::ShmRing;
+use thoth_ipc::proto::steady_clock_ns;
 use thoth_ipc::{ShmHandle, ShmOpenMode};
 
 // ---------------------------------------------------------------------------
@@ -23,6 +24,9 @@ use thoth_ipc::{ShmHandle, ShmOpenMode};
 
 const MAX_FRAMES: usize   = 1024;
 const MAX_CHANNELS: usize = 2;
+
+/// Cleared by SIGINT/SIGTERM to leave the render loop.
+static RUNNING: AtomicBool = AtomicBool::new(true);
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -66,12 +70,10 @@ fn f32_load(a: &AtomicU32) -> f32 {
     f32::from_bits(a.load(Ordering::Relaxed))
 }
 
+/// The heartbeat clock: C++ `std::chrono::steady_clock`, which a C++ host reads
+/// the heartbeat age with.
 fn now_ns() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+    steady_clock_ns()
 }
 
 // ---------------------------------------------------------------------------
@@ -144,12 +146,13 @@ fn main() {
         println!("rt_service[{svc_name}]: running without RT priority");
     }
 
-    let running = AtomicBool::new(true);
-
-    // Install signal handler.
+    // SIGINT/SIGTERM (the host stopping the group) end the render loop, so the
+    // service unregisters instead of being killed after the grace period.
     #[cfg(unix)]
     unsafe {
-        extern "C" fn on_signal(_: libc::c_int) {}
+        extern "C" fn on_signal(_: libc::c_int) {
+            RUNNING.store(false, Ordering::Relaxed);
+        }
         libc::signal(libc::SIGINT,  on_signal as *const () as libc::sighandler_t);
         libc::signal(libc::SIGTERM, on_signal as *const () as libc::sighandler_t);
     }
@@ -159,7 +162,7 @@ fn main() {
     let mut seq: u64 = 0;
     let mut next_wake = Instant::now();
 
-    while running.load(Ordering::Relaxed) {
+    while RUNNING.load(Ordering::Relaxed) {
         if !state.stream_active.load(Ordering::Acquire) {
             std::thread::sleep(Duration::from_millis(10));
             state.heartbeat_ns.store(now_ns(), Ordering::Release);

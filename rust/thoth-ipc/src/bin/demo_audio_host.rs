@@ -65,15 +65,15 @@ fn send_and_recv(
         ReplyPayload::Ack => {
             if let Some(ack) = r.payload_as_ack() {
                 println!(
-                    "host:   ack ref_seq={} status={:?}",
+                    "host:   ack ref_seq={} status={}",
                     ack.ref_seq(),
-                    ack.status()
+                    ack.status().0 // numeric, as the C++ host prints it
                 );
             }
         }
         ReplyPayload::ParamValue => {
             if let Some(pv) = r.payload_as_param_value() {
-                println!("host:   param {:?} = {}", pv.param_id(), pv.value());
+                println!("host:   param {} = {:.6}", pv.param_id().0, pv.value()); // as the C++ host
             }
         }
         _ => {}
@@ -227,7 +227,7 @@ fn main() {
             "  [{}] {:<24}  role={:<8}  pid={}  alive={}",
             inst.id,
             inst.instance_name,
-            format!("{:?}", inst.role),
+            format!("{:?}", inst.role).to_uppercase(), // as the C++ host
             inst.entry.pid,
             inst.is_alive() as u8
         );
@@ -250,7 +250,7 @@ fn main() {
             "  [{}] {:<24}  role={:<8}  pid={}  alive={}",
             inst.id,
             inst.instance_name,
-            format!("{:?}", inst.role),
+            format!("{:?}", inst.role).to_uppercase(), // as the C++ host
             inst.entry.pid,
             inst.is_alive() as u8
         );
@@ -270,7 +270,7 @@ fn main() {
             "  [{}] {:<24}  role={:<8}  pid={}  alive={}",
             inst.id,
             inst.instance_name,
-            format!("{:?}", inst.role),
+            format!("{:?}", inst.role).to_uppercase(), // as the C++ host
             inst.entry.pid,
             inst.is_alive() as u8
         );

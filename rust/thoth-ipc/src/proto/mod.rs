@@ -12,6 +12,7 @@ pub mod rt_prio;
 pub mod service_group;
 pub mod service_registry;
 pub mod shm_ring;
+pub mod steady_clock;
 pub mod typed_channel;
 #[cfg(feature = "codec-capnp")]
 pub mod typed_channel_capnp;
@@ -30,6 +31,7 @@ pub use process_manager::{
     WaitResult,
 };
 pub use rt_prio::{audio_period_ns, set_realtime_priority};
+pub use steady_clock::steady_clock_ns;
 pub use service_group::{InstanceRole, ManagedInstance, ServiceGroup, ServiceGroupConfig};
 pub use service_registry::{ServiceEntry, ServiceRegistry, MAX_NAME_LEN, MAX_SERVICES};
 pub use shm_ring::ShmRing;

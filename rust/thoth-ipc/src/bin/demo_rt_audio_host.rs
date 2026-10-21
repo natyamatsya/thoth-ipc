@@ -15,11 +15,12 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use thoth_ipc::proto::service_group::{InstanceRole, ServiceGroup, ServiceGroupConfig};
 use thoth_ipc::proto::service_registry::ServiceRegistry;
 use thoth_ipc::proto::shm_ring::ShmRing;
+use thoth_ipc::proto::steady_clock_ns;
 use thoth_ipc::{ShmHandle, ShmOpenMode};
 
 // ---------------------------------------------------------------------------
@@ -74,11 +75,10 @@ fn f32_load(a: &AtomicU32) -> f32 {
     f32::from_bits(a.load(Ordering::Relaxed))
 }
 
+/// The heartbeat clock: C++ `std::chrono::steady_clock`, which the C++ service
+/// writes the heartbeat with.
 fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+    steady_clock_ns()
 }
 
 fn heartbeat_age_ms(state: &SharedState) -> u64 {
@@ -395,7 +395,7 @@ fn main() {
             "  [{}] {:<20}  role={:<8}  pid={}  alive={}",
             inst.id,
             inst.instance_name,
-            format!("{:?}", inst.role),
+            format!("{:?}", inst.role).to_uppercase(), // as the C++ host
             inst.entry.pid,
             inst.is_alive() as u8
         );
@@ -435,7 +435,7 @@ fn main() {
             "  [{}] {:<20}  role={:<8}  pid={}  alive={}",
             inst.id,
             inst.instance_name,
-            format!("{:?}", inst.role),
+            format!("{:?}", inst.role).to_uppercase(), // as the C++ host
             inst.entry.pid,
             inst.is_alive() as u8
         );
@@ -447,6 +447,17 @@ fn main() {
         s.stream_active.store(false, Ordering::Release);
     }
     thread::sleep(Duration::from_millis(50));
+    // The crash simulation SIGKILLs a primary, which never releases its ring and
+    // state (its respawn reuses the names), so remove them once the group is
+    // down: otherwise they outlive the run and carry its counters into the next.
+    let segments: Vec<String> = group
+        .instances()
+        .iter()
+        .flat_map(|i| [i.entry.control_channel_str().to_owned(), i.entry.reply_channel_str().to_owned()])
+        .collect();
     group.stop(Duration::from_secs(3));
+    for name in &segments {
+        ShmHandle::clear_storage(name);
+    }
     println!("host: done");
 }
