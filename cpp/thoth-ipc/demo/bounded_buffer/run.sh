@@ -2,47 +2,60 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 # SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 #
-# Cross-language bounded buffer launcher. A Swift consumer drains a small shared
-# ring fed by four producers — one C++, one Rust, one Zig, one Swift — all
-# synchronising through a byte-exact named mutex + two counting semaphores
+# Cross-language bounded buffer launcher. One consumer drains a small shared
+# ring fed by one producer per built port — C++, Rust, Zig and (on macOS) Swift —
+# all synchronising through a byte-exact named mutex + two counting semaphores
 # (empty/full). The 4-slot ring forces the semaphores to actually block, so this
 # exercises real cross-language producer/consumer coordination.
+#
+# The consumer is Swift when it is built (macOS), else the first of C++, Rust,
+# Zig. For every language as the consumer, run the demo matrix instead:
+#   tools/xlang-runner's demo-runner --demo bounded_buffer (see tools/demos.toml).
 #
 # Usage:  ./run.sh [per_producer_count]   (default 4)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)"
 N="${1:-4}"
-TOTAL=$((N * 4))
 
-CPP="$ROOT/cpp/thoth-ipc/build/bin/bounded_buffer"
-RUST="$ROOT/rust/thoth-ipc/target/release/demo_bounded_buffer"
-SWIFT="$ROOT/swift/thoth-ipc/.build/release/demo-bounded-buffer"
-ZIG="$ROOT/zig/thoth-ipc/zig-out/bin/demo_bounded_buffer"
+LANGS=(swift cpp rust zig)
+declare -A BIN=(
+  [swift]="$ROOT/swift/thoth-ipc/.build/release/demo-bounded-buffer"
+  [cpp]="$ROOT/cpp/thoth-ipc/build/bin/bounded_buffer"
+  [rust]="$ROOT/rust/thoth-ipc/target/release/demo_bounded_buffer"
+  [zig]="$ROOT/zig/thoth-ipc/zig-out/bin/demo_bounded_buffer"
+)
+declare -A BUILD=(
+  [swift]="(cd swift/thoth-ipc && swift build -c release --product demo-bounded-buffer)   # macOS"
+  [cpp]="(cd cpp/thoth-ipc  && cmake -B build -DTHOTH_IPC_BUILD_DEMOS=ON . && cmake --build build --target bounded_buffer -j)"
+  [rust]="(cd rust/thoth-ipc && cargo build --release --bin demo_bounded_buffer)"
+  [zig]="(cd zig/thoth-ipc  && zig build -Doptimize=ReleaseSafe)"
+)
 
-for b in "$CPP" "$RUST" "$SWIFT" "$ZIG"; do
-  if [[ ! -x "$b" ]]; then
-    cat >&2 <<EOF
-missing binary: $b
-
-Build the four bounded-buffer demos first:
-  (cd cpp/thoth-ipc  && cmake -B build -DTHOTH_IPC_BUILD_DEMOS=ON . && cmake --build build --target bounded_buffer -j)
-  (cd rust/thoth-ipc && cargo build --release --bin demo_bounded_buffer)
-  (cd swift/thoth-ipc && swift build -c release --product demo-bounded-buffer)
-  (cd zig/thoth-ipc  && zig build -Doptimize=ReleaseSafe)
-EOF
-    exit 1
+langs=()
+for lang in "${LANGS[@]}"; do
+  if [[ -x "${BIN[$lang]}" ]]; then
+    langs+=("$lang")
+  else
+    echo "note: no $lang bounded buffer (${BIN[$lang]}); build it with ${BUILD[$lang]}" >&2
   fi
 done
+if (( ${#langs[@]} == 0 )); then
+  echo "no bounded-buffer demo is built" >&2
+  exit 1
+fi
+consumer="${langs[0]}"
+TOTAL=$(( N * ${#langs[@]} ))
 
-echo "bounded buffer:  Swift consumer ← {cpp, rust, zig, swift} producers × $N  (4-slot ring)"
+echo "bounded buffer:  ${consumer} consumer ← {${langs[*]}} producers × $N  (4-slot ring)"
 echo
 
-# Consumer first so the ring + primitives are initialised, then the producers.
-"$SWIFT" consume "$TOTAL"          &
+# Start from a clean ring and semaphores (an aborted run leaves counts behind),
+# then the consumer, so the ring + primitives are initialised, then the producers.
+"${BIN[$consumer]}" clear
+"${BIN[$consumer]}" consume "$TOTAL" &
 sleep 0.4
-"$CPP"   produce cpp   "$N" 2>/dev/null &
-"$RUST"  produce rust  "$N" 2>/dev/null &
-"$ZIG"   produce zig   "$N" 2>/dev/null &
-"$SWIFT" produce swift "$N" 2>/dev/null &
+for lang in "${langs[@]}"; do
+  "${BIN[$lang]}" produce "$lang" "$N" 2>/dev/null &
+done
 wait

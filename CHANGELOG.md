@@ -51,6 +51,11 @@ Notable changes to thoth-ipc. The format follows
   simulation SIGKILLs a primary, whose segments otherwise outlived the run and
   carried its counters into the next). The Rust audio hosts print roles, statuses
   and parameters in the C++ hosts' format.
+- **The pipeline and bounded-buffer launchers run on Linux.** Both `run.sh`
+  scripts required all four ports, Swift included, so they ran only on macOS. They
+  now use whichever ports are built (the pipeline chains them source → stages →
+  sink; the bounded buffer starts one producer per port) and say how to build a
+  missing one. The bounded-buffer launcher clears the ring first.
 - **The secure_pos demo no longer passes a role that saw nothing.** The POS
   role counted an empty receive (a timeout) as "sealed envelope observed", and
   the gateway reported a timeout as a rejected envelope; both now receive the
