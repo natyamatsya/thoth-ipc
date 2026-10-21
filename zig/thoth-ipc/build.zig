@@ -41,6 +41,7 @@ pub fn build(b: *std.Build) void {
         "demo_msg_que", // thoth::route, 128 B - 16 KB messages (fragmented)
         "demo_linux_service", // request/reply over two thoth::channel
         "demo_linux_client", // its counterpart
+        "demo_chat", // multi-party chat over one multi-writer thoth::channel
     };
     var demo_tests: [demos.len]*std.Build.Step.Compile = undefined;
     for (demos, &demo_tests) |name, *t| {
