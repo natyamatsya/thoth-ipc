@@ -363,6 +363,25 @@ chunk_info_t *chunk_storage_info(conn_info_head *inf, std::size_t chunk_size) {
     return it->second->get_info(inf, chunk_size);
 }
 
+// Whether send() puts a message over large_msg_limit into chunk storage (one
+// ring slot carrying a storage_id into CHUNK_INFO__<size>) or splits it into
+// data_length fragments carried in the ring itself, as the Rust sender always
+// does. Receivers in every port read both forms, so this is the sender's choice.
+//
+// Not on Windows. A chunk segment is a named section there, and a section is
+// destroyed when its last handle closes, where a POSIX segment exists by name
+// until it is unlinked. Receivers map a chunk segment lazily, on the first large
+// message they read, so a sender that sends and exits before then takes the
+// payload with it: the receiver opens a new, zeroed section of the same name and
+// gets the right length with the wrong bytes. Fragments live in the ring, which
+// every receiver holds open from connect, so they cannot be lost that way.
+constexpr bool large_msg_in_chunk_storage =
+#if defined(THOTH_IPC_OS_WIN)
+    false;
+#else
+    true;
+#endif
+
 std::pair<thoth::storage_id_t, void*> acquire_storage(conn_info_head *inf, std::size_t size, thoth::circ::cc_t conns) {
     std::size_t chunk_size = calc_chunk_size(size);
     auto info = chunk_storage_info(inf, chunk_size);
@@ -681,7 +700,7 @@ static bool send(F&& gen_push, thoth::handle_t h, void const * data, std::size_t
     }
     auto msg_id   = acc->fetch_add(1, std::memory_order_relaxed);
     auto try_push = std::forward<F>(gen_push)(inf, que, msg_id);
-    if (size > thoth::large_msg_limit) {
+    if (large_msg_in_chunk_storage && size > thoth::large_msg_limit) {
         auto   dat = acquire_storage(inf, size, conns);
         void * buf = dat.second;
         if (buf != nullptr) {
