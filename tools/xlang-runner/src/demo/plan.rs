@@ -53,6 +53,8 @@ pub struct DemoPlan {
 struct Ctx<'a> {
     count: usize,
     total: usize,
+    fanin: usize,
+    index: usize,
     lang: &'a str,
     slots: &'a BTreeMap<String, String>,
     ch_prefix: &'a str,
@@ -83,6 +85,8 @@ fn expand(template: &str, ctx: &Ctx, escape: bool) -> Result<String, String> {
             None => match key {
                 "count" => ctx.count.to_string(),
                 "total" => ctx.total.to_string(),
+                "fanin" => ctx.fanin.to_string(),
+                "index" => ctx.index.to_string(),
                 "lang" => ctx.lang.to_string(),
                 "each" => ctx
                     .each
@@ -243,10 +247,12 @@ pub fn plan(file: &DemoFile, filter: &[String]) -> Result<DemoPlan, String> {
                     Some(s) => vec![&assign[s]],
                     None => langs.iter().collect(),
                 };
-                for lang in run_langs {
+                for (index, lang) in run_langs.into_iter().enumerate() {
                     procs.push(case_proc(spec, demo, &dirs, lang, &langs, &Ctx {
                         count: demo.count,
                         total,
+                        fanin: fan_in,
+                        index,
                         lang,
                         slots: &assign,
                         ch_prefix: &ch_prefix,

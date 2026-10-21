@@ -19,6 +19,16 @@ Notable changes to thoth-ipc. The format follows
   `notify`/`broadcast` now take the paired mutex on both platforms. An opener
   of a fresh shm segment now waits for its creator to size it instead of risking
   a SIGBUS.
+- **Every demo runs bounded, in every port that has it, and on Linux.** chat,
+  msg_que, send_recv and linux_service gained an opt-in count mode (`chat bot
+  <lines> <peers>`, `msg_que s|r <count>`, `send_recv send|recv ... <count>`,
+  `linux_service|linux_client <count>`) with the same CLI and success lines in
+  every port, timeouts that exit non-zero, and a `clear` verb; their interactive or
+  run-forever default modes are unchanged. New ports: Zig chat, msg_que,
+  send_recv, async_gateway and linux_service, and Rust linux_service. The Rust
+  async gateway gives up after 20 s instead of waiting forever for a dead agent,
+  and the C++ send_recv sender sends exactly `<size>` bytes like the others (it
+  sent a trailing NUL too).
 - **A Zig secure_pos demo.** The point-of-sale AEAD demo (pinpad seals card
   events onto a broadcast route, the gateway opens them, the keyless POS must
   not) now has a Zig port, wire-identical with the C++ and Rust roles: the same
@@ -30,7 +40,8 @@ Notable changes to thoth-ipc. The format follows
   roles started once per language. It checks each process's exit code and
   stdout, so a lost message or a hung role fails the case; demos with fixed IPC
   names run one case at a time. Console, JUnit and JSON reporting as in
-  `xlang-runner`.
+  `xlang-runner`. It covers all eleven demos (160 cases with C++, Rust
+  and Zig on Linux, in about 30 s).
 
 ### Fixed
 - **Demos report a stall as a failure.** A pipeline sink, a bounded-buffer

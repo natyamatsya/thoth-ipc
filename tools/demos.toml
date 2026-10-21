@@ -214,3 +214,137 @@ slot = "service"
 bin = "service"
 args = []
 spawned_by = "host"
+
+# --- msg_que: 128 B - 16 KB messages over a broadcast route ------------------
+# Count mode: the k-th message is size_k bytes all equal to k % 251, so the
+# receiver checks fragment reassembly and chunk storage byte for byte.
+[demos.msg_que]
+description = "large, variable-size messages over thoth::route, checked byte for byte"
+bins.main = { cpp = "msg_que", rust = "demo_msg_que", swift = "demo-msg-que", zig = "demo_msg_que" }
+serial = true
+clear = ["clear"]
+count = 50
+
+[[demos.msg_que.procs]]
+role = "receiver"
+slot = "receiver"
+args = ["r", "{count}"]
+ready = '^do_recv: ready$'
+expect = [
+  { line = '^do_recv: received {count} messages, \d+ bytes$', count = "1" },
+]
+
+[[demos.msg_que.procs]]
+role = "sender"
+slot = "sender"
+args = ["s", "{count}"]
+expect = [
+  { line = '^do_send: sent {count} messages, \d+ bytes$', count = "1" },
+]
+
+# --- linux_service: request/reply between a service and its client ---------
+# Two thoth::channel directions ("service ipc r" / "service ipc w"); the
+# service sends "Hello, World!" and must get "Copy." back, count times.
+[demos.linux_service]
+description = "a service and its client, request/reply over two channels"
+bins.main = { cpp = "linux_service", rust = "demo_linux_service", zig = "demo_linux_service" }
+bins.client = { cpp = "linux_client", rust = "demo_linux_client", zig = "demo_linux_client" }
+serial = true
+clear = ["clear"]
+count = 3
+
+[[demos.linux_service.procs]]
+role = "client"
+slot = "client"
+bin = "client"
+args = ["{count}"]
+ready = '^My Sample Client: Entry$'
+expect = [
+  { line = '^My Sample Client: message recv: \[Hello, World!\]$', count = "{count}" },
+  { line = '^My Sample Client: message send \[Copy\]$', count = "{count}" },
+]
+
+[[demos.linux_service.procs]]
+role = "service"
+slot = "service"
+args = ["{count}"]
+expect = [
+  { line = '^My Sample Service: recv \[Copy\.\]$', count = "{count}" },
+]
+
+# --- chat: multi-party chat over one multi-writer thoth::channel -------------
+# Scripted `bot` mode: each bot waits for all bots' receivers, sends its lines,
+# and must receive every line of every other bot.
+[demos.chat]
+description = "multi-party chat: every bot receives every other bot's lines"
+bins.main = { cpp = "chat", rust = "demo_chat", swift = "demo-chat", zig = "demo_chat" }
+serial = true
+clear = ["clear"]
+count = 3
+
+[[demos.chat.procs]]
+role = "bot_a"
+slot = "bot_a"
+args = ["bot", "{count}", "2"]
+ready = '^c\d+ is ready\.$'
+expect = [
+  { line = '^c\d+> line-\d+$', count = "{count}" },
+]
+
+[[demos.chat.procs]]
+role = "bot_b"
+slot = "bot_b"
+args = ["bot", "{count}", "2"]
+expect = [
+  { line = '^c\d+> line-\d+$', count = "{count}" },
+]
+
+# --- async_gateway: one thread multiplexing N device routes ------------------
+# The gateway waits on every route's Layer-1 readiness fd at once (tokio in
+# Rust, poll in Zig); one agent per language streams readings into its route.
+[demos.async_gateway]
+description = "one gateway thread multiplexing N routes via notify readiness"
+bins.main = { rust = "demo_async_gateway", zig = "demo_async_gateway" }
+serial = true
+clear = ["clear", "8"]
+count = 5
+
+[[demos.async_gateway.procs]]
+role = "gateway"
+slot = "gateway"
+args = ["gateway", "{fanin}", "{count}"]
+ready = '^\[gateway\] -- stats: 0/\d+ readings --$'
+expect = [
+  { line = '^\[gateway\] dev-\d+ reading \d+ temp \d+\.\dC$', count = "{total}" },
+  { line = '^\[gateway\] done: {total} readings from {fanin} devices on ONE thread\.$', count = "1" },
+]
+
+[[demos.async_gateway.procs]]
+role = "agent"
+each_language = true
+args = ["agent", "{index}", "{count}"]
+
+# --- send_recv: fixed-size messages over the multi-writer channel "ipc" -----
+[demos.send_recv]
+description = "fixed-size raw messages over a multi-writer thoth::channel"
+bins.main = { cpp = "send_recv", rust = "demo_send_recv", swift = "demo-send-recv", zig = "demo_send_recv" }
+serial = true
+clear = ["clear"]
+count = 5
+
+[[demos.send_recv.procs]]
+role = "receiver"
+slot = "receiver"
+args = ["recv", "50", "{count}"]
+ready = '^recv ready$'
+expect = [
+  { line = '^recv size: 100$', count = "{count}" },
+]
+
+[[demos.send_recv.procs]]
+role = "sender"
+slot = "sender"
+args = ["send", "100", "20", "{count}"]
+expect = [
+  { line = '^send size: 100$', count = "{count}" },
+]

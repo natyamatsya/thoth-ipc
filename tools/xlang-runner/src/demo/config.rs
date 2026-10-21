@@ -14,6 +14,8 @@
 //
 //   {count}          the demo's `count`
 //   {total}          count x the number of `each_language` processes (or count)
+//   {fanin}          the number of `each_language` processes
+//   {index}          an `each_language` process's position (0, 1, ...); 0 otherwise
 //   {lang}           this process's language
 //   {lang:SLOT}      the language assigned to SLOT
 //   {ch:NAME}        a channel name unique to this case (cases run in parallel)
