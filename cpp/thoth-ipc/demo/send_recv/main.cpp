@@ -35,7 +35,7 @@ void do_send(int size, int interval) {
     // Raw bytes, no trailing NUL: exactly <size> bytes, like the other ports.
     std::string buffer(size, 'A');
     while (!is_quit__.load(std::memory_order_acquire)) {
-        std::cout << "send size: " << buffer.size() << "\n";
+        std::cout << "send size: " << buffer.size() << std::endl;
         ipc.send(buffer.data(), buffer.size(), 0/*tm*/);
         std::this_thread::sleep_for(std::chrono::milliseconds(interval));
     }
@@ -47,11 +47,11 @@ void do_recv(int interval) {
     while (!is_quit__.load(std::memory_order_acquire)) {
         thoth::buff_t recv;
         for (int k = 1; recv.empty(); ++k) {
-            std::cout << "recv waiting... " << k << "\n";
+            std::cout << "recv waiting... " << k << std::endl;
             recv = ipc.recv(interval);
             if (is_quit__.load(std::memory_order_acquire)) return;
         }
-        std::cout << "recv size: " << recv.size() << "\n";
+        std::cout << "recv size: " << recv.size() << std::endl;
     }
 }
 

@@ -38,14 +38,16 @@ private func doSend(size: Int, intervalMs: UInt64) async {
     do {
         let ch = try await Channel.connect(name: "ipc", mode: .sender)
         print("send: waiting for receiver...")
-        _ = try ch.waitForRecv(count: 1, timeout: nil)
+        // Wait in short slices so a signal can still end the wait.
+        while try !ch.waitForRecv(count: 1, timeout: .milliseconds(200)) {
+            if gQuit { ch.disconnect(); return }
+        }
         print("send: receiver connected, starting")
         let buffer = [UInt8](repeating: UInt8(ascii: "A"), count: size)
         while !gQuit {
             print("send size: \(buffer.count)")
             _ = try ch.send(data: buffer)
-            var ts = timespec(tv_sec: 0, tv_nsec: Int(intervalMs) * 1_000_000)
-            nanosleep(&ts, nil)
+            sleepMs(intervalMs)
         }
         ch.disconnect()
     } catch {
@@ -153,7 +155,6 @@ case "send":
         }
         exit(await doSendCount(size: size, intervalMs: interval, count: count))
     }
-    await Channel.clearStorage(name: "ipc")
     await doSend(size: size, intervalMs: interval)
 
 case "recv":

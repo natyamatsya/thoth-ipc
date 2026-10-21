@@ -29,7 +29,12 @@ use thoth_ipc::channel::{Channel, Mode};
 fn do_send(size: usize, interval_ms: u64, quit: Arc<AtomicBool>) {
     let mut ipc = Channel::connect("ipc", Mode::Sender).expect("connect sender");
     println!("send: waiting for receiver...");
-    ipc.wait_for_recv(1, None).expect("wait_for_recv");
+    // Wait in short slices so a signal can still end the wait.
+    while !ipc.wait_for_recv(1, Some(200)).expect("wait_for_recv") {
+        if quit.load(Ordering::Acquire) {
+            return;
+        }
+    }
     println!("send: receiver connected, starting");
     let buffer = vec![b'A'; size];
     while !quit.load(Ordering::Acquire) {
@@ -128,8 +133,7 @@ fn main() {
                 let count: usize = count.parse().expect("count");
                 std::process::exit(do_send_count(size, interval, count));
             }
-            Channel::clear_storage("ipc");
-            do_send(size, interval, quit); // clears first, then waits for receiver
+            do_send(size, interval, quit); // waits for a receiver, then sends until a signal
         }
         "recv" => {
             let interval: u64 = args[2].parse().expect("interval");

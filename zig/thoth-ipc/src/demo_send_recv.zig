@@ -14,7 +14,7 @@
 // of every message it receives.
 //
 // Without <count> both run until killed, like the Rust port: the sender
-// clears the channel, waits for a receiver and sends forever; the receiver
+// waits for a receiver and sends forever (start either side first); the receiver
 // polls with an <interval_ms> timeout. With <count> the run is bounded: the
 // receiver prints "recv ready" and exits 0 after <count> messages (exit 5 if
 // one does not arrive within 10 s); the sender waits up to 5 s for a receiver
@@ -45,7 +45,6 @@ fn err(comptime fmt: []const u8, args: anytype) void {
 /// Sends `size` bytes of 'A' every `interval_ms`: `count` times, or forever
 /// when `count` is null.
 fn send(size: usize, interval_ms: u64, count: ?usize) u8 {
-    if (count == null) channel.clearStorage("", channel_name); // as the Rust port does
     var ch = ChannelInner.open(alloc, "", channel_name, .sender) catch {
         err("send: connect failed", .{});
         return 3;

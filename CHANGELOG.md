@@ -44,6 +44,13 @@ Notable changes to thoth-ipc. The format follows
   and Zig on Linux, in about 30 s).
 
 ### Fixed
+- **send_recv's default mode works whichever side starts first.** The Rust,
+  Swift and Zig senders cleared the channel before connecting, which left an
+  already running receiver with nothing; the channel is now cleared only by the
+  `clear` verb. The Rust and Swift senders wait for a receiver in short slices,
+  so SIGINT ends the wait (the Rust one could not be stopped). The C++ sender and
+  receiver flush every line, so piped output is not delayed or lost, and the
+  Swift sender pauses correctly for intervals of a second or more.
 - **A C++ `recv` blocked during `disconnect()` returns an empty buffer.** It
   returned 64 zero bytes instead: `disconnect` quits the handle's waiter, whose
   wait returns at once without popping a message, and `recv` then read its
