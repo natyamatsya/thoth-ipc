@@ -4,13 +4,20 @@
 // Rust port of demo/send_recv/main.cpp
 //
 // Usage:
-//   demo_send_recv send <size> <interval_ms>
-//   demo_send_recv recv <interval_ms>
+//   demo_send_recv send <size> <interval_ms> [count]
+//   demo_send_recv recv <interval_ms> [count]
+//   demo_send_recv clear
 //
 // Two processes share a channel named "ipc".
 // The sender fills a buffer of <size> bytes with 'A' and sends it every
 // <interval_ms> milliseconds.  The receiver polls with a <interval_ms>
 // timeout and prints the received size.
+//
+// Without <count> both run until a signal. With <count> the run is bounded:
+// the receiver prints "recv ready" and exits 0 after <count> messages (exit 5
+// if one does not arrive within 10 s); the sender waits up to 5 s for a
+// receiver (else exit 2), sends <count> messages with a 2 s send timeout
+// (exit 4 on failure) and exits 0. `clear` removes the channel's storage.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -50,12 +57,56 @@ fn do_recv(interval_ms: u64, quit: Arc<AtomicBool>) {
     }
 }
 
+/// Bounded: wait for a receiver, then send `count` messages of `size` bytes.
+fn do_send_count(size: usize, interval_ms: u64, count: usize) -> i32 {
+    let mut ipc = Channel::connect("ipc", Mode::Sender).expect("connect sender");
+    if !ipc.wait_for_recv(1, Some(5000)).unwrap_or(false) {
+        eprintln!("send: no receiver within 5s -- start the receiver first");
+        return 2;
+    }
+    let buffer = vec![b'A'; size];
+    for k in 0..count {
+        println!("send size: {}", buffer.len());
+        if !ipc.send(&buffer, 2000).unwrap_or(false) {
+            eprintln!("send: failed to send message {k}");
+            return 4;
+        }
+        thread::sleep(Duration::from_millis(interval_ms));
+    }
+    0
+}
+
+/// Bounded: receive `count` messages, each within 10 s.
+fn do_recv_count(count: usize) -> i32 {
+    let mut ipc = Channel::connect("ipc", Mode::Receiver).expect("connect receiver");
+    println!("recv ready");
+    for k in 0..count {
+        match ipc.recv(Some(10_000)) {
+            Ok(buf) if !buf.is_empty() => println!("recv size: {}", buf.len()),
+            _ => {
+                eprintln!("recv: timed out waiting for message {k}");
+                return 5;
+            }
+        }
+    }
+    0
+}
+
+fn usage() -> ! {
+    eprintln!("usage: demo_send_recv send <size> <interval_ms> [count]");
+    eprintln!("       demo_send_recv recv <interval_ms> [count]");
+    eprintln!("       demo_send_recv clear");
+    std::process::exit(1);
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("clear") {
+        Channel::clear_storage("ipc");
+        return;
+    }
     if args.len() < 3 {
-        eprintln!("usage: demo_send_recv send <size> <interval_ms>");
-        eprintln!("       demo_send_recv recv <interval_ms>");
-        std::process::exit(1);
+        usage();
     }
 
     let quit = Arc::new(AtomicBool::new(false));
@@ -69,16 +120,23 @@ fn main() {
     match args[1].as_str() {
         "send" => {
             if args.len() < 4 {
-                eprintln!("usage: demo_send_recv send <size> <interval_ms>");
-                std::process::exit(1);
+                usage();
             }
             let size: usize = args[2].parse().expect("size");
             let interval: u64 = args[3].parse().expect("interval");
+            if let Some(count) = args.get(4) {
+                let count: usize = count.parse().expect("count");
+                std::process::exit(do_send_count(size, interval, count));
+            }
             Channel::clear_storage("ipc");
             do_send(size, interval, quit); // clears first, then waits for receiver
         }
         "recv" => {
             let interval: u64 = args[2].parse().expect("interval");
+            if let Some(count) = args.get(3) {
+                let count: usize = count.parse().expect("count");
+                std::process::exit(do_recv_count(count));
+            }
             do_recv(interval, quit);
         }
         other => {
