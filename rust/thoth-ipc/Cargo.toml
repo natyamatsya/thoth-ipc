@@ -74,6 +74,14 @@ name = "demo_msg_que"
 path = "src/bin/demo_msg_que.rs"
 
 [[bin]]
+name = "demo_linux_service"
+path = "src/bin/demo_linux_service.rs"
+
+[[bin]]
+name = "demo_linux_client"
+path = "src/bin/demo_linux_client.rs"
+
+[[bin]]
 name = "demo_audio_service"
 path = "src/bin/demo_audio_service.rs"
 required-features = ["audio-demos"]
