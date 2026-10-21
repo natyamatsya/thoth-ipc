@@ -198,6 +198,10 @@ use apple::AppleSemaphore;
 struct PosixSemaphore {
     handle: *mut libc::sem_t,
     sem_name: std::ffi::CString,
+    // A 1-byte shm segment named like the semaphore, whose ref counter counts
+    // the open handles in every process (C++ `semaphore::shm_`), so only the
+    // last one to close unlinks the semaphore. `None` once released.
+    refs: Option<crate::platform::PlatformShm>,
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -218,6 +222,7 @@ impl PosixSemaphore {
         let c_name = std::ffi::CString::new(posix_name.as_bytes())
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
+        let refs = crate::platform::PlatformShm::acquire(name, 1, crate::platform::posix::ShmMode::CreateOrOpen)?;
         let h = unsafe {
             libc::sem_open(
                 c_name.as_ptr(),
@@ -233,6 +238,7 @@ impl PosixSemaphore {
         Ok(Self {
             handle: h,
             sem_name: c_name,
+            refs: Some(refs),
         })
     }
 
@@ -303,6 +309,7 @@ impl PosixSemaphore {
         if let Ok(c_name) = std::ffi::CString::new(posix_name.as_bytes()) {
             unsafe { libc::sem_unlink(c_name.as_ptr()) };
         }
+        crate::platform::PlatformShm::unlink_by_name(name);
     }
 }
 
@@ -311,7 +318,11 @@ impl Drop for PosixSemaphore {
     fn drop(&mut self) {
         if self.handle != libc::SEM_FAILED {
             unsafe { libc::sem_close(self.handle) };
-            unsafe { libc::sem_unlink(self.sem_name.as_ptr()) };
+            // Unlink only as the last handle anywhere: unlinking while other
+            // processes hold it would leave later openers on a fresh semaphore.
+            if self.refs.take().is_some_and(|r| r.release() <= 1) {
+                unsafe { libc::sem_unlink(self.sem_name.as_ptr()) };
+            }
         }
     }
 }

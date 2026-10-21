@@ -520,17 +520,31 @@ impl PlatformShm {
     }
 }
 
-impl Drop for PlatformShm {
-    fn drop(&mut self) {
+impl PlatformShm {
+    /// Release this handle, as dropping it does, and return the ref count from
+    /// before (C++ `shm::release`): 1 means it was the last handle.
+    pub(crate) fn release(mut self) -> i32 {
+        self.release_mapping()
+    }
+
+    fn release_mapping(&mut self) -> i32 {
         if self.mem.is_null() {
-            return;
+            return -1;
         }
         // Decrement ref counter; if we're the last, also unlink.
         let prev = unsafe { acc_of(self.mem, self.size).fetch_sub(1, Ordering::AcqRel) };
         unsafe { libc::munmap(self.mem as *mut libc::c_void, self.size) };
+        self.mem = ptr::null_mut();
         if prev <= 1 {
             self.unlink();
         }
+        prev
+    }
+}
+
+impl Drop for PlatformShm {
+    fn drop(&mut self) {
+        self.release_mapping();
     }
 }
 

@@ -21,6 +21,13 @@ Notable changes to thoth-ipc. The format follows
   a SIGBUS.
 
 ### Fixed
+- **A Rust semaphore on Linux stays shared until its last handle closes.**
+  Dropping an `IpcSemaphore` unlinked its name unconditionally, so a later
+  opener in any process got a fresh semaphore while the others kept the old one:
+  in the cross-language bounded-buffer demo, every post after one producer exited
+  went to a semaphore nobody waited on. Like C++, the semaphore now keeps a 1-byte
+  shm segment whose ref counter counts the handles, and only the last one
+  unlinks.
 - **Rust `ShmHandle::grow` keeps the segment's contents on Linux.** It reopened
   the segment by name at the new size and then dropped the old handle; the ref
   counter trails the mapped size, so the old counter fell to zero and unlinked

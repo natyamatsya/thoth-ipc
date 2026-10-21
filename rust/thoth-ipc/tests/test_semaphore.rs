@@ -393,3 +393,25 @@ fn high_frequency() {
     poster.join().unwrap();
     waiter.join().unwrap();
 }
+
+// Closing one handle must not unlink a semaphore other handles still use: a
+// later opener has to join the same semaphore, not create a fresh one (the
+// cross-language bounded_buffer demo lost every post made after one producer
+// exited).
+#[test]
+fn close_keeps_semaphore_for_other_handles() {
+    let name = unique_name("close_keeps");
+    IpcSemaphore::clear_storage(&name);
+
+    let first = IpcSemaphore::open(&name, 0).expect("open first");
+    let second = IpcSemaphore::open(&name, 0).expect("open second");
+    drop(first);
+    let late = IpcSemaphore::open(&name, 0).expect("open late");
+
+    second.post(1).expect("post");
+    assert!(late.wait(Some(500)).expect("wait"), "late opener got a different semaphore");
+
+    drop(second);
+    drop(late);
+    IpcSemaphore::clear_storage(&name);
+}
