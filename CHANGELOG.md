@@ -21,6 +21,16 @@ Notable changes to thoth-ipc. The format follows
   `route_send_recv_string` and `typed_route_send_raw_bytes` intermittently. The
   cursor is now read right after the bit is claimed, as C++ `queue::connect`
   does.
+- **C++ `mutex::clear()` no longer frees a mutex other handles still use.** On
+  Linux, macOS and other POSIX systems all handles to one name in a process
+  share a cached node, and `clear()` destroyed it unconditionally. A route's
+  sender and receiver share their waiter mutexes that way, so `clear()` on one
+  of them left the other dangling: a heap use-after-free, seen as a segfault in
+  `NotifyFd.EnqueueSignalsHandleAndRecvSucceeds` on Linux. When other in-process
+  handles remain, `clear()` now releases only its own and unlinks the name,
+  orphaning the node as `clear_storage` does. A cleared waiter's
+  `notify`/`broadcast` is now a no-op, instead of a futex call through a
+  released mutex (`fail condition broadcast[14]`/`[22]`).
 
 ## [0.7.0] - 2026-10-21
 

@@ -78,12 +78,14 @@ public:
         return true;
     }
 
+    // A closed or cleared waiter has no one to wake: route teardown runs
+    // disconnect (and so quit_waiting) again after clear().
     bool notify() noexcept {
-        return cond_.notify(lock_);
+        return valid() && cond_.notify(lock_);
     }
 
     bool broadcast() noexcept {
-        return cond_.broadcast(lock_);
+        return valid() && cond_.broadcast(lock_);
     }
 
     bool quit_waiting() {

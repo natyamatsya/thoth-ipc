@@ -199,6 +199,29 @@ TEST_F(MutexTest, ClearStorageOrphansSharedNode) {
   mutex::clear_storage(name.c_str());   // final cleanup (no-op)
 }
 
+// clear() on one handle must not free a node another in-process handle still
+// uses (a route's sender and receiver share their waiter mutexes this way).
+TEST_F(MutexTest, ClearKeepsSharedNodeValid) {
+  std::string name = generate_unique_mutex_name("clear_shared");
+
+  mutex D, E;
+  ASSERT_TRUE(D.open(name.c_str()));
+  ASSERT_TRUE(E.open(name.c_str()));   // shares D's node (ref == 2)
+
+  D.clear();                            // unlinks the name; E keeps the node
+  EXPECT_FALSE(D.valid());
+  ASSERT_TRUE(E.valid());
+  EXPECT_TRUE(E.lock(0));
+  EXPECT_TRUE(E.unlock());
+  E.close();                            // last local handle: node drained
+
+  mutex F;                              // the name was unlinked: a fresh node
+  ASSERT_TRUE(F.open(name.c_str()));
+  EXPECT_TRUE(F.lock(0));
+  EXPECT_TRUE(F.unlock());
+  F.clear();
+}
+
 // Test basic lock and unlock
 TEST_F(MutexTest, LockUnlock) {
   std::string name = generate_unique_mutex_name("lock_unlock");

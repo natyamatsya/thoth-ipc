@@ -273,14 +273,29 @@ public:
         THOTH_IPC_LOG();
         if ((shm_ != nullptr) && (data_ != nullptr) && (node_ != nullptr)) {
             if (shm_->name() != nullptr) {
-                auto &info = curr_prog::get();
-                THOTH_IPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
-                data_->state.store(0, std::memory_order_release);
-                data_->holder.store(0, std::memory_order_release);
-                ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL,
-                               &data_->state, 0);
-                shm_->clear();
-                destroy_node(info, node_);
+                std::string const name {shm_->name()};
+                bool shared;
+                {
+                    auto &info = curr_prog::get();
+                    THOTH_IPC_UNUSED std::lock_guard<spin_lock> guard {info.lock};
+                    shared = ref_->load(std::memory_order_relaxed) > 1;
+                    if (!shared) {
+                        data_->state.store(0, std::memory_order_release);
+                        data_->holder.store(0, std::memory_order_release);
+                        ::__ulock_wake(UL_COMPARE_AND_WAIT_SHARED | ULF_WAKE_ALL,
+                                       &data_->state, 0);
+                        shm_->clear();
+                        destroy_node(info, node_);
+                    }
+                }
+                if (shared) {
+                    // Other handles in this process still use the node:
+                    // destroying it would leave them dangling. Drop only this
+                    // handle's reference, then unlink the name; clear_storage
+                    // orphans the node, so their mapping stays valid.
+                    close();
+                    clear_storage(name.c_str());
+                }
             } else shm_->clear();
         }
         shm_  = nullptr;

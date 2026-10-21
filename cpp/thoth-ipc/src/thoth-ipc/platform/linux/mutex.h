@@ -234,10 +234,26 @@ public:
     void clear() noexcept {
         if ((mutex_ != nullptr) && (node_ != nullptr)) {
             if (mutex_->name() != nullptr) {
-                auto &info = curr_prog::get();
-                THOTH_IPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
-                mutex_->clear();
-                destroy_node(info, node_);
+                std::string const name {mutex_->name()};
+                bool shared;
+                {
+                    auto &info = curr_prog::get();
+                    THOTH_IPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+                    shared = ref_->load(std::memory_order_relaxed) > 1;
+                    if (!shared) {
+                        mutex_->clear();
+                        destroy_node(info, node_);
+                    }
+                }
+                if (shared) {
+                    // Other handles in this process still use the node (e.g. a
+                    // route's sender and receiver share its waiter mutexes):
+                    // destroying it would leave them dangling. Drop only this
+                    // handle's reference, then unlink the name; clear_storage
+                    // orphans the node, so their mapping stays valid.
+                    close();
+                    clear_storage(name.c_str());
+                }
             } else mutex_->clear();
         }
         mutex_ = nullptr;

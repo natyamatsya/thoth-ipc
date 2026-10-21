@@ -214,17 +214,32 @@ public:
         THOTH_IPC_LOG();
         if ((shm_ != nullptr) && (mutex_ != nullptr) && (node_ != nullptr)) {
             if (shm_->name() != nullptr) {
-                auto &info = curr_prog::get();
-                THOTH_IPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
-                // Unlock before destroying, same reasoning as in close()
-                ::pthread_mutex_unlock(mutex_);
+                std::string const name {shm_->name()};
+                bool shared;
+                {
+                    auto &info = curr_prog::get();
+                    THOTH_IPC_UNUSED std::lock_guard<std::mutex> guard {info.lock};
+                    shared = ref_->load(std::memory_order_relaxed) > 1;
+                    if (!shared) {
+                        // Unlock before destroying, same reasoning as in close()
+                        ::pthread_mutex_unlock(mutex_);
 
-                int eno;
-                if ((eno = ::pthread_mutex_destroy(mutex_)) != 0) {
-                    log.error("fail pthread_mutex_destroy[", eno, "]");
+                        int eno;
+                        if ((eno = ::pthread_mutex_destroy(mutex_)) != 0) {
+                            log.error("fail pthread_mutex_destroy[", eno, "]");
+                        }
+                        shm_->clear();
+                        destroy_node(info, node_);
+                    }
                 }
-                shm_->clear();
-                destroy_node(info, node_);
+                if (shared) {
+                    // Other handles in this process still use the node:
+                    // destroying it would leave them dangling. Drop only this
+                    // handle's reference, then unlink the name; clear_storage
+                    // orphans the node, so their mapping stays valid.
+                    close();
+                    clear_storage(name.c_str());
+                }
             } else shm_->clear();
         }
         shm_   = nullptr;
