@@ -13,6 +13,14 @@ Notable changes to thoth-ipc. The format follows
   the name, and the next opener created a fresh, zeroed segment. It also waited
   out the 2 s creator-sizing timeout on every call. `grow` now enlarges the
   object in place and moves its reference to the new counter.
+- **A Rust or Zig receiver no longer misses a message sent as it connects.**
+  Between claiming its connection bit and reading the ring's write cursor, the
+  receiver recorded its liveness owner, which on Linux reads `/proc/self/stat`.
+  A sender that saw the bit could push in that window, and the receiver's cursor
+  then started past the message; a release build lost it often enough to fail
+  `route_send_recv_string` and `typed_route_send_raw_bytes` intermittently. The
+  cursor is now read right after the bit is claimed, as C++ `queue::connect`
+  does.
 
 ## [0.7.0] - 2026-10-21
 

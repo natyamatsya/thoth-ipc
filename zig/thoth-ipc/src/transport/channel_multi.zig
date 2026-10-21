@@ -156,8 +156,11 @@ pub const ChannelInner = struct {
                 }
                 layout.adaptiveYield(&k);
             }
-            liveness.setOwner(lv, self.conn_id);
+            // Read the cursor right after claiming the bit, as C++ `queue::connect`
+            // does: a sender may push as soon as it sees the bit, and a later read
+            // would start past that message. setOwner reads /proc on Linux.
             self.read_cursor = @atomicLoad(u32, layout.u32ptr(base, off_ct), .acquire);
+            liveness.setOwner(lv, self.conn_id);
             self.cc_waiter.broadcast();
         }
         return self;

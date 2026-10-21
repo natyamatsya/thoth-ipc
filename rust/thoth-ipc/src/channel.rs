@@ -523,9 +523,13 @@ impl ChanInner {
                     }
                     crate::spin_lock::adaptive_yield_pub(&mut k);
                 }
+                // Read the cursor right after claiming the bit, as C++
+                // `queue::connect` does: a sender may push as soon as it sees the
+                // bit, and a later read would start past that message. Recording
+                // the owner reads /proc on Linux, so it must not sit in between.
+                read_cursor = hdr.write_cursor.load(Ordering::Acquire);
                 // Record ownership so a reaper can reclaim this slot if we die.
                 crate::liveness::set_owner(liveness_ptr, conn_id);
-                read_cursor = hdr.write_cursor.load(Ordering::Acquire);
                 // Broadcast that a new receiver connected
                 let _ = cc_waiter.broadcast();
             }
