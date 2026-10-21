@@ -30,44 +30,26 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
-    // Multi-writer channel fan-in demo (see README): several producers into one
-    // collector over a single thoth::channel. Built into zig-out/bin.
-    const demo = b.addExecutable(.{
-        .name = "demo_channel_aggregator",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/demo_channel_aggregator.zig"),
+    // The demos (see cpp/thoth-ipc/demo and tools/demos.toml): each role is
+    // wire-identical with the C++, Rust and Swift ports, so they mix across
+    // languages. Built into zig-out/bin; their unit tests join `zig build test`.
+    const demos = [_][]const u8{
+        "demo_channel_aggregator", // multi-writer thoth::channel fan-in
+        "demo_pipeline", // thoth::route hops, one process per stage
+        "demo_bounded_buffer", // shm ring + named mutex + two semaphores
+        "demo_secure_pos", // AEAD-sealed broadcast bus
+    };
+    var demo_tests: [demos.len]*std.Build.Step.Compile = undefined;
+    for (demos, &demo_tests) |name, *t| {
+        const module = b.createModule(.{
+            .root_source_file = b.path(b.fmt("src/{s}.zig", .{name})),
             .target = target,
             .optimize = optimize,
             .link_libc = true,
-        }),
-    });
-    b.installArtifact(demo);
-
-    // Polyglot pipeline stage (see demo/pipeline/run.sh): source | stage | sink
-    // hops over thoth::route, one process per hop, mixable across languages.
-    const pipe = b.addExecutable(.{
-        .name = "demo_pipeline",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/demo_pipeline.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
-    });
-    b.installArtifact(pipe);
-
-    // Cross-language bounded buffer (see demo/bounded_buffer): a shared shm ring
-    // coordinated by a named mutex + two counting semaphores.
-    const bbuf = b.addExecutable(.{
-        .name = "demo_bounded_buffer",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/demo_bounded_buffer.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
-    });
-    b.installArtifact(bbuf);
+        });
+        b.installArtifact(b.addExecutable(.{ .name = name, .root_module = module }));
+        t.* = b.addTest(.{ .root_module = module });
+    }
 
     // `zig build test` runs the byte-exact ABI unit tests (name shortening,
     // calc_size, calc_chunk_size, FNV-1a golden vectors).
@@ -80,5 +62,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const run_tests = b.addRunArtifact(tests);
-    b.step("test", "Run ABI unit tests").dependOn(&run_tests.step);
+    const test_step = b.step("test", "Run the unit tests");
+    test_step.dependOn(&run_tests.step);
+    for (demo_tests) |t| test_step.dependOn(&b.addRunArtifact(t).step);
 }

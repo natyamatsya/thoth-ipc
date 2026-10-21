@@ -19,6 +19,10 @@ Notable changes to thoth-ipc. The format follows
   `notify`/`broadcast` now take the paired mutex on both platforms. An opener
   of a fresh shm segment now waits for its creator to size it instead of risking
   a SIGBUS.
+- **A Zig secure_pos demo.** The point-of-sale AEAD demo (pinpad seals card
+  events onto a broadcast route, the gateway opens them, the keyless POS must
+  not) now has a Zig port, wire-identical with the C++ and Rust roles: the same
+  protobuf card event in a SIPC v1 AES-256-GCM envelope via std.crypto.
 - **A cross-language demo matrix.** `demo-runner` (a second binary of
   `tools/xlang-runner`) runs every demo in `tools/demos.toml` with every present
   language in every role: the Cartesian product over the demo's slots (all 81
