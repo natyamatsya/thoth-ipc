@@ -195,6 +195,8 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
     // Conformance probes run first and cheapest: no channel, no peer, no
     // timing. They compare *implementations* of the shared-memory primitives the
     // ABI can only describe as opaque bytes, against the reference language.
+    // Only full harnesses (those running `sync`) implement the `conform` verb;
+    // async-only endpoints (C++ xasync/xcoro) would print an empty trace.
     if enabled("conform") {
         let sc = &cfg.scenarios.conform;
         match ready.get(&sc.reference) {
@@ -208,6 +210,9 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                     for h in ready.values() {
                         if h.name == reference.name {
                             continue; // the reference cannot disagree with itself
+                        }
+                        if !h.modes.contains(&Mode::Sync) {
+                            continue;
                         }
                         cases.push(Case {
                             scenario: "conform".into(),

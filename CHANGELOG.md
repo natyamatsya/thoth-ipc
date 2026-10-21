@@ -31,6 +31,10 @@ Notable changes to thoth-ipc. The format follows
   orphaning the node as `clear_storage` does. A cleared waiter's
   `notify`/`broadcast` is now a no-op, instead of a futex call through a
   released mutex (`fail condition broadcast[14]`/`[22]`).
+- **The xlang runner probes conformance only on full harnesses.** `conform`
+  cases were planned for every configured language, including the async-only
+  C++ endpoints (`xasync`, `xcoro`), which have no `conform` verb; their empty
+  traces failed as mismatches whenever a job configured them next to `cpp`.
 
 ## [0.7.0] - 2026-10-21
 
