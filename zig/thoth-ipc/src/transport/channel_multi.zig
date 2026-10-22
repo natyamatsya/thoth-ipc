@@ -65,6 +65,11 @@ inline fn slotFct(sb: [*]u8) *u64 {
     return @ptrCast(@alignCast(sb + elem_fct_off));
 }
 
+/// Committed slots hold ~position in f_ct_ (the upper half all ones).
+inline fn committed(fl: u64) bool {
+    return fl >> 32 == 0xffff_ffff;
+}
+
 /// Whether a writer at commit index `ct` must wait for the slot `sb` (whose rc_
 /// is `cur_rc`): a connected reader of `epoch` still marks it, or it is free of
 /// marks but the previous lap's last reader has not released it yet.
@@ -99,12 +104,25 @@ fn adopt(base: [*]u8, since: u32, bit: u32) u32 {
 /// Does what that owner's recv would have: drop the mark, and release the slot
 /// if it was the last one. No writer can reuse such a slot meanwhile, since the
 /// (now connected) bit still marks it.
+///
+/// A slot that carries the bit but is not committed yet was claimed by a writer
+/// that has not finished writing it, so its position is unknown. A writer does
+/// not touch rc_ between claim and commit, so wait for the commit (bounded: a
+/// writer that died there blocks every reader anyway), then treat it like any
+/// other slot.
 fn releaseStale(base: [*]u8, since: u32, bit: u32) void {
+    const deadline = layout.nowNs() + 50 * std.time.ns_per_ms;
     for (0..layout.ring_size) |idx| {
         const sb = slotBase(base, idx);
-        const cur_fl = @atomicLoad(u64, slotFct(sb), .acquire);
-        // Committed slots hold ~position (the upper half all ones).
-        if (cur_fl >> 32 != 0xffff_ffff) continue;
+        var cur_fl = @atomicLoad(u64, slotFct(sb), .acquire);
+        var k: u32 = 0;
+        while (!committed(cur_fl) and @atomicLoad(u64, slotRc(sb), .acquire) & bit != 0 and
+            layout.nowNs() < deadline)
+        {
+            layout.adaptiveYield(&k);
+            cur_fl = @atomicLoad(u64, slotFct(sb), .acquire);
+        }
+        if (!committed(cur_fl)) continue;
         const pos: u32 = @truncate(~cur_fl);
         if (@as(i32, @bitCast(pos -% since)) >= 0) continue; // ours to read
         var cur_rc = @atomicLoad(u64, slotRc(sb), .acquire);
