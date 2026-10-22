@@ -370,6 +370,73 @@ unsafe fn ring_slot(base: *mut u8, idx: u8) -> &'static ElemT {
 /// Offset of the first ring slot (C++ `block_`): after conn_head_base + head_.
 const OFF_BLOCK: usize = abi::ring_header_size;
 
+/// Elements per ring: a cursor addresses its slot modulo this.
+const RING_LAP: u32 = RING_SIZE as u32;
+
+/// Multi-writer channel only (C++ `prod_cons_impl<multi,multi,broadcast>::
+/// release_stale`): a receiver that read `since` and then claimed `bit` drops the
+/// marks a previous owner of the bit left unread. Every slot addressed to this
+/// receiver is at or after `since`, so its bit on a committed slot from before
+/// is a leftover that would hold the writers up when they lap back to it. Does
+/// what that owner's pop would have: drop the mark, and release the slot if it
+/// was the last one. No writer can reuse such a slot meanwhile, since the (now
+/// connected) bit still marks it.
+fn release_stale(ring_ptr: *mut u8, since: u32, bit: u32) {
+    for idx in 0..RING_SIZE {
+        let slot = unsafe { channel_slot(ring_ptr, idx as u8) };
+        let cur_fl = slot.f_ct_.load(Ordering::Acquire);
+        // Committed slots hold !position (the upper half all ones).
+        if cur_fl >> 32 != 0xffff_ffff {
+            continue;
+        }
+        let pos = !cur_fl as u32;
+        if pos.wrapping_sub(since) as i32 >= 0 {
+            continue; // ours to read
+        }
+        let mut cur_rc = slot.rc_.load(Ordering::Acquire);
+        while cur_rc & u64::from(bit) != 0 {
+            let nxt_rc = inc_rc(cur_rc) & !u64::from(bit);
+            match slot.rc_.compare_exchange_weak(cur_rc, nxt_rc, Ordering::Release, Ordering::Acquire) {
+                Ok(_) => {
+                    if nxt_rc & RC_MASK == 0 {
+                        // Release as pop does: f_ct_ = the next lap's ct.
+                        slot.f_ct_.store(u64::from(pos) + RING_SIZE as u64, Ordering::Release);
+                    }
+                    break;
+                }
+                Err(actual) => cur_rc = actual,
+            }
+        }
+    }
+}
+
+/// Where a receiver that read `since` from the write cursor and then claimed
+/// `bit` starts reading (C++ `prod_cons_impl::adopt`): at the earliest element
+/// published since then that already carries its mark. The writer saw it
+/// connected, so the element is addressed to it, and an unread mark would hold
+/// the writer up when it laps back to the element.
+fn adopt_cursor(ring_ptr: *mut u8, multi: bool, since: u32, bit: u32) -> u32 {
+    let hdr = unsafe { ring_header(ring_ptr) };
+    let epoch = hdr.epoch.load(Ordering::Acquire);
+    let mut cur = hdr.write_cursor.load(Ordering::Acquire);
+    for _ in 0..RING_SIZE {
+        if cur == since {
+            break;
+        }
+        let idx = cur.wrapping_sub(1) as u8;
+        let (rc, ep_mask) = if multi {
+            (unsafe { channel_slot(ring_ptr, idx) }.rc_.load(Ordering::Acquire), CH_EP_MASK)
+        } else {
+            (unsafe { ring_slot(ring_ptr, idx) }.rc_.load(Ordering::Acquire), EP_MASK)
+        };
+        if rc & u64::from(bit) == 0 || (rc & !ep_mask) != epoch {
+            break;
+        }
+        cur = cur.wrapping_sub(1);
+    }
+    cur
+}
+
 // ---------------------------------------------------------------------------
 // Connection mode
 // ---------------------------------------------------------------------------
@@ -502,6 +569,10 @@ impl ChanInner {
                 crate::liveness::reap_dead_receivers(liveness_ptr, live, |bit| {
                     hdr.connections.fetch_and(!bit, Ordering::AcqRel);
                 });
+                // Read the cursor before claiming a bit: whatever a writer pushes
+                // after seeing the bit is addressed to this receiver, and
+                // adopt_cursor() starts it at the first such element.
+                let since = hdr.write_cursor.load(Ordering::Acquire);
                 // Allocate a bit in the connection bitmask
                 let mut k = 0u32;
                 loop {
@@ -523,11 +594,15 @@ impl ChanInner {
                     }
                     crate::spin_lock::adaptive_yield_pub(&mut k);
                 }
-                // Read the cursor right after claiming the bit, as C++
-                // `queue::connect` does: a sender may push as soon as it sees the
-                // bit, and a later read would start past that message. Recording
-                // the owner reads /proc on Linux, so it must not sit in between.
-                read_cursor = hdr.write_cursor.load(Ordering::Acquire);
+                // Record where this receiver starts, so writers can tell a previous
+                // owner's leftover mark from one of ours, then start at the first
+                // element already addressed to us. Recording the owner below reads
+                // /proc on Linux, so it comes after.
+                crate::liveness::set_since(liveness_ptr, conn_id, since);
+                if multi {
+                    release_stale(ring_shm.get(), since, conn_id);
+                }
+                read_cursor = adopt_cursor(ring_shm.get(), multi, since, conn_id);
                 // Record ownership so a reaper can reclaim this slot if we die.
                 crate::liveness::set_owner(liveness_ptr, conn_id);
                 // Broadcast that a new receiver connected
@@ -745,6 +820,14 @@ impl ChanInner {
         Ok(true)
     }
 
+    /// Of the receivers `bits` still marked on the element that held position
+    /// `pos`, those that really have yet to read it: a mark from before its
+    /// receiver started is a previous owner's leftover (`liveness::live_marks`).
+    fn live_marks(&self, bits: u64, pos: u32) -> u64 {
+        let lv = self.liveness_shm.get() as *const crate::liveness::ConnLiveness;
+        u64::from(crate::liveness::live_marks(lv, bits as u32, pos))
+    }
+
     /// Claim the next ring slot (C++ prod_cons broadcast push / force_push) and
     /// write one msg_t fragment, then advance wt_ and wake receivers.
     fn push_fragment(&self, msg_id: u32, remain: i32, payload: &[u8], timeout_ms: u64) -> io::Result<bool> {
@@ -765,23 +848,28 @@ impl ChanInner {
             let cur_rc = slot.rc_.load(Ordering::Acquire);
             let rem_cc = cur_rc & EP_MASK;
             // Busy if a live reader still owes a read in the current epoch.
-            if (cc & rem_cc) != 0 && (cur_rc & !EP_MASK) == epoch {
+            // (A mark from before its receiver started is a previous owner's leftover.)
+            let prev = wt.wrapping_sub(RING_LAP);
+            if (cc & rem_cc) != 0 && (cur_rc & !EP_MASK) == epoch && self.live_marks(cc & rem_cc, prev) != 0 {
                 let ok = Self::wait_for(
                     &self.wt_waiter,
                     || {
                         let s = unsafe { ring_slot(ring_ptr, wt as u8) };
                         let rc = s.rc_.load(Ordering::Acquire);
                         let ep = hdr.epoch.load(Ordering::Relaxed);
-                        (cc & (rc & EP_MASK)) != 0 && (rc & !EP_MASK) == ep
+                        (cc & (rc & EP_MASK)) != 0
+                            && (rc & !EP_MASK) == ep
+                            && self.live_marks(cc & (rc & EP_MASK), prev) != 0
                     },
                     Some(timeout_ms),
                 )?;
                 if ok {
                     continue 'claim;
                 }
-                // Timeout → force_push: bump epoch, disconnect stale receivers.
+                // Timeout → force_push: bump epoch, disconnect stale receivers
+                // (not a previous owner's leftover mark: that is no wedged reader).
                 hdr.epoch.fetch_add(EP_INCR, Ordering::AcqRel);
-                let rem2 = slot.rc_.load(Ordering::Acquire) & EP_MASK;
+                let rem2 = self.live_marks(slot.rc_.load(Ordering::Acquire) & EP_MASK & cc, prev);
                 if rem2 != 0 {
                     let new_cc =
                         hdr.connections.fetch_and(!(rem2 as u32), Ordering::AcqRel) & !(rem2 as u32);
@@ -981,6 +1069,10 @@ impl ChanInner {
             let slot = unsafe { channel_slot(ring_ptr, cur_ct as u8) };
             let cur_rc = slot.rc_.load(Ordering::Relaxed);
             let rem_cc = cur_rc & RC_MASK;
+            // (Every mark counts here, unlike for the single-writer route: a
+            // concurrent writer may have just stamped this slot for cur_ct itself.
+            // A previous owner's leftover marks are dropped by the next owner of
+            // the bit when it connects, see release_stale().)
             if (cc & rem_cc) != 0 && (cur_rc & !CH_EP_MASK) == epoch {
                 // Slot still held by a live reader in the current epoch.
                 if Instant::now() >= deadline {

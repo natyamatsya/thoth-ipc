@@ -14,15 +14,17 @@
 // falsely reap it. macOS packs the BSD start time as tvsec*1e6+tvusec; Linux uses
 // /proc/<pid>/stat field 22.
 
-use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU64, Ordering};
 
 /// Max broadcast connection slots (C++ `notify_max_slots` / 32-bit cc_ mask).
 pub const MAX_SLOTS: usize = 32;
 
-/// One owner record per cc_ bit. Byte-exact: pid @0 (i32), start_tok @8 (u64).
+/// One owner record per cc_ bit. Byte-exact: pid @0 (i32), since @4 (u32),
+/// start_tok @8 (u64).
 #[repr(C)]
 pub struct SlotOwner {
     pub pid: AtomicI32,       // @0  0 == free
+    pub since: AtomicU32,     // @4  write cursor the owner read before claiming its bit
     pub start_tok: AtomicU64, // @8  process start token (PID-reuse guard)
 }
 
@@ -30,6 +32,7 @@ const _: () = {
     assert!(std::mem::size_of::<SlotOwner>() == crate::abi_generated::liveness_slot_size);
     assert!(std::mem::align_of::<SlotOwner>() == 8);
     assert!(std::mem::offset_of!(SlotOwner, pid) == crate::abi_generated::liveness_slot_pid_off);
+    assert!(std::mem::offset_of!(SlotOwner, since) == crate::abi_generated::liveness_slot_since_off);
     assert!(std::mem::offset_of!(SlotOwner, start_tok) == crate::abi_generated::liveness_slot_start_tok_off);
 };
 
@@ -231,6 +234,41 @@ pub fn set_owner(lv: *mut ConnLiveness, bit: u32) {
     s.pid.store(self_pid(), Ordering::Release);
 }
 
+/// Record where a broadcast receiver starts: the write cursor it read just before
+/// claiming `bit`. Every element it must read is at or after that position, so a
+/// mark of `bit` on an element from before it can only be a previous owner's
+/// leftover. Store it right after the claim (byte-exact with C++
+/// `liveness_set_since`); a writer that still sees the previous owner's value
+/// treats the mark as live and retries.
+pub fn set_since(lv: *mut ConnLiveness, bit: u32, since: u32) {
+    if lv.is_null() || bit == 0 {
+        return;
+    }
+    let s = unsafe { &(*lv).slots[slot_index(bit)] };
+    s.since.store(since, Ordering::Release);
+}
+
+/// Of the marks `bits` found on the element that held position `pos`, those
+/// whose current receiver started at or before `pos` (C++ `liveness_live_marks`).
+/// The others were left by a receiver that has since disconnected, and must not
+/// hold up the writer.
+pub fn live_marks(lv: *const ConnLiveness, bits: u32, pos: u32) -> u32 {
+    if lv.is_null() {
+        return bits;
+    }
+    let mut live = 0;
+    let mut m = bits;
+    while m != 0 {
+        let bit = m & m.wrapping_neg();
+        m &= m - 1;
+        let since = unsafe { (*lv).slots[slot_index(bit)].since.load(Ordering::Acquire) };
+        if pos.wrapping_sub(since) as i32 >= 0 {
+            live |= bit; // pos at or after since (wrapping)
+        }
+    }
+    live
+}
+
 /// Release ownership of a slot on clean disconnect.
 pub fn clear_owner(lv: *mut ConnLiveness, bit: u32) {
     if lv.is_null() || bit == 0 {
@@ -285,7 +323,7 @@ pub fn release_sole_owner(o: &SlotOwner) {
 pub fn conform_sole_owner() -> Vec<String> {
     // A pid no process can have (above every OS's pid limit): a dead holder.
     const DEAD_PID: i32 = 0x7fff_fffe;
-    let o = SlotOwner { pid: AtomicI32::new(0), start_tok: AtomicU64::new(0) };
+    let o = SlotOwner { pid: AtomicI32::new(0), since: AtomicU32::new(0), start_tok: AtomicU64::new(0) };
     let me = self_pid();
     let my_tok = start_token(me);
     let mut out = Vec::new();

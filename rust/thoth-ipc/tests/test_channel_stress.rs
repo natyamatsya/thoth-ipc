@@ -339,3 +339,75 @@ fn route_large_messages_stress() {
 
     receiver.join().unwrap();
 }
+
+// Receivers that keep connecting while writers stream, read past one ring lap
+// and disconnect, must never see a gap or a stalled writer. A receiver whose bit
+// a writer already stamped on an element it then skipped (the connect window),
+// or a mark a previous owner of the bit left unread, used to hold the writer up
+// one lap later: the receiver timed out after ~255 messages.
+macro_rules! receiver_churn_test {
+    ($test:ident, $chan:ty, $writers:expr) => {
+        #[test]
+        fn $test() {
+            let name = unique_name(stringify!($test));
+            <$chan>::clear_storage(&name);
+            let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let writers: Vec<_> = (0..$writers as u32)
+                .map(|w| {
+                    let (nm, stop) = (name.clone(), Arc::clone(&stop));
+                    thread::spawn(move || {
+                        let mut s = <$chan>::connect(&nm, Mode::Sender).expect("sender");
+                        let mut seq = 0u32;
+                        while !stop.load(Ordering::Relaxed) {
+                            if s.recv_count() == 0 {
+                                thread::yield_now();
+                                continue;
+                            }
+                            let mut m = [0u8; 8];
+                            m[..4].copy_from_slice(&w.to_le_bytes());
+                            m[4..].copy_from_slice(&seq.to_le_bytes());
+                            if s.send(&m, 100).unwrap_or(false) {
+                                seq += 1;
+                            }
+                        }
+                    })
+                })
+                .collect();
+            let (mut stalls, mut gaps) = (0, 0);
+            for _ in 0..1000 {
+                let mut rx = <$chan>::connect(&name, Mode::Receiver).expect("receiver");
+                let mut prev: [Option<u32>; 2] = [None, None];
+                for _ in 0..300 {
+                    // > 256 elements: the writers lap the ring
+                    let b = rx.recv(Some(1000)).expect("recv");
+                    if b.is_empty() {
+                        stalls += 1;
+                        break;
+                    }
+                    let d = b.data();
+                    let w = u32::from_le_bytes(d[..4].try_into().unwrap()) as usize;
+                    let seq = u32::from_le_bytes(d[4..8].try_into().unwrap());
+                    if prev[w].is_some_and(|p| seq != p + 1) {
+                        gaps += 1;
+                        break;
+                    }
+                    prev[w] = Some(seq);
+                }
+                drop(rx);
+                if stalls + gaps > 0 {
+                    break;
+                }
+            }
+            stop.store(true, Ordering::Relaxed);
+            for t in writers {
+                t.join().unwrap();
+            }
+            <$chan>::clear_storage(&name);
+            assert_eq!(stalls, 0, "a writer stalled on an element no receiver would read");
+            assert_eq!(gaps, 0, "a receiver missed a message");
+        }
+    };
+}
+
+receiver_churn_test!(route_receiver_churn_never_stalls_writer, Route, 1);
+receiver_churn_test!(channel_receiver_churn_never_stalls_writers, Channel, 2);
