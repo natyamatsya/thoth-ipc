@@ -129,12 +129,26 @@ func adoptCursor(_ hdr: UnsafeMutablePointer<RingHeader>, _ ringBase: UnsafeMuta
 /// up when they lap back to it. Does what that owner's recv would have: drop the
 /// mark, and release the slot if it was the last one. No writer can reuse such
 /// a slot meanwhile, since the (now connected) bit still marks it.
+///
+/// A slot that carries the bit but is not committed yet was claimed by a writer
+/// that has not finished writing it, so its position is unknown. A writer does
+/// not touch rc_ between claim and commit, so wait for the commit (bounded: a
+/// writer that died there blocks every reader anyway), then treat it like any
+/// other slot.
 func releaseStale(_ ringBase: UnsafeMutableRawPointer, since: UInt32, bit: UInt32) {
+    // Committed slots hold ~position (the upper half all ones).
+    func committed(_ fl: UInt64) -> Bool { fl >> 32 == 0xffff_ffff }
+    let deadline = ContinuousClock.now + .milliseconds(50)
     for idx in 0..<ringSize {
         let sb = channelSlotBase(ringBase, UInt8(idx))
-        let curFl = slotFct(sb).load(ordering: .acquiring)
-        // Committed slots hold ~position (the upper half all ones).
-        guard curFl >> 32 == 0xffff_ffff else { continue }
+        var curFl = slotFct(sb).load(ordering: .acquiring)
+        var k: UInt32 = 0
+        while !committed(curFl), slotRc(sb).load(ordering: .acquiring) & UInt64(bit) != 0,
+              ContinuousClock.now < deadline {
+            adaptiveYieldSync(&k)
+            curFl = slotFct(sb).load(ordering: .acquiring)
+        }
+        guard committed(curFl) else { continue }
         let pos = UInt32(truncatingIfNeeded: ~curFl)
         guard Int32(bitPattern: pos &- since) < 0 else { continue } // ours to read
         var curRc = slotRc(sb).load(ordering: .acquiring)
