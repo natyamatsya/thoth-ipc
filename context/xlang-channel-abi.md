@@ -181,7 +181,8 @@ DCLP (on Apple, via `os_unfair_lock_lock`/`unlock`).
 
 - **connect (receiver):** CAS `cc_ = cc_ | (cc_+1)` (set lowest clear bit); the
   returned single-bit value is this receiver's `connected_id`. `recv_count` =
-  popcount(`cc_`).
+  popcount(`cc_`). The receiver reads the cursor *before* it claims the bit, then
+  adopts what was addressed to it in between (§9a).
 - **cursor:** `wt_` (acquire).
 - **push:** if `cc_==0` return false; `el = block_[wt_ % 256]`; if
   `(cc_ & (rc_ & ep_mask))` and `rc_`'s epoch == `epoch_`, slot still busy → false;
@@ -349,7 +350,7 @@ formula are cross-language ABI.
 - **Segment** `make_public_abi_prefix(prefix, "LV_CONN__", name)` =
   `"{prefix}__THOTH_SHM__LV_CONN__{name}"`, size **512 B**.
 - **`slot_owner`** (one per `cc_` bit, indexed by `ctz(bit)`), **16 B**:
-  `pid` (int32) `@0`, `start_tok` (uint64) `@8`. Array `slot_owner[32]`.
+  `pid` (int32) `@0`, `since` (uint32) `@4` (§9a), `start_tok` (uint64) `@8`. Array `slot_owner[32]`.
 - **`start_token(pid)`** — a stable id of *this* incarnation of a PID (defeats PID
   reuse). 0 = "couldn't determine". macOS: `proc_pidinfo(PROC_PIDTBSDINFO)` packed
   as `pbi_start_tvsec * 1'000'000 + pbi_start_tvusec` (`proc_bsdinfo` is 136 B,
@@ -381,6 +382,61 @@ formula are cross-language ABI.
 `{holder} × {reaper}` pairing, `dead` (holder SIGKILLed → reaper's `count` must be
 1) and `live` (holder alive → `count` must be 2, proving no false reap and thus a
 matching token). Harness verbs `hold` / `probe` / `count` in all three ports.
+
+## 9a. Connect window — `slot_owner.since` (ABI 1.3.0)
+
+A broadcast writer stamps an element with the receivers connected *when it
+pushes it* (`rc_ = epoch | cc`), and a receiver starts reading at the cursor.
+Two kinds of mark are never read and therefore never cleared:
+
+- **Connect window.** A receiver claims its bit, then reads the cursor. A writer
+  that saw the bit and advanced the cursor in between stamped an element that the
+  receiver skips.
+- **Stale marks.** A receiver that disconnects leaves its bit on the elements it
+  did not read. The next receiver that claims the same bit inherits those marks.
+
+One lap later the writer finds the element "still unread". It refuses the push
+until `force_push` disconnects the receiver, which then times out after about 255
+messages. Before 1.3.0 this happened on about 0.25 % of reconnects under load.
+
+**`since`** — `slot_owner.since` (uint32 `@4`, previously padding) holds the
+write cursor that its receiver read *before* it claimed the bit.
+
+- **Connect (receiver), in this order:**
+  1. Read `since = cursor()` (acquire).
+  2. Claim the bit (§6).
+  3. Store `since` into the slot (release).
+  4. Multi-producer only: release stale marks (below).
+  5. Adopt: start at `cursor()` and walk back through `[since, cursor)` while each
+     element carries this bit in the current epoch. Start reading at the first
+     such element.
+
+  The `{pid, start_tok}` store (§9) follows as before.
+- **Route (single producer): the writer filters.** For the element at
+  `wt_ % 256`, whose previous message was `pos = wt_ - 256`, a mark counts only if
+  its receiver's `since` satisfies `(int32)(pos - since) >= 0`. That is, the
+  receiver had started by then. This filter applies to the busy check of `push`,
+  to the wait predicate, and to the set of receivers that `force_push` disconnects
+  (so it never disconnects a receiver over a mark it was never meant to read).
+  Only one writer exists, so a mark that this check skips cannot belong to a push
+  in flight.
+- **Channel (multi producer): the receiver releases.** Here the writer must
+  count *every* mark. A concurrent writer may just have stamped the element for
+  the current position, and treating that mark as stale lets two writers claim the
+  same element. Instead, step 4 visits every element whose commit flag is
+  committed (`f_ct_ >> 32 == 0xffffffff`, `pos = ~f_ct_`) with `pos` before
+  `since` and this bit set in `rc_`. It CASes `rc_ = inc_rc(rc_) & ~bit` and, if
+  no mark remains, sets `f_ct_ = pos + 256` (released). A writer's claim that is
+  still uncommitted is skipped. In that rare case the writer still stalls a lap
+  later and `force_push` disconnects the receiver, as before 1.3.0.
+- **Older peers** never write `since` (the field reads 0) and do not filter or
+  release. A 1.3.0 writer then counts their marks as it did before 1.3.0, so mixed
+  versions interoperate and only lose the fix.
+
+**Verification.** The C++ `RouteTest.ReceiverChurnNeverStallsWriter` and
+`ChannelTest.ReceiverChurnNeverStallsWriters` tests and the Rust
+`*_receiver_churn_*` tests run 1000 connect → read 300 → disconnect rounds against
+streaming writers. They fail without the fix and require zero stalls and gaps.
 
 ## 10. Sync primitives — mutex / condition payloads (Waiter, `IpcMutex`, `IpcCondition`)
 

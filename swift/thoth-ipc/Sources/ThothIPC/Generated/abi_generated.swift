@@ -6,7 +6,7 @@
 // Target: apple_arm64.
 
 public enum ABI {
-    public static let abi_version: String = "1.2.0"
+    public static let abi_version: String = "1.3.0"
 
     // MARK: constants
     /// msg_t payload fragment size (large_msg_limit)
@@ -113,6 +113,7 @@ public enum ABI {
     public static let liveness_slot_size: Int = 16
     public static let liveness_slot_align: Int = 8
     public static let liveness_slot_pid_off: Int = 0
+    public static let liveness_slot_since_off: Int = 4
     public static let liveness_slot_start_tok_off: Int = 8
     public static let sipc_header_size: Int = 19
     public static let sipc_header_align: Int = 1

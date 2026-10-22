@@ -6,7 +6,7 @@
 // Target: apple_arm64 / x86_64.
 #![allow(non_upper_case_globals, non_camel_case_types, dead_code)]
 
-pub const abi_version: &str = "1.2.0";
+pub const abi_version: &str = "1.3.0";
 
 // --- constants ---
 /// msg_t payload fragment size (large_msg_limit)
@@ -133,6 +133,7 @@ pub const chunk_info_lock_off: usize = 36;
 pub const liveness_slot_size: usize = 16;
 pub const liveness_slot_align: usize = 8;
 pub const liveness_slot_pid_off: usize = 0;
+pub const liveness_slot_since_off: usize = 4;
 pub const liveness_slot_start_tok_off: usize = 8;
 pub const sipc_header_size: usize = 19;
 pub const sipc_header_align: usize = 1;

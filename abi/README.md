@@ -130,9 +130,10 @@ cadence than the software. It is surfaced in generated code as `abi_version`.
   still interoperate.
 - **PATCH** — documentation/description only; no wire impact.
 
-It currently sits at **1.2.0**: the format is byte-exact-stable (inherited from
+It currently sits at **1.3.0**: the format is byte-exact-stable (inherited from
 cpp-ipc v1.4.1 and proven across four ports); the minors added string constants
-(1.1.0) and the sync backend ids plus the sync payload structs (1.2.0). This is the global contract version
+(1.1.0), the sync backend ids plus the sync payload structs (1.2.0), and a
+broadcast receiver's start cursor (`liveness_slot.since`, 1.3.0). This is the global contract version
 *above* the per-subsystem wire versions already embedded at runtime (the
 `SyncAbi` stamp's `1.0`, the SIPC envelope's `version: 1`).
 

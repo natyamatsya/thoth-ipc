@@ -1,5 +1,5 @@
 {
-   "version": "1.2.0",
+   "version": "1.3.0",
    "$schema": "./abi.schema.json",
    "description": "thoth-ipc cross-language ABI — language-neutral source of truth. Structurally validated by abi.schema.json; semantically validated against the deployed C++ by abi/dump_abi.cpp via the `tools/abi` Rust checker; behaviourally validated by the xlang matrix. This is an initial slice (ring layouts + core constants); extend it as the codegen adopts more of the surface.",
    "targets": {
@@ -412,6 +412,12 @@
                "offset": 0,
                "type": "i32",
                "description": "owner pid, 0 = free"
+            },
+            {
+               "name": "since",
+               "offset": 4,
+               "type": "u32",
+               "description": "broadcast receivers: the ring write cursor (route wt_, channel ct_) the owner read just before claiming its connection bit, stored right after the claim (release). Every element the owner must read is at or after it, so a writer reusing an element whose previous position is before `since` treats the owner's mark on it as a previous owner's leftover, not as unread. 0 until a receiver records it (older peers never do: all marks count, as before). See context/xlang-channel-abi.md §9a"
             },
             {
                "name": "start_tok",

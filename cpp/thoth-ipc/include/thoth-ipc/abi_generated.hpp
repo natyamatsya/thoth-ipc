@@ -11,7 +11,7 @@
 
 namespace thoth::abi {
 
-inline constexpr const char* abi_version = "1.2.0";
+inline constexpr const char* abi_version = "1.3.0";
 
 // --- constants ---
 /// msg_t payload fragment size (large_msg_limit)
@@ -135,6 +135,7 @@ inline constexpr std::size_t chunk_info_lock_off = 36;
 inline constexpr std::size_t liveness_slot_size = 16;
 inline constexpr std::size_t liveness_slot_align = 8;
 inline constexpr std::size_t liveness_slot_pid_off = 0;
+inline constexpr std::size_t liveness_slot_since_off = 4;
 inline constexpr std::size_t liveness_slot_start_tok_off = 8;
 inline constexpr std::size_t sipc_header_size = 19;
 inline constexpr std::size_t sipc_header_align = 1;

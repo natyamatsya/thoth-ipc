@@ -12,7 +12,7 @@ const align8_target = builtin.cpu.arch == .aarch64 and builtin.os.tag.isDarwin()
 
 /// ABI contract version (semver; decoupled from the release version). Peers
 /// interoperate iff they share the same MAJOR. See abi/README.md#abi-versioning.
-pub const abi_version: []const u8 = "1.2.0";
+pub const abi_version: []const u8 = "1.3.0";
 
 // --- constants ---
 /// msg_t payload fragment size (large_msg_limit)
@@ -127,6 +127,7 @@ pub const chunk_info_lock_off: usize = 36;
 pub const liveness_slot_size: usize = 16;
 pub const liveness_slot_align: usize = 8;
 pub const liveness_slot_pid_off: usize = 0;
+pub const liveness_slot_since_off: usize = 4;
 pub const liveness_slot_start_tok_off: usize = 8;
 /// secure envelope v1 fixed header (all little-endian)
 pub const sipc_header_size: usize = 19;
