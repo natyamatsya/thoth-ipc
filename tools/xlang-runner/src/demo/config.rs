@@ -9,7 +9,10 @@
 // A demo is a set of processes. Each process plays a role and takes its
 // language either from a matrix *slot* (the planner assigns every present
 // language to every slot, as the Cartesian product) or is started once per
-// present language (`each_language`, for fan-in roles such as producers).
+// present language (`each_language`, for fan-in roles such as producers). A
+// slot takes the languages that ship every binary its processes run, and the
+// `each_language` roles those that ship all of theirs, so a port of a single
+// role (the FFI audio service) fills only that role's slot.
 // Arguments and expectations use placeholders, expanded per case:
 //
 //   {count}          the demo's `count`
@@ -83,8 +86,8 @@ pub struct Demo {
     #[serde(default)]
     pub description: String,
     /// Binary key -> language -> file name in that language's `dir`. A process
-    /// runs the binary named by its `bin` (default `main`). A language takes
-    /// part in the demo only if it ships every binary listed here.
+    /// runs the binary named by its `bin` (default `main`); a language fills a
+    /// slot only if it ships every binary that slot's processes run.
     pub bins: BTreeMap<String, BTreeMap<String, String>>,
     /// The demo's IPC names are fixed: run its cases one at a time.
     #[serde(default)]

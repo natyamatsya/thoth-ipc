@@ -113,8 +113,9 @@ fn main() -> ExitCode {
     }
 
     println!("languages:");
+    let width = plan.coverage.keys().map(String::len).max().unwrap_or(0);
     for (lang, demos) in &plan.coverage {
-        println!("  {lang:<6} {}", demos.join(", "));
+        println!("  {lang:<width$} {}", demos.join(", "));
     }
 
     if cli.list {

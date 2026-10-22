@@ -145,13 +145,14 @@ fn is_executable(path: &Path) -> bool {
     }
 }
 
-/// Every assignment of `langs` to `slots`, in lexicographic order.
-fn product(slots: &[String], langs: &[String]) -> Vec<BTreeMap<String, String>> {
+/// Every assignment of a language of `langs[i]` to each `slots[i]`, in
+/// lexicographic order.
+fn product(slots: &[String], langs: &[&[String]]) -> Vec<BTreeMap<String, String>> {
     let mut out = vec![BTreeMap::new()];
-    for slot in slots {
+    for (slot, langs) in slots.iter().zip(langs) {
         let mut next = Vec::with_capacity(out.len() * langs.len());
         for partial in &out {
-            for lang in langs {
+            for lang in langs.iter() {
                 let mut a = partial.clone();
                 a.insert(slot.clone(), lang.clone());
                 next.push(a);
@@ -184,40 +185,63 @@ pub fn plan(file: &DemoFile, filter: &[String]) -> Result<DemoPlan, String> {
         if !filter.is_empty() && !filter.iter().any(|f| f == name) {
             continue;
         }
-        // Languages that ship every binary of this demo here.
-        let mut langs = Vec::new();
-        for lang in dirs.keys() {
-            if !demo.languages.is_empty() && !demo.languages.contains(lang) {
-                continue;
-            }
-            let declared = demo.bins.values().any(|by_lang| by_lang.contains_key(lang));
-            if !declared {
-                continue; // no port of this demo in that language
-            }
-            let missing: Vec<_> = demo
-                .bins
-                .keys()
-                .filter(|bin| resolve_bin(&dirs, demo, bin, lang).is_none())
-                .cloned()
-                .collect();
-            if missing.is_empty() {
-                langs.push(lang.clone());
-                coverage.entry(lang.clone()).or_default().push(name.clone());
-            } else {
-                notes.push(PlanNote {
-                    scenario: name.clone(),
-                    lang: lang.clone(),
-                    reason: format!("skipped: binary {} not built", missing.join(", ")),
-                });
+        // Each slot, and the `each_language` roles together, takes the
+        // languages that ship every binary its processes run here, so a port
+        // of only one role (an FFI service) can fill that role's slot. A
+        // language that declares such a binary without shipping it is noted.
+        let mut groups: Vec<(Option<&String>, Vec<&String>)> = Vec::new();
+        for p in &demo.procs {
+            match groups.iter_mut().find(|(slot, _)| *slot == p.slot.as_ref()) {
+                Some((_, bins)) if !bins.contains(&&p.bin) => bins.push(&p.bin),
+                Some(_) => {}
+                None => groups.push((p.slot.as_ref(), vec![&p.bin])),
             }
         }
-        if langs.is_empty() {
+        let mut group_langs: BTreeMap<Option<&String>, Vec<String>> = BTreeMap::new();
+        let mut skipped: BTreeMap<&String, Vec<&String>> = BTreeMap::new();
+        for (slot, bins) in &groups {
+            let mut ok = Vec::new();
+            for lang in dirs.keys() {
+                if !demo.languages.is_empty() && !demo.languages.contains(lang) {
+                    continue;
+                }
+                if !bins.iter().any(|bin| demo.bins[*bin].contains_key(lang)) {
+                    continue; // no port of this role in that language
+                }
+                let missing: Vec<&String> =
+                    bins.iter().copied().filter(|bin| resolve_bin(&dirs, demo, bin, lang).is_none()).collect();
+                if missing.is_empty() {
+                    ok.push(lang.clone());
+                } else {
+                    let all = skipped.entry(lang).or_default();
+                    all.extend(missing.into_iter().filter(|m| !all.contains(m)).collect::<Vec<_>>());
+                }
+            }
+            group_langs.insert(*slot, ok);
+        }
+        for (lang, missing) in &skipped {
+            notes.push(PlanNote {
+                scenario: name.clone(),
+                lang: (*lang).clone(),
+                reason: format!(
+                    "skipped: binary {} not built",
+                    missing.iter().map(|m| m.as_str()).collect::<Vec<_>>().join(", ")
+                ),
+            });
+        }
+        if group_langs.values().any(|l| l.is_empty()) {
             notes.push(PlanNote {
                 scenario: name.clone(),
                 lang: "*".into(),
                 reason: "no language ships this demo here".into(),
             });
             continue;
+        }
+        let mut present: Vec<&String> = group_langs.values().flatten().collect();
+        present.sort();
+        present.dedup();
+        for lang in present {
+            coverage.entry(lang.clone()).or_default().push(name.clone());
         }
 
         let mut slots: Vec<String> = Vec::new();
@@ -228,16 +252,18 @@ pub fn plan(file: &DemoFile, filter: &[String]) -> Result<DemoPlan, String> {
                 }
             }
         }
-        let fan_in = demo.procs.iter().filter(|p| p.each_language).count() * langs.len();
+        let each_langs: &[String] = group_langs.get(&None).map(Vec::as_slice).unwrap_or(&[]);
+        let fan_in = demo.procs.iter().filter(|p| p.each_language).count() * each_langs.len();
         let total = if fan_in > 0 { demo.count * fan_in } else { demo.count };
         let paths = |bin: &str, lang: &str| resolve_bin(&dirs, demo, bin, lang);
+        let slot_langs: Vec<&[String]> = slots.iter().map(|s| group_langs[&Some(s)].as_slice()).collect();
 
-        for (i, assign) in product(&slots, &langs).into_iter().enumerate() {
+        for (i, assign) in product(&slots, &slot_langs).into_iter().enumerate() {
             let ch_prefix = format!("dm{}_{name}_{i}_", std::process::id());
             let mut id_parts: Vec<String> =
                 slots.iter().map(|s| format!("{s}={}", assign[s])).collect();
             if fan_in > 0 {
-                id_parts.push(format!("+ each of {}", langs.join(",")));
+                id_parts.push(format!("+ each of {}", each_langs.join(",")));
             }
             let id = id_parts.join(" ");
 
@@ -245,10 +271,10 @@ pub fn plan(file: &DemoFile, filter: &[String]) -> Result<DemoPlan, String> {
             for spec in demo.procs.iter().filter(|p| p.spawned_by.is_none()) {
                 let run_langs: Vec<&String> = match &spec.slot {
                     Some(s) => vec![&assign[s]],
-                    None => langs.iter().collect(),
+                    None => each_langs.iter().collect(),
                 };
                 for (index, lang) in run_langs.into_iter().enumerate() {
-                    procs.push(case_proc(spec, demo, &dirs, lang, &langs, &Ctx {
+                    procs.push(case_proc(spec, demo, &dirs, lang, each_langs, &Ctx {
                         count: demo.count,
                         total,
                         fanin: fan_in,
@@ -262,9 +288,14 @@ pub fn plan(file: &DemoFile, filter: &[String]) -> Result<DemoPlan, String> {
                     .map_err(|e| format!("demo '{name}': {e}"))?);
                 }
             }
-            let first = slots.first().map(|s| assign[s].clone()).unwrap_or_else(|| langs[0].clone());
+            // The clear verb runs with the main binary of the first language in
+            // the case that has one.
             let clear = (!demo.clear.is_empty())
-                .then(|| resolve_bin(&dirs, demo, "main", &first).map(|bin| (bin, demo.clear.clone())))
+                .then(|| {
+                    slots.iter().map(|s| &assign[s]).chain(each_langs).find_map(|lang| {
+                        resolve_bin(&dirs, demo, "main", lang).map(|bin| (bin, demo.clear.clone()))
+                    })
+                })
                 .flatten();
             cases.push(DemoCase {
                 demo: name.clone(),
