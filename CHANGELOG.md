@@ -44,6 +44,21 @@ Notable changes to thoth-ipc. The format follows
   and Zig on Linux, in about 30 s).
 
 ### Fixed
+- **A reconnecting broadcast receiver no longer stalls the writers (ABI 1.3.0).**
+  A writer could stamp an element for a receiver between the receiver claiming its
+  connection bit and reading the cursor, and a receiver that disconnected left its
+  bit on what it had not read, for the next owner of the bit to inherit. A lap
+  later the writer found those elements still unread and stalled until
+  `force_push` disconnected the receiver, which timed out after about 255
+  messages. Under load this hit about 0.25 % of reconnects. A receiver now reads
+  the cursor before it claims its bit and records that position in its liveness
+  slot (`slot_owner.since`, previously padding). It then reads what was addressed
+  to it in between. The route writer ignores marks from before a receiver started
+  and never disconnects a receiver over one. On a channel, where a concurrent
+  writer makes that unsafe, the connecting receiver releases the stale marks of
+  its bit instead. The fix is in all four ports (Swift unverified here); peers
+  older than 1.3.0 interoperate as before. New churn tests in C++ and Rust fail
+  without the fix. Spec: `context/xlang-channel-abi.md` §9a.
 - **send_recv's default mode works whichever side starts first.** The Rust,
   Swift and Zig senders cleared the channel before connecting, which left an
   already running receiver with nothing; the channel is now cleared only by the

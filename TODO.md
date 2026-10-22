@@ -10,6 +10,10 @@ Open items left after the Linux Zig port and the cross-language demo matrix
   channel_aggregator, pipeline), stdout line buffering in all six demos, the
   count modes of msg_que, send_recv and chat, and the send_recv default-mode
   fixes. The macOS job of `.github/workflows/demos.yml` covers them.
+- [ ] **Swift connect-window fix.** The ABI 1.3.0 receiver connect (`since`,
+  adopt, stale-mark release) and the route writer's `since` filter in
+  `Liveness.swift` and `Channel.swift` have never been compiled or run. The
+  macOS xlang job covers them.
 - [ ] **The new CI.** `.github/workflows/demos.yml` and the Zig steps added to
   the Linux jobs of `.github/workflows/xlang.yml` have not run yet. On macOS the
   C++ audio services may be skipped if Apple clang lacks C++23 `<print>`
@@ -28,12 +32,13 @@ Open items left after the Linux Zig port and the cross-language demo matrix
 
 ## Known gaps
 
-- [ ] **Receiver connect window.** In every port (C++ included) a receiver
-  claims its connection bit and then reads the write cursor; a message pushed
-  between the two is missed by that receiver. Reading the cursor right after the
-  claim (`8b8c2c9`) moved the slow `/proc` read out of the window and fixed the
-  flaky route tests, but the window itself remains. Closing it changes the
-  connect protocol (context/xlang-channel-abi.md) in all four ports.
+- [ ] **Channel stale mark on an uncommitted claim.** The connect-window fix
+  (ABI 1.3.0, context/xlang-channel-abi.md §9a) has a connecting channel
+  receiver release the stale marks of its bit only on committed elements. If a
+  writer claimed an element with a stale mark of that bit and has not committed
+  it yet, the element is skipped and the writer can still stall one lap later,
+  until `force_push` disconnects the receiver. The churn tests have never hit
+  it.
 - [ ] **Zig receive spins.** `ChanInner.recv` / `ChannelInner.recv` wait by
   spinning with adaptive yield instead of sleeping on the route's waiter, which
   burns CPU on long waits (e.g. the Zig send_recv receiver and linux_service
