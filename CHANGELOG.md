@@ -75,9 +75,12 @@ Notable changes to thoth-ipc. The format follows
   to it in between. The route writer ignores marks from before a receiver started
   and never disconnects a receiver over one. On a channel, where a concurrent
   writer makes that unsafe, the connecting receiver releases the stale marks of
-  its bit instead. The fix is in all four ports (Swift unverified here); peers
-  older than 1.3.0 interoperate as before. New churn tests in C++ and Rust fail
-  without the fix. Spec: `context/xlang-channel-abi.md` §9a.
+  its bit instead. An element a writer has claimed but not yet committed is
+  handled too: the receiver waits up to 50 ms for the commit. The fix is in all
+  four ports (Swift unverified here); peers older than 1.3.0 interoperate as
+  before. New churn tests in C++ and Rust, and a C++ test that holds a writer
+  between claim and commit, fail without the fix. Spec:
+  `context/xlang-channel-abi.md` §9a.
 - **send_recv's default mode works whichever side starts first.** The Rust,
   Swift and Zig senders cleared the channel before connecting, which left an
   already running receiver with nothing; the channel is now cleared only by the

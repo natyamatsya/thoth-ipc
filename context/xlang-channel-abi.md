@@ -426,9 +426,11 @@ write cursor that its receiver read *before* it claimed the bit.
   same element. Instead, step 4 visits every element whose commit flag is
   committed (`f_ct_ >> 32 == 0xffffffff`, `pos = ~f_ct_`) with `pos` before
   `since` and this bit set in `rc_`. It CASes `rc_ = inc_rc(rc_) & ~bit` and, if
-  no mark remains, sets `f_ct_ = pos + 256` (released). A writer's claim that is
-  still uncommitted is skipped. In that rare case the writer still stalls a lap
-  later and `force_push` disconnects the receiver, as before 1.3.0.
+  no mark remains, sets `f_ct_ = pos + 256` (released). An element that carries
+  this bit but is not committed yet is a writer's claim in progress, with a
+  position not yet known. Writers never touch `rc_` between claim and commit, so
+  the receiver waits for its commit (at most 50 ms in total, since a writer that
+  died there blocks every reader anyway) and then handles it like the others.
 - **Older peers** never write `since` (the field reads 0) and do not filter or
   release. A 1.3.0 writer then counts their marks as it did before 1.3.0, so mixed
   versions interoperate and only lose the fix.
@@ -437,6 +439,9 @@ write cursor that its receiver read *before* it claimed the bit.
 `ChannelTest.ReceiverChurnNeverStallsWriters` tests and the Rust
 `*_receiver_churn_*` tests run 1000 connect → read 300 → disconnect rounds against
 streaming writers. They fail without the fix and require zero stalls and gaps.
+The C++ `ChannelRing.StaleMarkOnUncommittedClaimIsReleased` test holds a writer
+between claim and commit while a new receiver takes over the id. It then laps
+the ring and fails if the writer finds the leftover mark.
 
 ## 10. Sync primitives — mutex / condition payloads (Waiter, `IpcMutex`, `IpcCondition`)
 

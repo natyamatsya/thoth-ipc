@@ -11,9 +11,9 @@ Open items left after the Linux Zig port and the cross-language demo matrix
   count modes of msg_que, send_recv and chat, and the send_recv default-mode
   fixes. The macOS job of `.github/workflows/demos.yml` covers them.
 - [ ] **Swift connect-window fix.** The ABI 1.3.0 receiver connect (`since`,
-  adopt, stale-mark release) and the route writer's `since` filter in
-  `Liveness.swift` and `Channel.swift` have never been compiled or run. The
-  macOS xlang job covers them.
+  adopt, stale-mark release with its wait for a claim in progress) and the
+  route writer's `since` filter in `Liveness.swift` and `Channel.swift` have
+  never been compiled or run. The macOS xlang job covers them.
 - [ ] **The new CI.** `.github/workflows/demos.yml` and the Zig steps added to
   the Linux jobs of `.github/workflows/xlang.yml` have not run yet. On macOS the
   C++ audio services may be skipped if Apple clang lacks C++23 `<print>`
@@ -31,16 +31,6 @@ Open items left after the Linux Zig port and the cross-language demo matrix
   demo's heartbeat depends on them matching C++.
 - [ ] **rustfmt.** The Rust added in this work has not been through
   `cargo fmt` (no rustfmt in the toolchain used).
-
-## Known gaps
-
-- [ ] **Channel stale mark on an uncommitted claim.** The connect-window fix
-  (ABI 1.3.0, context/xlang-channel-abi.md §9a) has a connecting channel
-  receiver release the stale marks of its bit only on committed elements. If a
-  writer claimed an element with a stale mark of that bit and has not committed
-  it yet, the element is skipped and the writer can still stall one lap later,
-  until `force_push` disconnects the receiver. The churn tests have never hit
-  it.
 
 ## Port coverage (by design, for now)
 
