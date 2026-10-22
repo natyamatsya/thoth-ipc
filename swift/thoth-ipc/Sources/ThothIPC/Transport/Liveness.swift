@@ -21,6 +21,7 @@ import Atomics
 let livenessMaxSlots = 32
 let livenessSlotStride = ABI.liveness_slot_size        // sizeof(slot_owner) = 16
 let livenessPidOffset = ABI.liveness_slot_pid_off      // int32 @0
+let livenessSinceOffset = ABI.liveness_slot_since_off  // uint32 @4
 let livenessTokOffset = ABI.liveness_slot_start_tok_off // uint64 @8
 let livenessShmSizeBytes = livenessMaxSlots * livenessSlotStride  // 512
 
@@ -37,6 +38,10 @@ func livenessName(_ prefix: String, _ name: String) -> String {
 @inline(__always) func ownerTok(_ lv: UnsafeMutableRawPointer, _ idx: Int) -> UnsafeAtomic<UInt64> {
     UnsafeAtomic(at: lv.advanced(by: idx * livenessSlotStride + livenessTokOffset)
         .assumingMemoryBound(to: UnsafeAtomic<UInt64>.Storage.self))
+}
+@inline(__always) func ownerSince(_ lv: UnsafeMutableRawPointer, _ idx: Int) -> UnsafeAtomic<UInt32> {
+    UnsafeAtomic(at: lv.advanced(by: idx * livenessSlotStride + livenessSinceOffset)
+        .assumingMemoryBound(to: UnsafeAtomic<UInt32>.Storage.self))
 }
 
 @inline(__always) func selfPid() -> Int32 { getpid() }
@@ -88,6 +93,33 @@ func livenessSetOwner(_ lv: UnsafeMutableRawPointer, _ bit: UInt32) {
     // Token first, then pid with release: a reader that sees our pid sees the token.
     ownerTok(lv, idx).store(startToken(selfPid()), ordering: .relaxed)
     ownerPid(lv, idx).store(UInt32(bitPattern: selfPid()), ordering: .releasing)
+}
+
+/// Record where a broadcast receiver starts: the write cursor it read just before
+/// claiming `bit`. Every element it must read is at or after that position, so a
+/// mark of `bit` on an element from before it can only be a previous owner's
+/// leftover. Store it right after the claim (byte-exact with C++
+/// `liveness_set_since`); a writer that still sees the previous owner's value
+/// treats the mark as live and retries.
+func livenessSetSince(_ lv: UnsafeMutableRawPointer, _ bit: UInt32, _ since: UInt32) {
+    guard bit != 0 else { return }
+    ownerSince(lv, slotIndex(bit)).store(since, ordering: .releasing)
+}
+
+/// Of the marks `bits` found on the element that held position `pos`, those
+/// whose current receiver started at or before `pos` (C++ `liveness_live_marks`).
+/// The others were left by a receiver that has since disconnected, and must not
+/// hold up the writer.
+func livenessLiveMarks(_ lv: UnsafeMutableRawPointer, _ bits: UInt32, _ pos: UInt32) -> UInt32 {
+    var live: UInt32 = 0
+    var m = bits
+    while m != 0 {
+        let bit = m & (~m &+ 1)
+        m &= m &- 1
+        let since = ownerSince(lv, slotIndex(bit)).load(ordering: .acquiring)
+        if Int32(bitPattern: pos &- since) >= 0 { live |= bit } // pos at or after since (wrapping)
+    }
+    return live
 }
 
 /// Release ownership of a slot on clean disconnect.

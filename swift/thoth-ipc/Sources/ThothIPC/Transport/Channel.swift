@@ -100,6 +100,58 @@ let chIcIncr: UInt64 = ABI.chan_ic_incr   // internal read-generation increment 
     UnsafeAtomic(at: sb.advanced(by: channelElemFctOff).assumingMemoryBound(to: UnsafeAtomic<UInt64>.Storage.self))
 }
 
+/// Where a receiver that read `since` from the write cursor and then claimed
+/// `bit` starts reading (C++ `prod_cons_impl::adopt`): at the earliest element
+/// published since then that already carries its mark. The writer saw it
+/// connected, so the element is addressed to it, and an unread mark would hold
+/// the writer up when it laps back to the element.
+func adoptCursor(_ hdr: UnsafeMutablePointer<RingHeader>, _ ringBase: UnsafeMutableRawPointer,
+                 multi: Bool, since: UInt32, bit: UInt32) -> UInt32 {
+    let epoch = ua64(&hdr.pointee.epoch).load(ordering: .acquiring)
+    var cur = ua32(&hdr.pointee.writeCursor).load(ordering: .acquiring)
+    var n = 0
+    while cur != since && n < ringSize {
+        let idx = UInt8(truncatingIfNeeded: cur &- 1)
+        let sb = multi ? channelSlotBase(ringBase, idx) : slotBase(ringBase, idx)
+        let rc = slotRc(sb).load(ordering: .acquiring)
+        let mask = multi ? chEpMask : epMask
+        if rc & UInt64(bit) == 0 || (rc & ~mask) != epoch { break }
+        cur = cur &- 1
+        n += 1
+    }
+    return cur
+}
+
+/// Multi-writer channel only (C++ `release_stale`): a receiver that read `since`
+/// and then claimed `bit` drops the marks a previous owner of the bit left
+/// unread. Every slot addressed to this receiver is at or after `since`, so its
+/// bit on a committed slot from before is a leftover that would hold the writers
+/// up when they lap back to it. Does what that owner's recv would have: drop the
+/// mark, and release the slot if it was the last one. No writer can reuse such
+/// a slot meanwhile, since the (now connected) bit still marks it.
+func releaseStale(_ ringBase: UnsafeMutableRawPointer, since: UInt32, bit: UInt32) {
+    for idx in 0..<ringSize {
+        let sb = channelSlotBase(ringBase, UInt8(idx))
+        let curFl = slotFct(sb).load(ordering: .acquiring)
+        // Committed slots hold ~position (the upper half all ones).
+        guard curFl >> 32 == 0xffff_ffff else { continue }
+        let pos = UInt32(truncatingIfNeeded: ~curFl)
+        guard Int32(bitPattern: pos &- since) < 0 else { continue } // ours to read
+        var curRc = slotRc(sb).load(ordering: .acquiring)
+        while curRc & UInt64(bit) != 0 {
+            let nxt = incRc(curRc) & ~UInt64(bit)
+            let (ok, actual) = slotRc(sb).weakCompareExchange(
+                expected: curRc, desired: nxt, successOrdering: .releasing, failureOrdering: .acquiring)
+            if ok {
+                // Release as recv does: f_ct_ = the next lap's ct.
+                if nxt & chRcMask == 0 { slotFct(sb).store(UInt64(pos) &+ UInt64(ringSize), ordering: .releasing) }
+                break
+            }
+            curRc = actual
+        }
+    }
+}
+
 // Ring header — byte-exact with the C++ elem_array head (conn_head_base + the
 // cache-line-aligned prod_cons head_). See context/xlang-channel-abi.md.
 //   0 connections  @0   == C++ conn_head_base::cc_
@@ -275,6 +327,10 @@ final class ChanInner: @unchecked Sendable {
             reapDeadReceivers(lv, liveMask) { bit in
                 _ = ua32(&hdr.pointee.connections).loadThenBitwiseAnd(with: ~bit, ordering: .acquiringAndReleasing)
             }
+            // Read the cursor before claiming a bit: whatever a writer pushes after
+            // seeing the bit is addressed to this receiver, and adoptCursor()
+            // starts it at the first such element.
+            let since = ua32(&hdr.pointee.writeCursor).load(ordering: .acquiring)
             var k: UInt32 = 0
             while true {
                 let curr = ua32(&hdr.pointee.connections).load(ordering: .acquiring)
@@ -285,8 +341,14 @@ final class ChanInner: @unchecked Sendable {
                 if exchanged { connId = next ^ curr; break }
                 await adaptiveYield(&k)
             }
+            // Record where this receiver starts, so writers can tell a previous
+            // owner's leftover mark from one of ours, drop what a previous owner
+            // of the bit left unread (channel), then start at the first element
+            // already addressed to us.
+            livenessSetSince(lv, connId, since)
+            if multi { releaseStale(ringShm.ptr, since: since, bit: connId) }
+            readCursor = adoptCursor(hdr, ringShm.ptr, multi: multi, since: since, bit: connId)
             livenessSetOwner(lv, connId)
-            readCursor = ua32(&hdr.pointee.writeCursor).load(ordering: .acquiring)
             try? ccWaiter.broadcast()
         }
 
@@ -339,6 +401,10 @@ final class ChanInner: @unchecked Sendable {
             reapDeadReceivers(lv, liveMask) { bit in
                 _ = ua32(&hdr.pointee.connections).loadThenBitwiseAnd(with: ~bit, ordering: .acquiringAndReleasing)
             }
+            // Read the cursor before claiming a bit: whatever a writer pushes after
+            // seeing the bit is addressed to this receiver, and adoptCursor()
+            // starts it at the first such element.
+            let since = ua32(&hdr.pointee.writeCursor).load(ordering: .acquiring)
             var k: UInt32 = 0
             while true {
                 let curr = ua32(&hdr.pointee.connections).load(ordering: .acquiring)
@@ -351,8 +417,14 @@ final class ChanInner: @unchecked Sendable {
                     var ts = timespec(tv_sec: 0, tv_nsec: 1_000_000); nanosleep(&ts, nil)
                 }
             }
+            // Record where this receiver starts, so writers can tell a previous
+            // owner's leftover mark from one of ours, drop what a previous owner
+            // of the bit left unread (channel), then start at the first element
+            // already addressed to us.
+            livenessSetSince(lv, connId, since)
+            if multi { releaseStale(ringShm.ptr, since: since, bit: connId) }
+            readCursor = adoptCursor(hdr, ringShm.ptr, multi: multi, since: since, bit: connId)
             livenessSetOwner(lv, connId)
-            readCursor = ua32(&hdr.pointee.writeCursor).load(ordering: .acquiring)
             try? ccWaiter.broadcast()
         }
 
@@ -505,16 +577,22 @@ extension ChanInner {
             let sb = slotBase(ringBase, UInt8(wt & 0xFF))
             let curRc = slotRc(sb).load(ordering: .acquiring)
             let remCc = curRc & epMask
-            if (cc & remCc) != 0 && (curRc & ~epMask) == epoch {
+            // (A mark from before its receiver started is a previous owner's
+            // leftover: only marks of receivers that started by then count.)
+            let lv = livenessShm.ptr
+            let prev = wt &- UInt32(ringSize)
+            let live = { (bits: UInt64) -> UInt64 in UInt64(livenessLiveMarks(lv, UInt32(truncatingIfNeeded: bits), prev)) }
+            if (cc & remCc) != 0 && (curRc & ~epMask) == epoch && live(cc & remCc) != 0 {
                 let ok = try waitFor(waiter: wtWaiter, pred: {
                     let s = slotBase(ringBase, UInt8(wt & 0xFF))
                     let rc = slotRc(s).load(ordering: .acquiring)
                     let ep = ua64(&hdr.pointee.epoch).load(ordering: .relaxed)
-                    return (cc & (rc & epMask)) != 0 && (rc & ~epMask) == ep
+                    return (cc & (rc & epMask)) != 0 && (rc & ~epMask) == ep && live(cc & (rc & epMask)) != 0
                 }, timeout: timeout)
                 if ok { continue claimLoop }
                 _ = ua64(&hdr.pointee.epoch).loadThenWrappingIncrement(by: epIncr, ordering: .acquiringAndReleasing)
-                let rem2 = slotRc(sb).load(ordering: .acquiring) & epMask
+                // (Not a previous owner's leftover mark: that is no wedged reader.)
+                let rem2 = live(slotRc(sb).load(ordering: .acquiring) & epMask & cc)
                 if rem2 != 0 {
                     let mask = ~UInt32(truncatingIfNeeded: rem2)
                     let newCc = ua32(&hdr.pointee.connections).loadThenBitwiseAnd(with: mask, ordering: .acquiringAndReleasing) & mask
