@@ -83,7 +83,8 @@ mod apple {
     const UL_COMPARE_AND_WAIT_SHARED: u32 = 3;
 
     extern "C" {
-        fn __ulock_wait(operation: u32, addr: *mut u32, value: u64, timeout_us: u32) -> libc::c_int;
+        fn __ulock_wait(operation: u32, addr: *mut u32, value: u64, timeout_us: u32)
+            -> libc::c_int;
         fn __ulock_wake(operation: u32, addr: *mut u32, wake_value: u64) -> libc::c_int;
     }
 
@@ -222,7 +223,11 @@ impl PosixSemaphore {
         let c_name = std::ffi::CString::new(posix_name.as_bytes())
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
-        let refs = crate::platform::PlatformShm::acquire(name, 1, crate::platform::posix::ShmMode::CreateOrOpen)?;
+        let refs = crate::platform::PlatformShm::acquire(
+            name,
+            1,
+            crate::platform::posix::ShmMode::CreateOrOpen,
+        )?;
         let h = unsafe {
             libc::sem_open(
                 c_name.as_ptr(),

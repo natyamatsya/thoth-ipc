@@ -119,7 +119,7 @@ fn clear_storage_orphans_shared_node() {
     // Dropping the orphaned sibling E must not corrupt F's (newer) entry.
     drop(e);
     let g = IpcMutex::open(&name).expect("open G"); // must share F's segment
-    // F holds the lock -> G contended proves G joined F, not a third segment.
+                                                    // F holds the lock -> G contended proves G joined F, not a third segment.
     f.unlock().expect("F unlock before shared check");
     assert!(f.try_lock().expect("F relock"));
     assert!(!g.try_lock().expect("G try_lock contended")); // G shares F

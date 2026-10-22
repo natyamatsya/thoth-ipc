@@ -47,7 +47,9 @@ fn parse(args: &[String], i: usize, default: usize) -> usize {
 /// The single reader: drains `total` messages from every producer and tallies.
 fn collect(total: usize) {
     let mut ch = Channel::connect(CHANNEL, Mode::Receiver).expect("connect receiver");
-    println!("[collector] ready on '{CHANNEL}', expecting {total} messages from any number of producers");
+    println!(
+        "[collector] ready on '{CHANNEL}', expecting {total} messages from any number of producers"
+    );
 
     let mut tally: BTreeMap<String, usize> = BTreeMap::new();
     let mut got = 0usize;
@@ -65,7 +67,10 @@ fn collect(total: usize) {
         println!("[collector] {got:>4}/{total}  {msg}");
     }
 
-    println!("\n[collector] summary — {got} messages from {} producer(s):", tally.len());
+    println!(
+        "\n[collector] summary — {got} messages from {} producer(s):",
+        tally.len()
+    );
     for (p, n) in &tally {
         println!("    {p:<16} {n}");
     }

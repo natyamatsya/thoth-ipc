@@ -22,7 +22,7 @@ use thoth_ipc::{ShmHandle, ShmOpenMode};
 // Audio block — must match the host layout exactly.
 // ---------------------------------------------------------------------------
 
-const MAX_FRAMES: usize   = 1024;
+const MAX_FRAMES: usize = 1024;
 const MAX_CHANNELS: usize = 2;
 
 /// Cleared by SIGINT/SIGTERM to leave the render loop.
@@ -31,12 +31,12 @@ static RUNNING: AtomicBool = AtomicBool::new(true);
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct AudioBlock {
-    sequence:    u64,
+    sequence: u64,
     sample_rate: u32,
-    channels:    u32,
-    frames:      u32,
-    _pad:        u32,
-    samples:     [f32; MAX_FRAMES * MAX_CHANNELS],
+    channels: u32,
+    frames: u32,
+    _pad: u32,
+    samples: [f32; MAX_FRAMES * MAX_CHANNELS],
 }
 
 impl Default for AudioBlock {
@@ -52,18 +52,18 @@ impl Default for AudioBlock {
 
 #[repr(C)]
 struct SharedState {
-    heartbeat_ns:      AtomicU64,
-    sample_rate:       AtomicU32,
-    channels:          AtomicU32,
+    heartbeat_ns: AtomicU64,
+    sample_rate: AtomicU32,
+    channels: AtomicU32,
     frames_per_buffer: AtomicU32,
-    stream_active:     AtomicBool,
-    _pad0:             [u8; 3],
-    gain:              AtomicU32, // f32 bits
-    pan:               AtomicU32, // f32 bits
-    blocks_produced:   AtomicU64,
-    blocks_consumed:   AtomicU64,
-    underruns:         AtomicU64,
-    overruns:          AtomicU64,
+    stream_active: AtomicBool,
+    _pad0: [u8; 3],
+    gain: AtomicU32, // f32 bits
+    pan: AtomicU32,  // f32 bits
+    blocks_produced: AtomicU64,
+    blocks_consumed: AtomicU64,
+    underruns: AtomicU64,
+    overruns: AtomicU64,
 }
 
 fn f32_load(a: &AtomicU32) -> f32 {
@@ -81,13 +81,13 @@ fn now_ns() -> u64 {
 // ---------------------------------------------------------------------------
 
 fn render_audio(blk: &mut AudioBlock, seq: u64, state: &SharedState) {
-    blk.sequence    = seq;
+    blk.sequence = seq;
     blk.sample_rate = state.sample_rate.load(Ordering::Relaxed);
-    blk.channels    = state.channels.load(Ordering::Relaxed);
-    blk.frames      = state.frames_per_buffer.load(Ordering::Relaxed);
+    blk.channels = state.channels.load(Ordering::Relaxed);
+    blk.frames = state.frames_per_buffer.load(Ordering::Relaxed);
 
-    let gain  = f32_load(&state.gain);
-    let pan   = f32_load(&state.pan);
+    let gain = f32_load(&state.gain);
+    let pan = f32_load(&state.pan);
     let l_gain = gain * (1.0 - pan) * 0.5;
     let r_gain = gain * (1.0 + pan) * 0.5;
 
@@ -98,8 +98,12 @@ fn render_audio(blk: &mut AudioBlock, seq: u64, state: &SharedState) {
     for f in 0..blk.frames as usize {
         let t = (seq as f32 * blk.frames as f32 + f as f32) / sr;
         let s = (two_pi * freq * t).sin();
-        if blk.channels >= 1 { blk.samples[f * blk.channels as usize]     = s * l_gain; }
-        if blk.channels >= 2 { blk.samples[f * blk.channels as usize + 1] = s * r_gain; }
+        if blk.channels >= 1 {
+            blk.samples[f * blk.channels as usize] = s * l_gain;
+        }
+        if blk.channels >= 2 {
+            blk.samples[f * blk.channels as usize + 1] = s * r_gain;
+        }
     }
 }
 
@@ -111,12 +115,21 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let instance_id = args.get(1).map(|s| s.as_str()).unwrap_or("");
 
-    let svc_name   = if instance_id.is_empty() { "rt_audio".to_string() }
-                     else { format!("rt_audio.{instance_id}") };
-    let ring_name  = if instance_id.is_empty() { "rt_audio_ring".to_string() }
-                     else { format!("rt_audio_ring_{instance_id}") };
-    let state_name = if instance_id.is_empty() { "rt_audio_state".to_string() }
-                     else { format!("rt_audio_state_{instance_id}") };
+    let svc_name = if instance_id.is_empty() {
+        "rt_audio".to_string()
+    } else {
+        format!("rt_audio.{instance_id}")
+    };
+    let ring_name = if instance_id.is_empty() {
+        "rt_audio_ring".to_string()
+    } else {
+        format!("rt_audio_ring_{instance_id}")
+    };
+    let state_name = if instance_id.is_empty() {
+        "rt_audio_state".to_string()
+    } else {
+        format!("rt_audio_state_{instance_id}")
+    };
 
     // Open shared state SHM.
     let state_shm = ShmHandle::acquire(
@@ -135,7 +148,10 @@ fn main() {
     let registry = ServiceRegistry::open("audio_rt").expect("registry");
     registry.register_service(&svc_name, &ring_name, &state_name);
 
-    println!("rt_service[{svc_name}]: starting (pid={})...", std::process::id());
+    println!(
+        "rt_service[{svc_name}]: starting (pid={})...",
+        std::process::id()
+    );
     println!("rt_service[{svc_name}]: registered (ring={ring_name} state={state_name})");
 
     // Set real-time thread priority (best-effort).
@@ -153,7 +169,7 @@ fn main() {
         extern "C" fn on_signal(_: libc::c_int) {
             RUNNING.store(false, Ordering::Relaxed);
         }
-        libc::signal(libc::SIGINT,  on_signal as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGINT, on_signal as *const () as libc::sighandler_t);
         libc::signal(libc::SIGTERM, on_signal as *const () as libc::sighandler_t);
     }
 
@@ -169,7 +185,7 @@ fn main() {
             continue;
         }
 
-        let sr  = state.sample_rate.load(Ordering::Relaxed);
+        let sr = state.sample_rate.load(Ordering::Relaxed);
         let fpb = state.frames_per_buffer.load(Ordering::Relaxed);
         if sr == 0 || fpb == 0 {
             std::thread::sleep(Duration::from_millis(1));

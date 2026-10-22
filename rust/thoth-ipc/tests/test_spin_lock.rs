@@ -130,7 +130,10 @@ fn concurrent_access() {
         h.join().unwrap();
     }
 
-    assert_eq!(shared_data.load(Ordering::Relaxed), num_threads * ops_per_thread);
+    assert_eq!(
+        shared_data.load(Ordering::Relaxed),
+        num_threads * ops_per_thread
+    );
 }
 
 // Port of SpinLockTest.RapidLockUnlock

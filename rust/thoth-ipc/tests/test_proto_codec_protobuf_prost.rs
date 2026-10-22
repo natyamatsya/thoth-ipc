@@ -6,11 +6,13 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
+use prost::Message as ProstMessage;
 use thoth_ipc::buffer::IpcBuffer;
 use thoth_ipc::channel::Mode;
 use thoth_ipc::proto::codec::Codec;
-use thoth_ipc::proto::{ProtobufBuilder, ProtobufCodec, ProtobufMessage, ProtobufWireMessage, TypedRouteCodec};
-use prost::Message as ProstMessage;
+use thoth_ipc::proto::{
+    ProtobufBuilder, ProtobufCodec, ProtobufMessage, ProtobufWireMessage, TypedRouteCodec,
+};
 
 #[derive(Clone, PartialEq, prost::Message)]
 struct ProstFake {
@@ -50,7 +52,9 @@ fn typed_route_round_trip_with_prost_codec() {
     let sender_name = name.clone();
     let sender = thread::spawn(move || {
         let mut tx = ProstRoute::connect(&sender_name, Mode::Sender).expect("sender connect");
-        tx.raw().wait_for_recv(1, Some(1000)).expect("wait receiver");
+        tx.raw()
+            .wait_for_recv(1, Some(1000))
+            .expect("wait receiver");
 
         let builder = ProtobufBuilder::<ProstFake>::from_message(&ProstFake { value: 77 });
         tx.send_builder(&builder, 2000).expect("send");

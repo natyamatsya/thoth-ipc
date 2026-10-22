@@ -112,7 +112,11 @@ fn wait_timeout() {
     let elapsed = start.elapsed();
 
     assert!(!waited, "should timeout");
-    assert!(elapsed.as_millis() >= 40, "should have waited ~50ms, got {}ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() >= 40,
+        "should have waited ~50ms, got {}ms",
+        elapsed.as_millis()
+    );
 }
 
 // Port of SemaphoreTest.InfiniteWait
@@ -225,8 +229,14 @@ fn multiple_producers_consumers() {
         h.join().unwrap();
     }
 
-    assert_eq!(total_produced.load(Ordering::Relaxed), items_per * num_producers);
-    assert_eq!(total_consumed.load(Ordering::Relaxed), items_per * num_producers);
+    assert_eq!(
+        total_produced.load(Ordering::Relaxed),
+        items_per * num_producers
+    );
+    assert_eq!(
+        total_consumed.load(Ordering::Relaxed),
+        items_per * num_producers
+    );
 }
 
 // Port of SemaphoreTest.InitialCount
@@ -297,7 +307,10 @@ fn concurrent_post() {
         h.join().unwrap();
     }
 
-    assert_eq!(post_count.load(Ordering::Relaxed), threads * posts_per_thread);
+    assert_eq!(
+        post_count.load(Ordering::Relaxed),
+        threads * posts_per_thread
+    );
 
     // Verify by consuming
     let mut consumed = 0;
@@ -409,7 +422,10 @@ fn close_keeps_semaphore_for_other_handles() {
     let late = IpcSemaphore::open(&name, 0).expect("open late");
 
     second.post(1).expect("post");
-    assert!(late.wait(Some(500)).expect("wait"), "late opener got a different semaphore");
+    assert!(
+        late.wait(Some(500)).expect("wait"),
+        "late opener got a different semaphore"
+    );
 
     drop(second);
     drop(late);

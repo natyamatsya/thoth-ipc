@@ -31,8 +31,6 @@ Open items left after the Linux Zig port and the cross-language demo matrix
   libc++'s `steady_clock`) and the Windows path (QueryPerformanceCounter,
   scaled as MSVC's `steady_clock` does) are untested; the realtime audio
   demo's heartbeat depends on them matching C++.
-- [ ] **rustfmt.** The Rust added in this work has not been through
-  `cargo fmt` (no rustfmt in the toolchain used).
 
 ## Port coverage (by design, for now)
 

@@ -13,8 +13,8 @@ fn shm_create_write_read() {
     // Clean up any leftover from a previous run
     ShmHandle::unlink_by_name(name);
 
-    let shm = ShmHandle::acquire(name, 4096, ShmOpenMode::CreateOrOpen)
-        .expect("failed to acquire shm");
+    let shm =
+        ShmHandle::acquire(name, 4096, ShmOpenMode::CreateOrOpen).expect("failed to acquire shm");
 
     assert!(shm.mapped_size() >= 4096);
     assert!(shm.ref_count() >= 1);
@@ -26,8 +26,7 @@ fn shm_create_write_read() {
     }
 
     // Read it back
-    let read_back =
-        unsafe { std::slice::from_raw_parts(shm.as_ptr(), data.len()) };
+    let read_back = unsafe { std::slice::from_raw_parts(shm.as_ptr(), data.len()) };
     assert_eq!(read_back, data);
 
     drop(shm);
@@ -38,12 +37,10 @@ fn shm_ref_counting() {
     let name = "test_rs_shm_ref";
     ShmHandle::unlink_by_name(name);
 
-    let shm1 = ShmHandle::acquire(name, 1024, ShmOpenMode::CreateOrOpen)
-        .expect("acquire 1");
+    let shm1 = ShmHandle::acquire(name, 1024, ShmOpenMode::CreateOrOpen).expect("acquire 1");
     assert_eq!(shm1.ref_count(), 1);
 
-    let shm2 = ShmHandle::acquire(name, 1024, ShmOpenMode::CreateOrOpen)
-        .expect("acquire 2");
+    let shm2 = ShmHandle::acquire(name, 1024, ShmOpenMode::CreateOrOpen).expect("acquire 2");
     assert_eq!(shm2.ref_count(), 2);
     assert_eq!(shm1.ref_count(), 2);
 
@@ -70,8 +67,7 @@ fn scoped_access_write_read() {
     ShmHandle::unlink_by_name(shm_name);
     IpcMutex::clear_storage(mtx_name);
 
-    let shm = ShmHandle::acquire(shm_name, 4096, ShmOpenMode::CreateOrOpen)
-        .expect("acquire shm");
+    let shm = ShmHandle::acquire(shm_name, 4096, ShmOpenMode::CreateOrOpen).expect("acquire shm");
     let mtx = IpcMutex::open(mtx_name).expect("open mutex");
 
     {

@@ -36,7 +36,9 @@ fn bench_route(n_receivers: usize, count: usize, msg_lo: usize, msg_hi: usize) -
     let mut sizes = Vec::with_capacity(count);
     let mut rng_state: u64 = 42;
     for _ in 0..count {
-        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng_state = rng_state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let s = msg_lo + (rng_state >> 32) as usize % (msg_hi - msg_lo + 1);
         sizes.push(s);
     }
@@ -97,8 +99,16 @@ fn bench_route(n_receivers: usize, count: usize, msg_lo: usize, msg_hi: usize) -
 fn bench_channel(pattern: &str, n: usize, count: usize, msg_lo: usize, msg_hi: usize) -> Stats {
     let name = "bench_chan";
 
-    let n_senders = if pattern == "N-1" || pattern == "N-N" { n } else { 1 };
-    let n_receivers = if pattern == "1-N" || pattern == "N-N" { n } else { 1 };
+    let n_senders = if pattern == "N-1" || pattern == "N-N" {
+        n
+    } else {
+        1
+    };
+    let n_receivers = if pattern == "1-N" || pattern == "N-N" {
+        n
+    } else {
+        1
+    };
 
     let per_sender = count / n_senders;
 
@@ -106,7 +116,9 @@ fn bench_channel(pattern: &str, n: usize, count: usize, msg_lo: usize, msg_hi: u
     let mut sizes = Vec::with_capacity(count);
     let mut rng_state: u64 = 42;
     for _ in 0..count {
-        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng_state = rng_state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let s = msg_lo + (rng_state >> 32) as usize % (msg_hi - msg_lo + 1);
         sizes.push(s);
     }
@@ -193,53 +205,97 @@ fn main() {
     } else {
         "Unknown"
     };
-    println!("Platform: {}, {} hardware threads\n", os, std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1));
+    println!(
+        "Platform: {}, {} hardware threads\n",
+        os,
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+    );
 
     // -----------------------------------------------------------------------
     print_header("thoth::route — 1 sender, N receivers (random 2-256 bytes x 100000)");
-    println!("{:>10}  {:>12}  {:>12}", "Receivers", "RTT (ms)", "us/datum");
-    println!("{:>10}  {:>12}  {:>12}", "----------", "----------", "----------");
+    println!(
+        "{:>10}  {:>12}  {:>12}",
+        "Receivers", "RTT (ms)", "us/datum"
+    );
+    println!(
+        "{:>10}  {:>12}  {:>12}",
+        "----------", "----------", "----------"
+    );
 
     let mut n = 1;
     while n <= max_threads {
         let s = bench_route(n, 100000, 2, 256);
-        println!("{:>10}  {:>12.2}  {:>12.3}", n, s.total_ms, s.us_per_datum());
+        println!(
+            "{:>10}  {:>12.2}  {:>12.3}",
+            n,
+            s.total_ms,
+            s.us_per_datum()
+        );
         n *= 2;
     }
 
     // -----------------------------------------------------------------------
     print_header("thoth::channel — 1-N (random 2-256 bytes x 100000)");
-    println!("{:>10}  {:>12}  {:>12}", "Receivers", "RTT (ms)", "us/datum");
-    println!("{:>10}  {:>12}  {:>12}", "----------", "----------", "----------");
+    println!(
+        "{:>10}  {:>12}  {:>12}",
+        "Receivers", "RTT (ms)", "us/datum"
+    );
+    println!(
+        "{:>10}  {:>12}  {:>12}",
+        "----------", "----------", "----------"
+    );
 
     let mut n = 1;
     while n <= max_threads {
         let s = bench_channel("1-N", n, 100000, 2, 256);
-        println!("{:>10}  {:>12.2}  {:>12.3}", n, s.total_ms, s.us_per_datum());
+        println!(
+            "{:>10}  {:>12.2}  {:>12.3}",
+            n,
+            s.total_ms,
+            s.us_per_datum()
+        );
         n *= 2;
     }
 
     // -----------------------------------------------------------------------
     print_header("thoth::channel — N-1 (random 2-256 bytes x 100000)");
     println!("{:>10}  {:>12}  {:>12}", "Senders", "RTT (ms)", "us/datum");
-    println!("{:>10}  {:>12}  {:>12}", "----------", "----------", "----------");
+    println!(
+        "{:>10}  {:>12}  {:>12}",
+        "----------", "----------", "----------"
+    );
 
     let mut n = 1;
     while n <= max_threads {
         let s = bench_channel("N-1", n, 100000, 2, 256);
-        println!("{:>10}  {:>12.2}  {:>12.3}", n, s.total_ms, s.us_per_datum());
+        println!(
+            "{:>10}  {:>12.2}  {:>12.3}",
+            n,
+            s.total_ms,
+            s.us_per_datum()
+        );
         n *= 2;
     }
 
     // -----------------------------------------------------------------------
     print_header("thoth::channel — N-N (random 2-256 bytes x 100000)");
     println!("{:>10}  {:>12}  {:>12}", "Threads", "RTT (ms)", "us/datum");
-    println!("{:>10}  {:>12}  {:>12}", "----------", "----------", "----------");
+    println!(
+        "{:>10}  {:>12}  {:>12}",
+        "----------", "----------", "----------"
+    );
 
     let mut n = 1;
     while n <= max_threads {
         let s = bench_channel("N-N", n, 100000, 2, 256);
-        println!("{:>10}  {:>12.2}  {:>12.3}", n, s.total_ms, s.us_per_datum());
+        println!(
+            "{:>10}  {:>12.2}  {:>12.3}",
+            n,
+            s.total_ms,
+            s.us_per_datum()
+        );
         n *= 2;
     }
 

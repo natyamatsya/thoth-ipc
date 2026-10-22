@@ -24,7 +24,10 @@ fn async_route_wakes_on_notified_send() {
     rt.block_on(async {
         // Receiver first so the sender's wait_for_recv succeeds.
         let mut ar = AsyncRoute::connect(&name).expect("async connect");
-        assert!(ar.route().native_wait_handle() >= 0, "expected a readiness fd");
+        assert!(
+            ar.route().native_wait_handle() >= 0,
+            "expected a readiness fd"
+        );
 
         let sender_name = name.clone();
         let sender = std::thread::spawn(move || {

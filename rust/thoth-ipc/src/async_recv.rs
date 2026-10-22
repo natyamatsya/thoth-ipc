@@ -182,7 +182,11 @@ impl AsyncRoute {
         }
         let notify = std::sync::Arc::new(tokio::sync::Notify::new());
         let wait = win::WinWait::register(h, &notify)?;
-        Ok(Self { wait, notify, route })
+        Ok(Self {
+            wait,
+            notify,
+            route,
+        })
     }
 
     /// Connect as a receiver on `name` and wrap it for async receive.

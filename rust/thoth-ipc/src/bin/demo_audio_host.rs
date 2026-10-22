@@ -73,7 +73,8 @@ fn send_and_recv(
         }
         ReplyPayload::ParamValue => {
             if let Some(pv) = r.payload_as_param_value() {
-                println!("host:   param {} = {:.6}", pv.param_id().0, pv.value()); // as the C++ host
+                println!("host:   param {} = {:.6}", pv.param_id().0, pv.value());
+                // as the C++ host
             }
         }
         _ => {}

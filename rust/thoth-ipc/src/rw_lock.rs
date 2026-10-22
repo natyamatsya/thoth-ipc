@@ -24,8 +24,8 @@ fn adaptive_yield(k: &mut u32) {
     *k += 1;
 }
 
-const W_MASK: u32 = i32::MAX as u32;   // 0x7FFF_FFFF — reader count mask
-const W_FLAG: u32 = W_MASK + 1;        // 0x8000_0000 — writer flag
+const W_MASK: u32 = i32::MAX as u32; // 0x7FFF_FFFF — reader count mask
+const W_FLAG: u32 = W_MASK + 1; // 0x8000_0000 — writer flag
 
 /// A single-word atomic read-write lock.
 ///
@@ -40,7 +40,9 @@ pub struct RwLock {
 impl RwLock {
     /// Create a new unlocked read-write lock.
     pub const fn new() -> Self {
-        Self { lc: AtomicU32::new(0) }
+        Self {
+            lc: AtomicU32::new(0),
+        }
     }
 
     /// Acquire an exclusive (write) lock.

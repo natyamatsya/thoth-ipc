@@ -90,7 +90,9 @@ fn expand(template: &str, ctx: &Ctx, escape: bool) -> Result<String, String> {
                 "lang" => ctx.lang.to_string(),
                 "each" => ctx
                     .each
-                    .ok_or_else(|| format!("{{each}} outside a for_each_language expectation in '{template}'"))?
+                    .ok_or_else(|| {
+                        format!("{{each}} outside a for_each_language expectation in '{template}'")
+                    })?
                     .to_string(),
                 _ => return Err(format!("unknown placeholder {{{key}}} in '{template}'")),
             },
@@ -127,7 +129,12 @@ fn compile(pattern: &str) -> Result<Regex, String> {
 }
 
 /// The binary `bin` of `lang` for `demo`, if the language dir is set and ships it.
-fn resolve_bin(dirs: &BTreeMap<String, PathBuf>, demo: &Demo, bin: &str, lang: &str) -> Option<PathBuf> {
+fn resolve_bin(
+    dirs: &BTreeMap<String, PathBuf>,
+    demo: &Demo,
+    bin: &str,
+    lang: &str,
+) -> Option<PathBuf> {
     let file = demo.bins.get(bin)?.get(lang)?;
     let path = dirs.get(lang)?.join(file);
     is_executable(&path).then_some(path)
@@ -208,13 +215,21 @@ pub fn plan(file: &DemoFile, filter: &[String]) -> Result<DemoPlan, String> {
                 if !bins.iter().any(|bin| demo.bins[*bin].contains_key(lang)) {
                     continue; // no port of this role in that language
                 }
-                let missing: Vec<&String> =
-                    bins.iter().copied().filter(|bin| resolve_bin(&dirs, demo, bin, lang).is_none()).collect();
+                let missing: Vec<&String> = bins
+                    .iter()
+                    .copied()
+                    .filter(|bin| resolve_bin(&dirs, demo, bin, lang).is_none())
+                    .collect();
                 if missing.is_empty() {
                     ok.push(lang.clone());
                 } else {
                     let all = skipped.entry(lang).or_default();
-                    all.extend(missing.into_iter().filter(|m| !all.contains(m)).collect::<Vec<_>>());
+                    all.extend(
+                        missing
+                            .into_iter()
+                            .filter(|m| !all.contains(m))
+                            .collect::<Vec<_>>(),
+                    );
                 }
             }
             group_langs.insert(*slot, ok);
@@ -225,7 +240,11 @@ pub fn plan(file: &DemoFile, filter: &[String]) -> Result<DemoPlan, String> {
                 lang: (*lang).clone(),
                 reason: format!(
                     "skipped: binary {} not built",
-                    missing.iter().map(|m| m.as_str()).collect::<Vec<_>>().join(", ")
+                    missing
+                        .iter()
+                        .map(|m| m.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ),
             });
         }
@@ -254,9 +273,16 @@ pub fn plan(file: &DemoFile, filter: &[String]) -> Result<DemoPlan, String> {
         }
         let each_langs: &[String] = group_langs.get(&None).map(Vec::as_slice).unwrap_or(&[]);
         let fan_in = demo.procs.iter().filter(|p| p.each_language).count() * each_langs.len();
-        let total = if fan_in > 0 { demo.count * fan_in } else { demo.count };
+        let total = if fan_in > 0 {
+            demo.count * fan_in
+        } else {
+            demo.count
+        };
         let paths = |bin: &str, lang: &str| resolve_bin(&dirs, demo, bin, lang);
-        let slot_langs: Vec<&[String]> = slots.iter().map(|s| group_langs[&Some(s)].as_slice()).collect();
+        let slot_langs: Vec<&[String]> = slots
+            .iter()
+            .map(|s| group_langs[&Some(s)].as_slice())
+            .collect();
 
         for (i, assign) in product(&slots, &slot_langs).into_iter().enumerate() {
             let ch_prefix = format!("dm{}_{name}_{i}_", std::process::id());
@@ -274,27 +300,41 @@ pub fn plan(file: &DemoFile, filter: &[String]) -> Result<DemoPlan, String> {
                     None => each_langs.iter().collect(),
                 };
                 for (index, lang) in run_langs.into_iter().enumerate() {
-                    procs.push(case_proc(spec, demo, &dirs, lang, each_langs, &Ctx {
-                        count: demo.count,
-                        total,
-                        fanin: fan_in,
-                        index,
-                        lang,
-                        slots: &assign,
-                        ch_prefix: &ch_prefix,
-                        each: None,
-                        paths: &paths,
-                    })
-                    .map_err(|e| format!("demo '{name}': {e}"))?);
+                    procs.push(
+                        case_proc(
+                            spec,
+                            demo,
+                            &dirs,
+                            lang,
+                            each_langs,
+                            &Ctx {
+                                count: demo.count,
+                                total,
+                                fanin: fan_in,
+                                index,
+                                lang,
+                                slots: &assign,
+                                ch_prefix: &ch_prefix,
+                                each: None,
+                                paths: &paths,
+                            },
+                        )
+                        .map_err(|e| format!("demo '{name}': {e}"))?,
+                    );
                 }
             }
             // The clear verb runs with the main binary of the first language in
             // the case that has one.
             let clear = (!demo.clear.is_empty())
                 .then(|| {
-                    slots.iter().map(|s| &assign[s]).chain(each_langs).find_map(|lang| {
-                        resolve_bin(&dirs, demo, "main", lang).map(|bin| (bin, demo.clear.clone()))
-                    })
+                    slots
+                        .iter()
+                        .map(|s| &assign[s])
+                        .chain(each_langs)
+                        .find_map(|lang| {
+                            resolve_bin(&dirs, demo, "main", lang)
+                                .map(|bin| (bin, demo.clear.clone()))
+                        })
                 })
                 .flatten();
             cases.push(DemoCase {
@@ -307,7 +347,11 @@ pub fn plan(file: &DemoFile, filter: &[String]) -> Result<DemoPlan, String> {
             });
         }
     }
-    Ok(DemoPlan { cases, notes, coverage })
+    Ok(DemoPlan {
+        cases,
+        notes,
+        coverage,
+    })
 }
 
 fn case_proc(
@@ -326,7 +370,11 @@ fn case_proc(
         .iter()
         .map(|a| expand(a, &ctx, false))
         .collect::<Result<Vec<_>, _>>()?;
-    let ready = spec.ready.as_deref().map(|r| expand(r, &ctx, true).and_then(|p| compile(&p))).transpose()?;
+    let ready = spec
+        .ready
+        .as_deref()
+        .map(|r| expand(r, &ctx, true).and_then(|p| compile(&p)))
+        .transpose()?;
     let mut expect = Vec::new();
     for e in &spec.expect {
         let each: Vec<Option<&str>> = if e.for_each_language {
@@ -341,10 +389,14 @@ fn case_proc(
                 .as_deref()
                 .map(|c| {
                     let c = expand(c, &ctx, false)?;
-                    c.parse::<usize>().map_err(|_| format!("count '{c}' is not a number"))
+                    c.parse::<usize>()
+                        .map_err(|_| format!("count '{c}' is not a number"))
                 })
                 .transpose()?;
-            expect.push(LineExpect { pattern: compile(&expand(&e.line, &ctx, true)?)?, count });
+            expect.push(LineExpect {
+                pattern: compile(&expand(&e.line, &ctx, true)?)?,
+                count,
+            });
         }
     }
     Ok(CaseProc {

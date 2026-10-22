@@ -38,7 +38,9 @@ fn main() {
 }
 
 fn decode(data: &[u8]) -> String {
-    String::from_utf8_lossy(data).trim_end_matches('\0').to_string()
+    String::from_utf8_lossy(data)
+        .trim_end_matches('\0')
+        .to_string()
 }
 
 /// Head of the pipeline: emit `count` seed items into `out`.

@@ -33,7 +33,12 @@ pub fn summarize(results: &[CaseResult]) -> bool {
         }
     }
 
-    let width = by_scenario.keys().map(|s| s.len()).max().unwrap_or(0).max(14);
+    let width = by_scenario
+        .keys()
+        .map(|s| s.len())
+        .max()
+        .unwrap_or(0)
+        .max(14);
     println!();
     for (scenario, t) in &by_scenario {
         let total = t.pass + t.flaky + t.fail;
@@ -60,7 +65,10 @@ pub fn summarize(results: &[CaseResult]) -> bool {
         }
     }
 
-    let xpasses: Vec<_> = results.iter().filter(|r| r.status == Status::XPass).collect();
+    let xpasses: Vec<_> = results
+        .iter()
+        .filter(|r| r.status == Status::XPass)
+        .collect();
     if !xpasses.is_empty() {
         println!("\nUNEXPECTED PASSES (flip the scenario's xfail expectation?):");
         for x in &xpasses {
@@ -78,11 +86,19 @@ pub fn summarize(results: &[CaseResult]) -> bool {
     if !gaps.is_empty() {
         println!("\nNOT IMPLEMENTED (passed by declaring the gap, not by matching):");
         for g in &gaps {
-            println!("  {} | {}: {}", g.scenario, g.id, g.detail.trim_start_matches("gap: "));
+            println!(
+                "  {} | {}: {}",
+                g.scenario,
+                g.id,
+                g.detail.trim_start_matches("gap: ")
+            );
         }
     }
 
-    let failures: Vec<_> = results.iter().filter(|r| r.status == Status::Fail).collect();
+    let failures: Vec<_> = results
+        .iter()
+        .filter(|r| r.status == Status::Fail)
+        .collect();
     if failures.is_empty() {
         println!("\nAll strict cross-language pairings passed.");
         true

@@ -201,7 +201,10 @@ mod name_golden {
     /// full_prefix = "" + "__THOTH_SHM__").
     #[test]
     fn chunk_shm_name_matches_generated_golden() {
-        assert_eq!(chunk_shm_name("__THOTH_SHM__", 1024), abi::name_golden_chunk);
+        assert_eq!(
+            chunk_shm_name("__THOTH_SHM__", 1024),
+            abi::name_golden_chunk
+        );
     }
 }
 
@@ -223,7 +226,11 @@ pub fn open_chunk_shm(full_prefix: &str, chunk_size: usize) -> io::Result<ShmHan
 
 /// C++ acquire_storage: allocate a chunk id, stamp its conns bitmask, return the
 /// payload pointer. (Unused by the fragmenting send path; kept for symmetry.)
-pub fn acquire_storage(base: *mut u8, chunk_size: usize, conns: u32) -> Option<(StorageId, *mut u8)> {
+pub fn acquire_storage(
+    base: *mut u8,
+    chunk_size: usize,
+    conns: u32,
+) -> Option<(StorageId, *mut u8)> {
     let info = unsafe { &mut *(base as *mut ChunkInfo) };
     unsafe { chunk_lock(info) };
     info.prepare();

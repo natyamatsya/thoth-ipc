@@ -58,7 +58,10 @@ fn bot(lines: usize, peers: usize) -> i32 {
         return 2;
     }
     for i in 0..lines {
-        if !sender.send_str(&format!("{id}> line-{i}"), 2000).unwrap_or(false) {
+        if !sender
+            .send_str(&format!("{id}> line-{i}"), 2000)
+            .unwrap_or(false)
+        {
             eprintln!("{id}: send failed");
             return 4;
         }
@@ -95,9 +98,10 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         None => interactive(),
-        Some("bot") if args.len() > 3 => {
-            exit(bot(args[2].parse().unwrap_or(0), args[3].parse().unwrap_or(0)))
-        }
+        Some("bot") if args.len() > 3 => exit(bot(
+            args[2].parse().unwrap_or(0),
+            args[3].parse().unwrap_or(0),
+        )),
         Some("clear") => {
             Channel::clear_storage(CHANNEL_NAME);
             ShmHandle::clear_storage(ACC_STORAGE);
@@ -155,11 +159,15 @@ fn interactive() {
             break;
         }
         // send_str appends the null terminator a C++ receiver expects.
-        sender.send_str(&format!("{id}> {trimmed}"), 0).expect("send");
+        sender
+            .send_str(&format!("{id}> {trimmed}"), 0)
+            .expect("send");
     }
 
     // Send quit marker so the recv thread exits.
-    sender.send_str(&format!("{id}> {QUIT}"), 0).expect("send quit");
+    sender
+        .send_str(&format!("{id}> {QUIT}"), 0)
+        .expect("send quit");
     sender.disconnect();
 
     recv_thread.join().unwrap();

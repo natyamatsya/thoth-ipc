@@ -31,13 +31,20 @@ fn main() {
     // Library search paths (set by CMake). Cargo does not see the static
     // libraries change, so relink whenever CMake rebuilt one of them.
     let lib_file = |name: &str| {
-        if cfg!(target_os = "windows") { format!("{name}.lib") } else { format!("lib{name}.a") }
+        if cfg!(target_os = "windows") {
+            format!("{name}.lib")
+        } else {
+            format!("lib{name}.a")
+        }
     };
     println!("cargo:rerun-if-env-changed=RT_AUDIO_FFI_LIB_DIR");
     println!("cargo:rerun-if-env-changed=IPC_LIB_DIR");
     if let Ok(ffi_dir) = std::env::var("RT_AUDIO_FFI_LIB_DIR") {
         println!("cargo:rustc-link-search=native={ffi_dir}");
-        println!("cargo:rerun-if-changed={ffi_dir}/{}", lib_file("rt_audio_ffi"));
+        println!(
+            "cargo:rerun-if-changed={ffi_dir}/{}",
+            lib_file("rt_audio_ffi")
+        );
     }
     if let Ok(ipc_dir) = std::env::var("IPC_LIB_DIR") {
         println!("cargo:rustc-link-search=native={ipc_dir}");

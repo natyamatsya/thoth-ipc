@@ -100,7 +100,11 @@ fn probe_caps(bin: &PathBuf) -> BTreeSet<String> {
 /// Caps a harness must report to participate in a mode. The async matrix would
 /// hang (not fail) on a harness built without notify/async, hence the up-front
 /// gate; same for secure without the crypto backend.
-pub fn required_caps(mode: Mode, secure_algorithms: &[String], typed_codecs: &[String]) -> Vec<String> {
+pub fn required_caps(
+    mode: Mode,
+    secure_algorithms: &[String],
+    typed_codecs: &[String],
+) -> Vec<String> {
     match mode {
         Mode::Sync | Mode::Channel | Mode::Reap => Vec::new(),
         Mode::Primitives => vec!["prim".into()],

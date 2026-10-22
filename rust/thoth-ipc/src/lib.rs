@@ -10,7 +10,9 @@ pub mod shm_name;
 /// Generated ABI constants (byte sizes, offsets, masks) — the single source of
 /// truth in `abi/abi.json`, emitted by `tools/abi`. Consumed by the transport
 /// layer so a mask or layout change in the spec propagates by regeneration
-/// rather than hand-editing each port. DO NOT EDIT the generated file.
+/// rather than hand-editing each port. DO NOT EDIT the generated file; it is
+/// not formatted either, since `generate --check` compares it byte for byte.
+#[rustfmt::skip]
 pub mod abi_generated;
 
 mod platform;

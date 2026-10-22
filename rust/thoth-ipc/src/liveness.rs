@@ -32,8 +32,13 @@ const _: () = {
     assert!(std::mem::size_of::<SlotOwner>() == crate::abi_generated::liveness_slot_size);
     assert!(std::mem::align_of::<SlotOwner>() == 8);
     assert!(std::mem::offset_of!(SlotOwner, pid) == crate::abi_generated::liveness_slot_pid_off);
-    assert!(std::mem::offset_of!(SlotOwner, since) == crate::abi_generated::liveness_slot_since_off);
-    assert!(std::mem::offset_of!(SlotOwner, start_tok) == crate::abi_generated::liveness_slot_start_tok_off);
+    assert!(
+        std::mem::offset_of!(SlotOwner, since) == crate::abi_generated::liveness_slot_since_off
+    );
+    assert!(
+        std::mem::offset_of!(SlotOwner, start_tok)
+            == crate::abi_generated::liveness_slot_start_tok_off
+    );
 };
 
 /// The LV_CONN__ segment: one owner per broadcast connection bit.
@@ -101,7 +106,14 @@ fn is_zombie(pid: i32) -> bool {
     let mut buf = [0u8; KINFO_PROC_SIZE];
     let mut len = KINFO_PROC_SIZE;
     let rc = unsafe {
-        libc::sysctl(mib.as_mut_ptr(), 4, buf.as_mut_ptr().cast(), &mut len, std::ptr::null_mut(), 0)
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            4,
+            buf.as_mut_ptr().cast(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
     };
     rc == 0 && len == KINFO_PROC_SIZE && buf[P_STAT_OFF] == SZOMB
 }
@@ -111,9 +123,13 @@ fn is_zombie(pid: i32) -> bool {
     if pid <= 0 {
         return false;
     }
-    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else { return false };
+    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return false;
+    };
     // comm may contain spaces and parentheses: the state follows the LAST ')'.
-    let Some(end) = stat.rfind(')') else { return false };
+    let Some(end) = stat.rfind(')') else {
+        return false;
+    };
     matches!(stat.as_bytes().get(end + 2), Some(b'Z' | b'X'))
 }
 
@@ -190,13 +206,24 @@ mod windows_impl {
     /// handle and pack it high:low — the Windows row of the xlang §9 token
     /// formula. Byte-identical to C++ `start_token`. 0 ⇒ couldn't determine.
     pub(super) fn creation_token_of(h: HANDLE) -> u64 {
-        let mut creation = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
-        let mut exit_t = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
-        let mut kernel_t = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
-        let mut user_t = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
-        let ok = unsafe {
-            GetProcessTimes(h, &mut creation, &mut exit_t, &mut kernel_t, &mut user_t)
+        let mut creation = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
         };
+        let mut exit_t = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let mut kernel_t = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let mut user_t = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let ok =
+            unsafe { GetProcessTimes(h, &mut creation, &mut exit_t, &mut kernel_t, &mut user_t) };
         if ok != 0 {
             ((creation.dwHighDateTime as u64) << 32) | (creation.dwLowDateTime as u64)
         } else {
@@ -230,7 +257,8 @@ pub fn set_owner(lv: *mut ConnLiveness, bit: u32) {
     }
     let s = unsafe { &(*lv).slots[slot_index(bit)] };
     // Token first, then pid with release: a reader that sees our pid sees the token.
-    s.start_tok.store(start_token(self_pid()), Ordering::Relaxed);
+    s.start_tok
+        .store(start_token(self_pid()), Ordering::Relaxed);
     s.pid.store(self_pid(), Ordering::Release);
 }
 
@@ -299,10 +327,14 @@ pub fn claim_sole_owner(o: &SlotOwner) -> bool {
     if cur != 0 && is_process_alive(cur, o.start_tok.load(Ordering::Acquire)) {
         return false;
     }
-    if o.pid.compare_exchange(cur, OWNER_CLAIMING, Ordering::AcqRel, Ordering::Relaxed).is_err() {
+    if o.pid
+        .compare_exchange(cur, OWNER_CLAIMING, Ordering::AcqRel, Ordering::Relaxed)
+        .is_err()
+    {
         return false;
     }
-    o.start_tok.store(start_token(self_pid()), Ordering::Relaxed);
+    o.start_tok
+        .store(start_token(self_pid()), Ordering::Relaxed);
     o.pid.store(self_pid(), Ordering::Release);
     true
 }
@@ -314,7 +346,9 @@ pub fn release_sole_owner(o: &SlotOwner) {
         return;
     }
     o.start_tok.store(0, Ordering::Relaxed);
-    let _ = o.pid.compare_exchange(me, 0, Ordering::Release, Ordering::Relaxed);
+    let _ = o
+        .pid
+        .compare_exchange(me, 0, Ordering::Release, Ordering::Relaxed);
 }
 
 /// The `sole-owner` conformance probe: the claim on a local record, through every
@@ -323,16 +357,32 @@ pub fn release_sole_owner(o: &SlotOwner) {
 pub fn conform_sole_owner() -> Vec<String> {
     // A pid no process can have (above every OS's pid limit): a dead holder.
     const DEAD_PID: i32 = 0x7fff_fffe;
-    let o = SlotOwner { pid: AtomicI32::new(0), since: AtomicU32::new(0), start_tok: AtomicU64::new(0) };
+    let o = SlotOwner {
+        pid: AtomicI32::new(0),
+        since: AtomicU32::new(0),
+        start_tok: AtomicU64::new(0),
+    };
     let me = self_pid();
     let my_tok = start_token(me);
     let mut out = Vec::new();
     let mut dump = |step: &str, ok: Option<bool>, o: &SlotOwner| {
         let pid = o.pid.load(Ordering::Relaxed);
         let tok = o.start_tok.load(Ordering::Relaxed);
-        let p = if pid != 0 && pid == me { "self".to_string() } else { pid.to_string() };
-        let t = if tok != 0 && tok == my_tok { "self".to_string() } else { tok.to_string() };
-        let ok = match ok { None => "-", Some(true) => "1", Some(false) => "0" };
+        let p = if pid != 0 && pid == me {
+            "self".to_string()
+        } else {
+            pid.to_string()
+        };
+        let t = if tok != 0 && tok == my_tok {
+            "self".to_string()
+        } else {
+            tok.to_string()
+        };
+        let ok = match ok {
+            None => "-",
+            Some(true) => "1",
+            Some(false) => "0",
+        };
         out.push(format!("step={step} ok={ok} pid={p} tok={t}"));
     };
     let set = |pid: i32, tok: u64| {
@@ -361,7 +411,11 @@ pub fn conform_sole_owner() -> Vec<String> {
 
 /// Reap the dead receivers among `live`, clearing each via `disconnect_fn(bit)`.
 /// Lock-free (CAS-on-owner). Returns the reaped mask.
-pub fn reap_dead_receivers<F: FnMut(u32)>(lv: *mut ConnLiveness, live: u32, mut disconnect_fn: F) -> u32 {
+pub fn reap_dead_receivers<F: FnMut(u32)>(
+    lv: *mut ConnLiveness,
+    live: u32,
+    mut disconnect_fn: F,
+) -> u32 {
     if lv.is_null() {
         return 0;
     }
@@ -380,7 +434,10 @@ pub fn reap_dead_receivers<F: FnMut(u32)>(lv: *mut ConnLiveness, live: u32, mut 
             continue;
         }
         // Only reap if the owner is still the dead PID we saw.
-        if s.pid.compare_exchange(p, 0, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+        if s.pid
+            .compare_exchange(p, 0, Ordering::AcqRel, Ordering::Relaxed)
+            .is_ok()
+        {
             s.start_tok.store(0, Ordering::Relaxed);
             disconnect_fn(bit);
             reaped |= bit;
@@ -449,7 +506,13 @@ mod apple {
         let mut info: ProcBsdInfo = unsafe { std::mem::zeroed() };
         let sz = std::mem::size_of::<ProcBsdInfo>() as libc::c_int;
         let n = unsafe {
-            proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut libc::c_void, sz)
+            proc_pidinfo(
+                pid,
+                PROC_PIDTBSDINFO,
+                0,
+                &mut info as *mut _ as *mut libc::c_void,
+                sz,
+            )
         };
         if n != sz {
             return 0;

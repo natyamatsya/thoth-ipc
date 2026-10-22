@@ -144,7 +144,9 @@ type A0Result = Result<(), c_int>;
 
 #[inline]
 fn errno() -> c_int {
-    io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO)
+    io::Error::last_os_error()
+        .raw_os_error()
+        .unwrap_or(libc::EIO)
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +208,9 @@ fn robust_head() -> *mut RobustListHead {
     ROBUST_HEAD.with(|h| {
         if h.get().is_null() {
             h.set(Box::into_raw(Box::new(RobustListHead {
-                list: RobustList { next: ptr::null_mut() },
+                list: RobustList {
+                    next: ptr::null_mut(),
+                },
                 futex_offset: 0,
                 list_op_pending: ptr::null_mut(),
             })));
@@ -612,7 +616,11 @@ unsafe fn mtx_unlock(mtx: *mut A0Mtx) -> A0Result {
     }
 
     // Acquired with EOWNERDEAD and never made consistent: unrecoverably borked.
-    let new_val = if ftx_owner_died(val) { FTX_NOTRECOVERABLE } else { 0 };
+    let new_val = if ftx_owner_died(val) {
+        FTX_NOTRECOVERABLE
+    } else {
+        0
+    };
 
     robust_op_start(mtx);
     robust_op_del(mtx);
@@ -996,7 +1004,10 @@ mod tests {
             .unwrap();
         // SAFETY (both blocks): `m` stays mapped for the whole test.
         let word = unsafe { ftx_of(m.raw()).load(Ordering::Relaxed) };
-        assert!(ftx_owner_died(word), "kernel did not mark owner death: {word:#x}");
+        assert!(
+            ftx_owner_died(word),
+            "kernel did not mark owner death: {word:#x}"
+        );
         assert!(m.lock_timeout(1000).expect("recovering lock"));
         let word = unsafe { ftx_of(m.raw()).load(Ordering::Relaxed) };
         assert_eq!(word & FTX_NOTRECOVERABLE, tid());
@@ -1019,7 +1030,8 @@ mod tests {
             .join()
             .unwrap();
         assert!(!c.wait(m.native_ptr(), Some(50)).expect("timed wait"));
-        m.unlock().expect("unlock after the timed wait re-acquired it");
+        m.unlock()
+            .expect("unlock after the timed wait re-acquired it");
         drop(c);
         drop(m);
         PlatformMutex::clear_storage(&name);

@@ -30,12 +30,16 @@ pub struct BumpArena {
 impl BumpArena {
     /// Create a new arena with the default initial capacity.
     pub fn new() -> Self {
-        Self { bump: bumpalo::Bump::new() }
+        Self {
+            bump: bumpalo::Bump::new(),
+        }
     }
 
     /// Create a new arena pre-allocated with `capacity` bytes.
     pub fn with_capacity(capacity: usize) -> Self {
-        Self { bump: bumpalo::Bump::with_capacity(capacity) }
+        Self {
+            bump: bumpalo::Bump::with_capacity(capacity),
+        }
     }
 
     /// Allocate `len` uninitialised bytes aligned to `align`.
@@ -43,8 +47,7 @@ impl BumpArena {
     /// # Panics
     /// Panics if `align` is not a power of two or if allocation fails.
     pub fn alloc_bytes(&self, len: usize, align: usize) -> &mut [u8] {
-        let layout = std::alloc::Layout::from_size_align(len, align)
-            .expect("invalid layout");
+        let layout = std::alloc::Layout::from_size_align(len, align).expect("invalid layout");
         let ptr = self.bump.alloc_layout(layout);
         unsafe { std::slice::from_raw_parts_mut(ptr.as_ptr(), len) }
     }
@@ -52,8 +55,7 @@ impl BumpArena {
     /// Allocate space for a `Vec<u8>` of `len` bytes and copy `src` into it.
     /// The returned slice lives for the lifetime of the arena.
     pub fn alloc_slice_copy<'a>(&'a self, src: &[u8]) -> &'a [u8] {
-        bumpalo::collections::Vec::from_iter_in(src.iter().copied(), &self.bump)
-            .into_bump_slice()
+        bumpalo::collections::Vec::from_iter_in(src.iter().copied(), &self.bump).into_bump_slice()
     }
 
     /// Allocate a `bumpalo::collections::Vec<u8>` inside this arena.
@@ -112,12 +114,16 @@ pub struct SlabPool<const BLOCK: usize> {
 impl<const BLOCK: usize> SlabPool<BLOCK> {
     /// Create an empty pool.
     pub fn new() -> Self {
-        Self { slab: slab::Slab::new() }
+        Self {
+            slab: slab::Slab::new(),
+        }
     }
 
     /// Create a pool pre-allocated for `capacity` entries.
     pub fn with_capacity(capacity: usize) -> Self {
-        Self { slab: slab::Slab::with_capacity(capacity) }
+        Self {
+            slab: slab::Slab::with_capacity(capacity),
+        }
     }
 
     /// Insert a zeroed block and return its stable key.

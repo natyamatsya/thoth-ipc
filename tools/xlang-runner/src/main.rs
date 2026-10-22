@@ -225,8 +225,7 @@ fn protocols_declared(config_path: &std::path::Path) -> Result<Vec<(String, Stri
         .and_then(|p| p.parent())
         .ok_or_else(|| "cannot locate repo root from config path".to_string())?;
     let path = root.join("abi/protocols.txt");
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(text
         .lines()
         .map(str::trim)

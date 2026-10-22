@@ -28,7 +28,10 @@ pub use posix::PlatformShm;
 pub use apple::PlatformMutex;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub use linux::PlatformMutex;
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "linux", target_os = "android"))
+))]
 pub use posix::PlatformMutex;
 
 #[cfg(windows)]

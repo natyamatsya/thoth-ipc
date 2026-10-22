@@ -453,7 +453,12 @@ fn main() {
     let segments: Vec<String> = group
         .instances()
         .iter()
-        .flat_map(|i| [i.entry.control_channel_str().to_owned(), i.entry.reply_channel_str().to_owned()])
+        .flat_map(|i| {
+            [
+                i.entry.control_channel_str().to_owned(),
+                i.entry.reply_channel_str().to_owned(),
+            ]
+        })
         .collect();
     group.stop(Duration::from_secs(3));
     for name in &segments {

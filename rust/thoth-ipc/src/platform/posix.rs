@@ -171,8 +171,8 @@ pub struct PlatformShm {
     mem: *mut u8,
     size: usize,      // total mapped size (including ref counter)
     user_size: usize, // user-requested size
-    name: String,  // POSIX name (with leading '/')
-    prev_ref: i32, // ref count *before* our fetch_add (0 means we were first)
+    name: String,     // POSIX name (with leading '/')
+    prev_ref: i32,    // ref count *before* our fetch_add (0 means we were first)
 }
 
 // Safety: the shared memory region is process-shared by design.

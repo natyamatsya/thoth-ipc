@@ -28,7 +28,8 @@ fn repo_root() -> PathBuf {
 }
 
 fn read_json(path: &Path) -> Value {
-    let s = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let s =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     serde_json::from_str(&s).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()))
 }
 
@@ -77,12 +78,20 @@ fn fnv1a_64(data: &[u8]) -> u64 {
 /// `shm_name_max` (> 0), replace with `/<first 13 body chars>_<16-hex fnv1a of the
 /// whole /-name>`. `shm_name_max == 0` disables shortening (off macOS).
 fn make_shm_name(name: &str, shm_name_max: usize) -> String {
-    let result = if name.starts_with('/') { name.to_string() } else { format!("/{name}") };
+    let result = if name.starts_with('/') {
+        name.to_string()
+    } else {
+        format!("/{name}")
+    };
     if shm_name_max == 0 || result.len() <= shm_name_max {
         return result;
     }
     let hash = fnv1a_64(result.as_bytes());
-    let prefix_len = if shm_name_max > 17 + 1 { shm_name_max - 17 - 1 } else { 0 };
+    let prefix_len = if shm_name_max > 17 + 1 {
+        shm_name_max - 17 - 1
+    } else {
+        0
+    };
     let body: String = result.chars().skip(1).take(prefix_len).collect();
     format!("/{body}_{hash:016x}")
 }
@@ -94,25 +103,39 @@ fn make_shm_name(name: &str, shm_name_max: usize) -> String {
 /// that golden — making C++ a checked peer for the shm-name contract. Then
 /// independently recompute the notify FNV-1a-64. Returns true on full agreement.
 fn check_naming(abi: &Value, target: &str, dumped: &serde_json::Map<String, Value>) -> bool {
-    let constant = |n: &str| abi["constants"].as_array().unwrap().iter().find(|c| c["name"] == n);
-    let data_length = constant("data_length").and_then(|c| resolve_int(&c["value"], target)).expect("data_length");
+    let constant = |n: &str| {
+        abi["constants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == n)
+    };
+    let data_length = constant("data_length")
+        .and_then(|c| resolve_int(&c["value"], target))
+        .expect("data_length");
     let align_size = resolve_int(&abi["targets"][target]["align_size"], target)
         .unwrap_or_else(|| panic!("no align_size for target '{target}'"));
-    let shm_name_max = resolve_int(&abi["targets"][target]["shm_name_max"], target).unwrap_or(0) as usize;
-    let notify_hash = constant("notify_hash_xchan").and_then(|c| c["value"].as_str()).expect("notify_hash_xchan");
+    let shm_name_max =
+        resolve_int(&abi["targets"][target]["shm_name_max"], target).unwrap_or(0) as usize;
+    let notify_hash = constant("notify_hash_xchan")
+        .and_then(|c| c["value"].as_str())
+        .expect("notify_hash_xchan");
 
-    let subst = |t: &str| t
-        .replace("{prefix}", "")
-        .replace("{name}", "xchan")
-        .replace("{data_length}", &data_length.to_string())
-        .replace("{align_size}", &align_size.to_string())
-        .replace("{chunk_size}", "1024")
-        .replace("{notify_hash}", notify_hash);
+    let subst = |t: &str| {
+        t.replace("{prefix}", "")
+            .replace("{name}", "xchan")
+            .replace("{data_length}", &data_length.to_string())
+            .replace("{align_size}", &align_size.to_string())
+            .replace("{chunk_size}", "1024")
+            .replace("{notify_hash}", notify_hash)
+    };
 
     let (mut ok, mut cpp_ok, mut posix_ok, mut bad) = (0usize, 0usize, 0usize, 0usize);
     for n in abi["names"].as_array().unwrap_or(&vec![]) {
         let name = n["name"].as_str().unwrap();
-        let Some(golden) = n.get("golden").and_then(|g| resolve_str(g, target)) else { continue };
+        let Some(golden) = n.get("golden").and_then(|g| resolve_str(g, target)) else {
+            continue;
+        };
         // (a) template resolution vs golden — abi.json self-consistency.
         let resolved = subst(n["template"].as_str().unwrap());
         if resolved == golden {
@@ -148,7 +171,9 @@ fn check_naming(abi: &Value, target: &str, dumped: &serde_json::Map<String, Valu
     let fnv_ok = computed == notify_hash;
     if !fnv_ok {
         bad += 1;
-        println!("  ✗ notify_hash: fnv1a_64({notify_id:?}) = {computed} but abi.json = {notify_hash}");
+        println!(
+            "  ✗ notify_hash: fnv1a_64({notify_id:?}) = {computed} but abi.json = {notify_hash}"
+        );
     }
 
     println!(
@@ -179,7 +204,12 @@ fn main() {
 /// every name in a struct's `targets` is a declared target, and its size, align
 /// and field offsets resolve on each of them — what the generators unwrap.
 fn check_struct_targets(abi: &Value) -> bool {
-    let declared: Vec<&str> = abi["targets"].as_object().unwrap().keys().map(String::as_str).collect();
+    let declared: Vec<&str> = abi["targets"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     let mut bad = 0usize;
     for s in abi["structs"].as_array().unwrap_or(&vec![]) {
         let name = s["name"].as_str().unwrap_or("?");
@@ -193,8 +223,16 @@ fn check_struct_targets(abi: &Value) -> bool {
                 println!("  ✗ struct {name}: unknown target '{t}' in `targets`");
                 continue;
             }
-            let mut need = vec![("size".to_string(), &s["size"]), ("align".to_string(), &s["align"])];
-            need.extend(each_field(s).map(|f| (format!("{}.offset", f["name"].as_str().unwrap_or("?")), &f["offset"])));
+            let mut need = vec![
+                ("size".to_string(), &s["size"]),
+                ("align".to_string(), &s["align"]),
+            ];
+            need.extend(each_field(s).map(|f| {
+                (
+                    format!("{}.offset", f["name"].as_str().unwrap_or("?")),
+                    &f["offset"],
+                )
+            }));
             for (what, v) in need {
                 if resolve_int(v, t).is_none() {
                     bad += 1;
@@ -212,7 +250,11 @@ fn check_struct_targets(abi: &Value) -> bool {
 /// The target this checker binary was built for — so `check` on a Linux x86_64
 /// CI host resolves the x86_64 abi values, not apple's.
 fn host_target() -> &'static str {
-    if cfg!(all(target_arch = "aarch64", target_vendor = "apple")) { "apple_arm64" } else { "x86_64" }
+    if cfg!(all(target_arch = "aarch64", target_vendor = "apple")) {
+        "apple_arm64"
+    } else {
+        "x86_64"
+    }
 }
 
 fn run_check(root: &Path, args: &[String]) {
@@ -252,7 +294,12 @@ fn run_check(root: &Path, args: &[String]) {
             flat.insert(name.to_string(), u);
         }
     }
-    for s in abi["structs"].as_array().unwrap_or(&vec![]).iter().filter(|s| struct_on(s, &target)) {
+    for s in abi["structs"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .filter(|s| struct_on(s, &target))
+    {
         if let (Some(name), Some(u)) = (s["name"].as_str(), resolve_int(&s["size"], &target)) {
             flat.insert(format!("{name}.size"), u);
         }
@@ -260,10 +307,18 @@ fn run_check(root: &Path, args: &[String]) {
     // Field offsets (`<struct>.<field>`), compared when the dumper emits them;
     // the rest are static_asserted in C++ (ipc.cpp) and not listed as uncovered.
     let mut offsets: BTreeMap<String, u64> = BTreeMap::new();
-    for s in abi["structs"].as_array().unwrap_or(&vec![]).iter().filter(|s| struct_on(s, &target)) {
-        let Some(name) = s["name"].as_str() else { continue };
+    for s in abi["structs"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .filter(|s| struct_on(s, &target))
+    {
+        let Some(name) = s["name"].as_str() else {
+            continue;
+        };
         for f in s["fields"].as_array().unwrap_or(&vec![]) {
-            if let (Some(field), Some(u)) = (f["name"].as_str(), resolve_int(&f["offset"], &target)) {
+            if let (Some(field), Some(u)) = (f["name"].as_str(), resolve_int(&f["offset"], &target))
+            {
                 offsets.insert(format!("{name}.{field}"), u);
             }
         }
@@ -280,7 +335,10 @@ fn run_check(root: &Path, args: &[String]) {
             "x86_64" => "x86_64",
             "apple_arm64" => "arm64",
             t => {
-                eprintln!("✗ no cross-compile arch for target '{t}' (host is {})", host_target());
+                eprintln!(
+                    "✗ no cross-compile arch for target '{t}' (host is {})",
+                    host_target()
+                );
                 std::process::exit(2);
             }
         };
@@ -316,7 +374,11 @@ fn run_check(root: &Path, args: &[String]) {
             None => println!("  · C++ has {k} = {cpp:#x} with no abi.json entry"),
         }
     }
-    let uncovered: Vec<&str> = flat.keys().map(String::as_str).filter(|k| !dobj.contains_key(*k)).collect();
+    let uncovered: Vec<&str> = flat
+        .keys()
+        .map(String::as_str)
+        .filter(|k| !dobj.contains_key(*k))
+        .collect();
     println!("✓ semantic ({target}): {checked} value(s) match the deployed C++, {mismatches} mismatch(es)");
     if !uncovered.is_empty() {
         println!(
@@ -359,13 +421,27 @@ fn run_generate(root: &Path, args: &[String]) {
     let abi = read_json(&root.join("abi/abi.json"));
     let (rendered, default_out) = match lang.as_str() {
         // Every port generates into its own tree and consumes the module.
-        "zig" => (gen_zig(&abi, &target), root.join("zig/thoth-ipc/src/abi_generated.zig")),
-        "rust" => (gen_rust(&abi, &target), root.join("rust/thoth-ipc/src/abi_generated.rs")),
-        "swift" => (gen_swift(&abi, &target), root.join("swift/thoth-ipc/Sources/ThothIPC/Generated/abi_generated.swift")),
-        "cpp" => (gen_cpp(&abi, &target), root.join("cpp/thoth-ipc/include/thoth-ipc/abi_generated.hpp")),
+        "zig" => (
+            gen_zig(&abi, &target),
+            root.join("zig/thoth-ipc/src/abi_generated.zig"),
+        ),
+        "rust" => (
+            gen_rust(&abi, &target),
+            root.join("rust/thoth-ipc/src/abi_generated.rs"),
+        ),
+        "swift" => (
+            gen_swift(&abi, &target),
+            root.join("swift/thoth-ipc/Sources/ThothIPC/Generated/abi_generated.swift"),
+        ),
+        "cpp" => (
+            gen_cpp(&abi, &target),
+            root.join("cpp/thoth-ipc/include/thoth-ipc/abi_generated.hpp"),
+        ),
         "protocols" => (gen_protocols(&abi), root.join("abi/protocols.txt")),
         other => {
-            eprintln!("no generator for language '{other}' (have: zig, rust, swift, cpp, protocols)");
+            eprintln!(
+                "no generator for language '{other}' (have: zig, rust, swift, cpp, protocols)"
+            );
             std::process::exit(2);
         }
     };
@@ -380,7 +456,11 @@ fn run_generate(root: &Path, args: &[String]) {
         println!("✓ {} is up to date with abi.json", out.display());
     } else {
         std::fs::write(&out, &rendered).unwrap_or_else(|e| panic!("write {}: {e}", out.display()));
-        println!("✓ wrote {} ({} bytes) for target {target}", out.display(), rendered.len());
+        println!(
+            "✓ wrote {} ({} bytes) for target {target}",
+            out.display(),
+            rendered.len()
+        );
     }
 }
 
@@ -401,8 +481,15 @@ fn emit_zig(o: &mut String, prefix: &str, ts: &[String], render: impl Fn(&str) -
     if ts.iter().all(|t| render(t) == render(&ts[0])) {
         o.push_str(&format!("{prefix} = {};\n", render(&ts[0])));
     } else {
-        let other = ts.iter().find(|t| *t != "apple_arm64").expect("need a non-apple target");
-        o.push_str(&format!("{prefix} = if ({ZIG_ALIGN8}) {} else {};\n", render("apple_arm64"), render(other)));
+        let other = ts
+            .iter()
+            .find(|t| *t != "apple_arm64")
+            .expect("need a non-apple target");
+        o.push_str(&format!(
+            "{prefix} = if ({ZIG_ALIGN8}) {} else {};\n",
+            render("apple_arm64"),
+            render(other)
+        ));
     }
 }
 
@@ -414,11 +501,18 @@ fn gen_zig(abi: &Value, _target: &str) -> String {
     o.push_str("const builtin = @import(\"builtin\");\n");
     o.push_str("/// The align-8 ABI class (apple_arm64: alignof(max_align_t) == 8); every other\n");
     o.push_str("/// target (x86_64, Linux aarch64) is align-16.\n");
-    o.push_str(&format!("const {ZIG_ALIGN8} = builtin.cpu.arch == .aarch64 and builtin.os.tag.isDarwin();\n\n"));
+    o.push_str(&format!(
+        "const {ZIG_ALIGN8} = builtin.cpu.arch == .aarch64 and builtin.os.tag.isDarwin();\n\n"
+    ));
 
     o.push_str("/// ABI contract version (semver; decoupled from the release version). Peers\n");
-    o.push_str("/// interoperate iff they share the same MAJOR. See abi/README.md#abi-versioning.\n");
-    o.push_str(&format!("pub const abi_version: []const u8 = \"{}\";\n\n", abi["version"].as_str().unwrap()));
+    o.push_str(
+        "/// interoperate iff they share the same MAJOR. See abi/README.md#abi-versioning.\n",
+    );
+    o.push_str(&format!(
+        "pub const abi_version: []const u8 = \"{}\";\n\n",
+        abi["version"].as_str().unwrap()
+    ));
 
     o.push_str("// --- constants ---\n");
     for c in abi["constants"].as_array().unwrap() {
@@ -428,9 +522,17 @@ fn gen_zig(abi: &Value, _target: &str) -> String {
             o.push_str(&format!("/// {d}\n"));
         }
         if ty == "string" {
-            o.push_str(&format!("pub const {name}: []const u8 = \"{}\";\n", c["value"].as_str().unwrap()));
+            o.push_str(&format!(
+                "pub const {name}: []const u8 = \"{}\";\n",
+                c["value"].as_str().unwrap()
+            ));
         } else {
-            emit_zig(&mut o, &format!("pub const {name}: {}", zig_int_type(ty)), &ts, |t| zig_num(&c["value"], t));
+            emit_zig(
+                &mut o,
+                &format!("pub const {name}: {}", zig_int_type(ty)),
+                &ts,
+                |t| zig_num(&c["value"], t),
+            );
         }
     }
 
@@ -440,9 +542,16 @@ fn gen_zig(abi: &Value, _target: &str) -> String {
         if let Some(d) = e["description"].as_str() {
             o.push_str(&format!("/// {d}\n"));
         }
-        o.push_str(&format!("pub const {name} = enum({}) {{\n", zig_int_type(e["type"].as_str().unwrap())));
+        o.push_str(&format!(
+            "pub const {name} = enum({}) {{\n",
+            zig_int_type(e["type"].as_str().unwrap())
+        ));
         for v in e["values"].as_array().unwrap() {
-            o.push_str(&format!("    {} = {},\n", v["name"].as_str().unwrap(), v["value"].as_i64().unwrap()));
+            o.push_str(&format!(
+                "    {} = {},\n",
+                v["name"].as_str().unwrap(),
+                v["value"].as_i64().unwrap()
+            ));
         }
         o.push_str("};\n");
     }
@@ -457,14 +566,29 @@ fn gen_zig(abi: &Value, _target: &str) -> String {
         if let Some(note) = struct_scope_note("//", s) {
             o.push_str(&format!("{note}\n"));
         }
-        emit_zig(&mut o, &format!("pub const {name}_size: usize"), &sts, |t| resolve_int(&s["size"], t).unwrap().to_string());
-        emit_zig(&mut o, &format!("pub const {name}_align: usize"), &sts, |t| resolve_int(&s["align"], t).unwrap().to_string());
+        emit_zig(
+            &mut o,
+            &format!("pub const {name}_size: usize"),
+            &sts,
+            |t| resolve_int(&s["size"], t).unwrap().to_string(),
+        );
+        emit_zig(
+            &mut o,
+            &format!("pub const {name}_align: usize"),
+            &sts,
+            |t| resolve_int(&s["align"], t).unwrap().to_string(),
+        );
         for f in each_field(s) {
             let fname = f["name"].as_str().unwrap();
             if let Some(p) = f["protocol"].as_str() {
                 o.push_str(&format!("{}\n", protocol_note("///", p)));
             }
-            emit_zig(&mut o, &format!("pub const {name}_{fname}_off: usize"), &sts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
+            emit_zig(
+                &mut o,
+                &format!("pub const {name}_{fname}_off: usize"),
+                &sts,
+                |t| resolve_int(&f["offset"], t).unwrap().to_string(),
+            );
         }
     }
 
@@ -472,10 +596,20 @@ fn gen_zig(abi: &Value, _target: &str) -> String {
     for n in abi["names"].as_array().unwrap_or(&vec![]) {
         let nm = n["name"].as_str().unwrap();
         if n.get("golden").is_some() {
-            emit_zig(&mut o, &format!("pub const name_golden_{nm}: []const u8"), &ts, |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()));
+            emit_zig(
+                &mut o,
+                &format!("pub const name_golden_{nm}: []const u8"),
+                &ts,
+                |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()),
+            );
         }
         if n.get("posix_golden").is_some() {
-            emit_zig(&mut o, &format!("pub const name_golden_{nm}_posix: []const u8"), &ts, |t| format!("{:?}", resolve_str(&n["posix_golden"], t).unwrap()));
+            emit_zig(
+                &mut o,
+                &format!("pub const name_golden_{nm}_posix: []const u8"),
+                &ts,
+                |t| format!("{:?}", resolve_str(&n["posix_golden"], t).unwrap()),
+            );
         }
     }
     o
@@ -518,21 +652,31 @@ fn gen_protocols(abi: &serde_json::Value) -> String {
 }
 
 fn gen_header(o: &mut String, lang: &str, target: &str, comment: &str) {
-    o.push_str(&format!("{comment} SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT\n"));
+    o.push_str(&format!(
+        "{comment} SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT\n"
+    ));
     o.push_str(&format!("{comment} SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors\n{comment}\n"));
-    o.push_str(&format!("{comment} @generated by `tools/abi` from abi/abi.json — DO NOT EDIT.\n"));
+    o.push_str(&format!(
+        "{comment} @generated by `tools/abi` from abi/abi.json — DO NOT EDIT.\n"
+    ));
     o.push_str(&format!("{comment} Regenerate: cargo run --manifest-path tools/abi/Cargo.toml -- generate --lang {lang}\n"));
     o.push_str(&format!("{comment} Target: {target}.\n"));
 }
 
 fn each_field(s: &Value) -> impl Iterator<Item = &Value> {
-    s["fields"].as_array().map(|v| v.as_slice()).unwrap_or(&[]).iter()
+    s["fields"]
+        .as_array()
+        .map(|v| v.as_slice())
+        .unwrap_or(&[])
+        .iter()
 }
 
 /// A struct's optional `targets` list: the targets whose platform uses it (e.g.
 /// one sync backend's payload). `None` = every target.
 fn struct_target_list(s: &Value) -> Option<Vec<&str>> {
-    s["targets"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect())
+    s["targets"]
+        .as_array()
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
 }
 
 /// Whether struct `s` is part of the ABI on `target`.
@@ -566,7 +710,12 @@ fn struct_scope_note(comment: &str, s: &Value) -> Option<String> {
 
 /// abi.json targets, `apple_arm64` (the align-8 target) first, others after.
 fn targets(abi: &Value) -> Vec<String> {
-    let mut ts: Vec<String> = abi["targets"].as_object().unwrap().keys().cloned().collect();
+    let mut ts: Vec<String> = abi["targets"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
     ts.sort_by_key(|t| (t != "apple_arm64", t.clone()));
     ts
 }
@@ -596,11 +745,20 @@ fn emit_rust(o: &mut String, prefix: &str, ts: &[String], render: impl Fn(&str) 
 
 /// C++ analogue: one line if uniform, else an `#if/#else/#endif` over the two
 /// align classes (apple_arm64 vs everything else).
-fn emit_cpp(o: &mut String, prefix: &str, suffix: &str, ts: &[String], render: impl Fn(&str) -> String) {
+fn emit_cpp(
+    o: &mut String,
+    prefix: &str,
+    suffix: &str,
+    ts: &[String],
+    render: impl Fn(&str) -> String,
+) {
     if ts.iter().all(|t| render(t) == render(&ts[0])) {
         o.push_str(&format!("{prefix} = {}{suffix};\n", render(&ts[0])));
     } else {
-        let other = ts.iter().find(|t| *t != "apple_arm64").expect("need a non-apple target");
+        let other = ts
+            .iter()
+            .find(|t| *t != "apple_arm64")
+            .expect("need a non-apple target");
         // The align-8 class is `alignof(max_align_t) == 8`, not "Apple only": MSVC x64/arm64 has an
         // 8-byte max_align (long double == double), so it selects the apple_arm64 (align-8) values.
         // clang-cl defines _MSC_VER too; MinGW (align-16) does not. NOTE: for the POSIX-shortened
@@ -630,7 +788,10 @@ fn gen_rust(abi: &Value, _target: &str) -> String {
     let mut o = String::new();
     gen_header(&mut o, "rust", &ts.join(" / "), "//");
     o.push_str("#![allow(non_upper_case_globals, non_camel_case_types, dead_code)]\n\n");
-    o.push_str(&format!("pub const abi_version: &str = \"{}\";\n\n", abi["version"].as_str().unwrap()));
+    o.push_str(&format!(
+        "pub const abi_version: &str = \"{}\";\n\n",
+        abi["version"].as_str().unwrap()
+    ));
 
     o.push_str("// --- constants ---\n");
     for c in abi["constants"].as_array().unwrap() {
@@ -639,9 +800,17 @@ fn gen_rust(abi: &Value, _target: &str) -> String {
             o.push_str(&format!("/// {d}\n"));
         }
         if ty == "string" {
-            o.push_str(&format!("pub const {name}: &str = \"{}\";\n", c["value"].as_str().unwrap()));
+            o.push_str(&format!(
+                "pub const {name}: &str = \"{}\";\n",
+                c["value"].as_str().unwrap()
+            ));
         } else {
-            emit_rust(&mut o, &format!("pub const {name}: {}", rust_type(ty)), &ts, |t| zig_num(&c["value"], t));
+            emit_rust(
+                &mut o,
+                &format!("pub const {name}: {}", rust_type(ty)),
+                &ts,
+                |t| zig_num(&c["value"], t),
+            );
         }
     }
 
@@ -651,9 +820,16 @@ fn gen_rust(abi: &Value, _target: &str) -> String {
         if let Some(d) = e["description"].as_str() {
             o.push_str(&format!("/// {d}\n"));
         }
-        o.push_str(&format!("#[repr({})]\npub enum {name} {{\n", rust_type(e["type"].as_str().unwrap())));
+        o.push_str(&format!(
+            "#[repr({})]\npub enum {name} {{\n",
+            rust_type(e["type"].as_str().unwrap())
+        ));
         for v in e["values"].as_array().unwrap() {
-            o.push_str(&format!("    {} = {},\n", v["name"].as_str().unwrap(), v["value"].as_i64().unwrap()));
+            o.push_str(&format!(
+                "    {} = {},\n",
+                v["name"].as_str().unwrap(),
+                v["value"].as_i64().unwrap()
+            ));
         }
         o.push_str("}\n");
     }
@@ -665,14 +841,29 @@ fn gen_rust(abi: &Value, _target: &str) -> String {
         if let Some(note) = struct_scope_note("//", s) {
             o.push_str(&format!("{note}\n"));
         }
-        emit_rust(&mut o, &format!("pub const {name}_size: usize"), &sts, |t| resolve_int(&s["size"], t).unwrap().to_string());
-        emit_rust(&mut o, &format!("pub const {name}_align: usize"), &sts, |t| resolve_int(&s["align"], t).unwrap().to_string());
+        emit_rust(
+            &mut o,
+            &format!("pub const {name}_size: usize"),
+            &sts,
+            |t| resolve_int(&s["size"], t).unwrap().to_string(),
+        );
+        emit_rust(
+            &mut o,
+            &format!("pub const {name}_align: usize"),
+            &sts,
+            |t| resolve_int(&s["align"], t).unwrap().to_string(),
+        );
         for f in each_field(s) {
             let fname = f["name"].as_str().unwrap();
             if let Some(p) = f["protocol"].as_str() {
                 o.push_str(&format!("{}\n", protocol_note("///", p)));
             }
-            emit_rust(&mut o, &format!("pub const {name}_{fname}_off: usize"), &sts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
+            emit_rust(
+                &mut o,
+                &format!("pub const {name}_{fname}_off: usize"),
+                &sts,
+                |t| resolve_int(&f["offset"], t).unwrap().to_string(),
+            );
         }
     }
 
@@ -680,10 +871,20 @@ fn gen_rust(abi: &Value, _target: &str) -> String {
     for n in abi["names"].as_array().unwrap_or(&Vec::new()) {
         let nm = n["name"].as_str().unwrap();
         if n.get("golden").is_some() {
-            emit_rust(&mut o, &format!("pub const name_golden_{nm}: &str"), &ts, |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()));
+            emit_rust(
+                &mut o,
+                &format!("pub const name_golden_{nm}: &str"),
+                &ts,
+                |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()),
+            );
         }
         if n.get("posix_golden").is_some() {
-            emit_rust(&mut o, &format!("pub const name_golden_{nm}_posix: &str"), &ts, |t| format!("{:?}", resolve_str(&n["posix_golden"], t).unwrap()));
+            emit_rust(
+                &mut o,
+                &format!("pub const name_golden_{nm}_posix: &str"),
+                &ts,
+                |t| format!("{:?}", resolve_str(&n["posix_golden"], t).unwrap()),
+            );
         }
     }
     o
@@ -710,7 +911,10 @@ fn emit_swift(o: &mut String, prefix: &str, ts: &[String], render: impl Fn(&str)
     if ts.iter().all(|t| render(t) == render(&ts[0])) {
         o.push_str(&format!("    {prefix} = {}\n", render(&ts[0])));
     } else {
-        let other = ts.iter().find(|t| *t != "apple_arm64").expect("need a non-apple target");
+        let other = ts
+            .iter()
+            .find(|t| *t != "apple_arm64")
+            .expect("need a non-apple target");
         o.push_str("    #if os(macOS) && arch(arm64)\n");
         o.push_str(&format!("    {prefix} = {}\n", render("apple_arm64")));
         o.push_str("    #else\n");
@@ -724,7 +928,10 @@ fn gen_swift(abi: &Value, _target: &str) -> String {
     let mut o = String::new();
     gen_header(&mut o, "swift", &ts.join(" / "), "//");
     o.push_str("\npublic enum ABI {\n");
-    o.push_str(&format!("    public static let abi_version: String = \"{}\"\n\n", abi["version"].as_str().unwrap()));
+    o.push_str(&format!(
+        "    public static let abi_version: String = \"{}\"\n\n",
+        abi["version"].as_str().unwrap()
+    ));
 
     o.push_str("    // MARK: constants\n");
     for c in abi["constants"].as_array().unwrap() {
@@ -733,9 +940,17 @@ fn gen_swift(abi: &Value, _target: &str) -> String {
             o.push_str(&format!("    /// {d}\n"));
         }
         if ty == "string" {
-            o.push_str(&format!("    public static let {name}: String = \"{}\"\n", c["value"].as_str().unwrap()));
+            o.push_str(&format!(
+                "    public static let {name}: String = \"{}\"\n",
+                c["value"].as_str().unwrap()
+            ));
         } else {
-            emit_swift(&mut o, &format!("public static let {name}: {}", swift_type(ty)), &ts, |t| zig_num(&c["value"], t));
+            emit_swift(
+                &mut o,
+                &format!("public static let {name}: {}", swift_type(ty)),
+                &ts,
+                |t| zig_num(&c["value"], t),
+            );
         }
     }
 
@@ -745,9 +960,16 @@ fn gen_swift(abi: &Value, _target: &str) -> String {
         if let Some(d) = e["description"].as_str() {
             o.push_str(&format!("    /// {d}\n"));
         }
-        o.push_str(&format!("    public enum {name}: {} {{\n", swift_type(e["type"].as_str().unwrap())));
+        o.push_str(&format!(
+            "    public enum {name}: {} {{\n",
+            swift_type(e["type"].as_str().unwrap())
+        ));
         for v in e["values"].as_array().unwrap() {
-            o.push_str(&format!("        case {} = {}\n", v["name"].as_str().unwrap(), v["value"].as_i64().unwrap()));
+            o.push_str(&format!(
+                "        case {} = {}\n",
+                v["name"].as_str().unwrap(),
+                v["value"].as_i64().unwrap()
+            ));
         }
         o.push_str("    }\n");
     }
@@ -759,14 +981,29 @@ fn gen_swift(abi: &Value, _target: &str) -> String {
         if let Some(note) = struct_scope_note("    //", s) {
             o.push_str(&format!("{note}\n"));
         }
-        emit_swift(&mut o, &format!("public static let {name}_size: Int"), &sts, |t| resolve_int(&s["size"], t).unwrap().to_string());
-        emit_swift(&mut o, &format!("public static let {name}_align: Int"), &sts, |t| resolve_int(&s["align"], t).unwrap().to_string());
+        emit_swift(
+            &mut o,
+            &format!("public static let {name}_size: Int"),
+            &sts,
+            |t| resolve_int(&s["size"], t).unwrap().to_string(),
+        );
+        emit_swift(
+            &mut o,
+            &format!("public static let {name}_align: Int"),
+            &sts,
+            |t| resolve_int(&s["align"], t).unwrap().to_string(),
+        );
         for f in each_field(s) {
             let fname = f["name"].as_str().unwrap();
             if let Some(p) = f["protocol"].as_str() {
                 o.push_str(&format!("    {}\n", protocol_note("///", p)));
             }
-            emit_swift(&mut o, &format!("public static let {name}_{fname}_off: Int"), &sts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
+            emit_swift(
+                &mut o,
+                &format!("public static let {name}_{fname}_off: Int"),
+                &sts,
+                |t| resolve_int(&f["offset"], t).unwrap().to_string(),
+            );
         }
     }
 
@@ -774,10 +1011,20 @@ fn gen_swift(abi: &Value, _target: &str) -> String {
     for n in abi["names"].as_array().unwrap_or(&vec![]) {
         let nm = n["name"].as_str().unwrap();
         if n.get("golden").is_some() {
-            emit_swift(&mut o, &format!("public static let name_golden_{nm}: String"), &ts, |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()));
+            emit_swift(
+                &mut o,
+                &format!("public static let name_golden_{nm}: String"),
+                &ts,
+                |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()),
+            );
         }
         if n.get("posix_golden").is_some() {
-            emit_swift(&mut o, &format!("public static let name_golden_{nm}_posix: String"), &ts, |t| format!("{:?}", resolve_str(&n["posix_golden"], t).unwrap()));
+            emit_swift(
+                &mut o,
+                &format!("public static let name_golden_{nm}_posix: String"),
+                &ts,
+                |t| format!("{:?}", resolve_str(&n["posix_golden"], t).unwrap()),
+            );
         }
     }
     o.push_str("}\n");
@@ -802,8 +1049,13 @@ fn gen_cpp(abi: &Value, _target: &str) -> String {
     let ts = targets(abi);
     let mut o = String::new();
     gen_header(&mut o, "cpp", &ts.join(" / "), "//");
-    o.push_str("\n#pragma once\n#include <cstddef>\n#include <cstdint>\n\nnamespace thoth::abi {\n\n");
-    o.push_str(&format!("inline constexpr const char* abi_version = \"{}\";\n\n", abi["version"].as_str().unwrap()));
+    o.push_str(
+        "\n#pragma once\n#include <cstddef>\n#include <cstdint>\n\nnamespace thoth::abi {\n\n",
+    );
+    o.push_str(&format!(
+        "inline constexpr const char* abi_version = \"{}\";\n\n",
+        abi["version"].as_str().unwrap()
+    ));
 
     o.push_str("// --- constants ---\n");
     for c in abi["constants"].as_array().unwrap() {
@@ -812,10 +1064,19 @@ fn gen_cpp(abi: &Value, _target: &str) -> String {
             o.push_str(&format!("/// {d}\n"));
         }
         if ty == "string" {
-            o.push_str(&format!("inline constexpr const char* {name} = \"{}\";\n", c["value"].as_str().unwrap()));
+            o.push_str(&format!(
+                "inline constexpr const char* {name} = \"{}\";\n",
+                c["value"].as_str().unwrap()
+            ));
         } else {
             let suffix = if ty == "u64" { "ull" } else { "" };
-            emit_cpp(&mut o, &format!("inline constexpr {} {name}", cpp_type(ty)), suffix, &ts, |t| zig_num(&c["value"], t));
+            emit_cpp(
+                &mut o,
+                &format!("inline constexpr {} {name}", cpp_type(ty)),
+                suffix,
+                &ts,
+                |t| zig_num(&c["value"], t),
+            );
         }
     }
 
@@ -825,9 +1086,21 @@ fn gen_cpp(abi: &Value, _target: &str) -> String {
         if let Some(d) = e["description"].as_str() {
             o.push_str(&format!("/// {d}\n"));
         }
-        o.push_str(&format!("enum class {name} : {} {{ ", cpp_type(e["type"].as_str().unwrap())));
-        let parts: Vec<String> = e["values"].as_array().unwrap().iter()
-            .map(|v| format!("{} = {}", v["name"].as_str().unwrap(), v["value"].as_i64().unwrap()))
+        o.push_str(&format!(
+            "enum class {name} : {} {{ ",
+            cpp_type(e["type"].as_str().unwrap())
+        ));
+        let parts: Vec<String> = e["values"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| {
+                format!(
+                    "{} = {}",
+                    v["name"].as_str().unwrap(),
+                    v["value"].as_i64().unwrap()
+                )
+            })
             .collect();
         o.push_str(&format!("{} }};\n", parts.join(", ")));
     }
@@ -839,14 +1112,32 @@ fn gen_cpp(abi: &Value, _target: &str) -> String {
         if let Some(note) = struct_scope_note("//", s) {
             o.push_str(&format!("{note}\n"));
         }
-        emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_size"), "", &sts, |t| resolve_int(&s["size"], t).unwrap().to_string());
-        emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_align"), "", &sts, |t| resolve_int(&s["align"], t).unwrap().to_string());
+        emit_cpp(
+            &mut o,
+            &format!("inline constexpr std::size_t {name}_size"),
+            "",
+            &sts,
+            |t| resolve_int(&s["size"], t).unwrap().to_string(),
+        );
+        emit_cpp(
+            &mut o,
+            &format!("inline constexpr std::size_t {name}_align"),
+            "",
+            &sts,
+            |t| resolve_int(&s["align"], t).unwrap().to_string(),
+        );
         for f in each_field(s) {
             let fname = f["name"].as_str().unwrap();
             if let Some(p) = f["protocol"].as_str() {
                 o.push_str(&format!("{}\n", protocol_note("//", p)));
             }
-            emit_cpp(&mut o, &format!("inline constexpr std::size_t {name}_{fname}_off"), "", &sts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
+            emit_cpp(
+                &mut o,
+                &format!("inline constexpr std::size_t {name}_{fname}_off"),
+                "",
+                &sts,
+                |t| resolve_int(&f["offset"], t).unwrap().to_string(),
+            );
         }
     }
 
@@ -854,10 +1145,22 @@ fn gen_cpp(abi: &Value, _target: &str) -> String {
     for n in abi["names"].as_array().unwrap_or(&Vec::new()) {
         let nm = n["name"].as_str().unwrap();
         if n.get("golden").is_some() {
-            emit_cpp(&mut o, &format!("inline constexpr const char* name_golden_{nm}"), "", &ts, |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()));
+            emit_cpp(
+                &mut o,
+                &format!("inline constexpr const char* name_golden_{nm}"),
+                "",
+                &ts,
+                |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()),
+            );
         }
         if n.get("posix_golden").is_some() {
-            emit_cpp(&mut o, &format!("inline constexpr const char* name_golden_{nm}_posix"), "", &ts, |t| format!("{:?}", resolve_str(&n["posix_golden"], t).unwrap()));
+            emit_cpp(
+                &mut o,
+                &format!("inline constexpr const char* name_golden_{nm}_posix"),
+                "",
+                &ts,
+                |t| format!("{:?}", resolve_str(&n["posix_golden"], t).unwrap()),
+            );
         }
     }
     o.push_str("\n} // namespace thoth::abi\n");

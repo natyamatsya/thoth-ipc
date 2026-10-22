@@ -108,9 +108,7 @@ mod backend {
             };
             let mut fd: c_int = -1;
             let mut tok: c_int = -1;
-            let st = unsafe {
-                notify_register_file_descriptor(key.as_ptr(), &mut fd, 0, &mut tok)
-            };
+            let st = unsafe { notify_register_file_descriptor(key.as_ptr(), &mut fd, 0, &mut tok) };
             if st != NOTIFY_STATUS_OK {
                 return false;
             }
@@ -274,12 +272,16 @@ mod backend {
             unsafe {
                 // Consume any SIGPIPE we generated before restoring the mask.
                 let mut pend: libc::sigset_t = std::mem::zeroed();
-                if libc::sigpending(&mut pend) == 0 && libc::sigismember(&pend, libc::SIGPIPE) == 1 {
+                if libc::sigpending(&mut pend) == 0 && libc::sigismember(&pend, libc::SIGPIPE) == 1
+                {
                     let mut only: libc::sigset_t = std::mem::zeroed();
                     libc::sigemptyset(&mut only);
                     libc::sigaddset(&mut only, libc::SIGPIPE);
                     let mut info: libc::siginfo_t = std::mem::zeroed();
-                    let zero = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+                    let zero = libc::timespec {
+                        tv_sec: 0,
+                        tv_nsec: 0,
+                    };
                     libc::sigtimedwait(&only, &mut info, &zero);
                 }
                 if self.blocked {
@@ -390,14 +392,20 @@ mod backend {
                 }
             }
             let rfd = unsafe {
-                libc::open(cpath.as_ptr(), libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC)
+                libc::open(
+                    cpath.as_ptr(),
+                    libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC,
+                )
             };
             if rfd == -1 {
                 unsafe { libc::unlink(cpath.as_ptr()) };
                 return false;
             }
             let wfd = unsafe {
-                libc::open(cpath.as_ptr(), libc::O_WRONLY | libc::O_NONBLOCK | libc::O_CLOEXEC)
+                libc::open(
+                    cpath.as_ptr(),
+                    libc::O_WRONLY | libc::O_NONBLOCK | libc::O_CLOEXEC,
+                )
             };
             self.rfd = rfd;
             self.wfd = wfd;
@@ -560,9 +568,7 @@ mod backend {
 
     impl NotifySource {
         pub fn new() -> Self {
-            Self {
-                ev: [0; MAX_SLOTS],
-            }
+            Self { ev: [0; MAX_SLOTS] }
         }
 
         fn close_slot(&mut self, i: usize) {

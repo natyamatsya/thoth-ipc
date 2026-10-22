@@ -44,11 +44,21 @@ impl Ring {
         }
         Self { shm }
     }
-    fn head(&self) -> u32 { unsafe { (self.shm.get() as *const u32).read_volatile() } }
-    fn tail(&self) -> u32 { unsafe { (self.shm.get().add(4) as *const u32).read_volatile() } }
-    fn set_head(&self, v: u32) { unsafe { (self.shm.get() as *mut u32).write_volatile(v) } }
-    fn set_tail(&self, v: u32) { unsafe { (self.shm.get().add(4) as *mut u32).write_volatile(v) } }
-    fn slot(&self, idx: u32) -> *mut u8 { unsafe { self.shm.get().add(8 + idx as usize * SLOT) } }
+    fn head(&self) -> u32 {
+        unsafe { (self.shm.get() as *const u32).read_volatile() }
+    }
+    fn tail(&self) -> u32 {
+        unsafe { (self.shm.get().add(4) as *const u32).read_volatile() }
+    }
+    fn set_head(&self, v: u32) {
+        unsafe { (self.shm.get() as *mut u32).write_volatile(v) }
+    }
+    fn set_tail(&self, v: u32) {
+        unsafe { (self.shm.get().add(4) as *mut u32).write_volatile(v) }
+    }
+    fn slot(&self, idx: u32) -> *mut u8 {
+        unsafe { self.shm.get().add(8 + idx as usize * SLOT) }
+    }
 }
 
 fn main() {
@@ -116,7 +126,9 @@ fn consume(total: usize) {
         let msg = unsafe {
             let p = ring.slot(idx);
             let mut len = 0;
-            while len < SLOT && *p.add(len) != 0 { len += 1; }
+            while len < SLOT && *p.add(len) != 0 {
+                len += 1;
+            }
             String::from_utf8_lossy(std::slice::from_raw_parts(p, len)).to_string()
         };
         mutex.unlock().expect("unlock");
@@ -126,7 +138,11 @@ fn consume(total: usize) {
         println!("[consumer] {:>3}/{total}  {msg}", i + 1);
     }
 
-    println!("\n[consumer] summary — {} items from {} producer(s):", tally.values().sum::<usize>(), tally.len());
+    println!(
+        "\n[consumer] summary — {} items from {} producer(s):",
+        tally.values().sum::<usize>(),
+        tally.len()
+    );
     for (p, n) in &tally {
         println!("    {p:<12} {n}");
     }

@@ -32,7 +32,10 @@ const SYNC_ABI_INIT_TIMEOUT: Duration = Duration::from_secs(2);
 const SYNC_BACKEND_ID: u32 = abi::syncabi_backend_ulock; // apple_ulock
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const SYNC_BACKEND_ID: u32 = abi::syncabi_backend_linux_a0; // linux_a0
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "linux", target_os = "android"))
+))]
 const SYNC_BACKEND_ID: u32 = abi::syncabi_backend_posix_pthread; // posix_pthread
 #[cfg(windows)]
 const SYNC_BACKEND_ID: u32 = abi::syncabi_backend_win32; // win32
@@ -86,7 +89,10 @@ impl PrimitiveKind {
                 {
                     crate::platform::linux::MUTEX_PAYLOAD_SIZE as u32 // sizeof(a0_mtx_t)
                 }
-                #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
+                #[cfg(all(
+                    unix,
+                    not(any(target_os = "macos", target_os = "linux", target_os = "android"))
+                ))]
                 {
                     std::mem::size_of::<libc::pthread_mutex_t>() as u32
                 }
@@ -104,7 +110,10 @@ impl PrimitiveKind {
                 {
                     crate::platform::linux::CONDITION_PAYLOAD_SIZE as u32 // sizeof(a0_cnd_t)
                 }
-                #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
+                #[cfg(all(
+                    unix,
+                    not(any(target_os = "macos", target_os = "linux", target_os = "android"))
+                ))]
                 {
                     std::mem::size_of::<libc::pthread_cond_t>() as u32
                 }
@@ -131,11 +140,19 @@ struct SyncAbiStamp {
 const _: () = {
     assert!(std::mem::size_of::<SyncAbiStamp>() == abi::syncabi_stamp_size);
     assert!(std::mem::offset_of!(SyncAbiStamp, magic) == abi::syncabi_stamp_magic_off);
-    assert!(std::mem::offset_of!(SyncAbiStamp, abi_version_major) == abi::syncabi_stamp_ver_major_off);
-    assert!(std::mem::offset_of!(SyncAbiStamp, abi_version_minor) == abi::syncabi_stamp_ver_minor_off);
+    assert!(
+        std::mem::offset_of!(SyncAbiStamp, abi_version_major) == abi::syncabi_stamp_ver_major_off
+    );
+    assert!(
+        std::mem::offset_of!(SyncAbiStamp, abi_version_minor) == abi::syncabi_stamp_ver_minor_off
+    );
     assert!(std::mem::offset_of!(SyncAbiStamp, backend_id) == abi::syncabi_stamp_backend_id_off);
-    assert!(std::mem::offset_of!(SyncAbiStamp, primitive_kind) == abi::syncabi_stamp_primitive_id_off);
-    assert!(std::mem::offset_of!(SyncAbiStamp, payload_size) == abi::syncabi_stamp_payload_size_off);
+    assert!(
+        std::mem::offset_of!(SyncAbiStamp, primitive_kind) == abi::syncabi_stamp_primitive_id_off
+    );
+    assert!(
+        std::mem::offset_of!(SyncAbiStamp, payload_size) == abi::syncabi_stamp_payload_size_off
+    );
 };
 
 #[derive(Clone, Copy)]

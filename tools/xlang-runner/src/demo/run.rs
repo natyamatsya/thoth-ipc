@@ -42,7 +42,11 @@ struct Running<'a> {
     killed: bool,
 }
 
-fn read_lines(stream: impl Read + Send + 'static, output: Arc<Output>, stdout: bool) -> JoinHandle<()> {
+fn read_lines(
+    stream: impl Read + Send + 'static,
+    output: Arc<Output>,
+    stdout: bool,
+) -> JoinHandle<()> {
     std::thread::spawn(move || {
         for line in BufReader::new(stream).lines() {
             let Ok(line) = line else { break };
@@ -71,7 +75,14 @@ fn spawn<'a>(spec: &'a CaseProc) -> Result<Running<'a>, String> {
         read_lines(child.stdout.take().unwrap(), output.clone(), true),
         read_lines(child.stderr.take().unwrap(), output.clone(), false),
     ];
-    Ok(Running { spec, child, output, readers, exit: None, killed: false })
+    Ok(Running {
+        spec,
+        child,
+        output,
+        readers,
+        exit: None,
+        killed: false,
+    })
 }
 
 impl Running<'_> {
@@ -96,8 +107,16 @@ impl Running<'_> {
     /// Wait until a line matching the process's `ready` pattern appears, the
     /// process exits, or `timeout` passes. True if ready.
     fn wait_ready(&mut self, timeout: Duration) -> bool {
-        let Some(ready) = &self.spec.ready else { return true };
-        let seen = |lines: &Lines| lines.stdout.iter().chain(&lines.stderr).any(|l| ready.is_match(l));
+        let Some(ready) = &self.spec.ready else {
+            return true;
+        };
+        let seen = |lines: &Lines| {
+            lines
+                .stdout
+                .iter()
+                .chain(&lines.stderr)
+                .any(|l| ready.is_match(l))
+        };
         let deadline = Instant::now() + timeout;
         loop {
             if seen(&self.output.lines.lock().unwrap()) {
@@ -121,7 +140,13 @@ impl Running<'_> {
 
     fn last_stderr(&self) -> String {
         let lines = self.output.lines.lock().unwrap();
-        lines.stderr.iter().rev().find(|l| !l.trim().is_empty()).cloned().unwrap_or_default()
+        lines
+            .stderr
+            .iter()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Why this process failed its expectations, if it did.
@@ -132,24 +157,36 @@ impl Running<'_> {
             s => format!(" — {s}"),
         };
         match self.exit {
-            Some(None) if self.killed => return Some(format!("{label}: killed at the deadline{tail}")),
+            Some(None) if self.killed => {
+                return Some(format!("{label}: killed at the deadline{tail}"));
+            }
             Some(None) => return Some(format!("{label}: died from a signal{tail}")),
             Some(Some(code)) if code != self.spec.exit => {
-                return Some(format!("{label}: exit {code} (expected {}){tail}", self.spec.exit));
+                return Some(format!(
+                    "{label}: exit {code} (expected {}){tail}",
+                    self.spec.exit
+                ));
             }
             None => return Some(format!("{label}: still running")),
             _ => {}
         }
         let lines = self.output.lines.lock().unwrap();
         for e in &self.spec.expect {
-            let n = lines.stdout.iter().filter(|l| e.pattern.is_match(l)).count();
+            let n = lines
+                .stdout
+                .iter()
+                .filter(|l| e.pattern.is_match(l))
+                .count();
             let ok = match e.count {
                 Some(want) => n == want,
                 None => n > 0,
             };
             if !ok {
                 let want = e.count.map_or("at least 1".to_string(), |c| c.to_string());
-                return Some(format!("{label}: {n} stdout line(s) match /{}/, expected {want}", e.pattern));
+                return Some(format!(
+                    "{label}: {n} stdout line(s) match /{}/, expected {want}",
+                    e.pattern
+                ));
             }
         }
         None
@@ -178,7 +215,10 @@ fn run_once(case: &DemoCase, cfg: &DemoRunConfig) -> (bool, String) {
             Ok(mut r) => {
                 if spec.ready.is_some() {
                     if !r.wait_ready(Duration::from_secs(cfg.ready_timeout_secs)) {
-                        failure = Some(format!("{}: no ready line within {}s", spec.label, cfg.ready_timeout_secs));
+                        failure = Some(format!(
+                            "{}: no ready line within {}s",
+                            spec.label, cfg.ready_timeout_secs
+                        ));
                     }
                 } else {
                     std::thread::sleep(Duration::from_millis(cfg.start_gap_ms));
@@ -289,25 +329,28 @@ pub fn run_all(cases: &[DemoCase], cfg: &DemoRunConfig, quiet: bool) -> Vec<Case
 
     std::thread::scope(|scope| {
         for _ in 0..jobs {
-            scope.spawn(|| loop {
-                let u = next.fetch_add(1, Ordering::Relaxed);
-                let Some(unit) = ordered.get(u) else { break };
-                for &i in unit {
-                    let result = run_case(&cases[i], cfg);
-                    if !quiet {
-                        let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-                        let mut line = format!(
-                            "  [{}] ({n}/{total}) {:<18} {}",
-                            result.status.label(),
-                            result.scenario,
-                            result.id
-                        );
-                        if matches!(result.status, Status::Fail | Status::Flaky | Status::XFail) {
-                            line.push_str(&format!("   {}", result.detail));
+            scope.spawn(|| {
+                loop {
+                    let u = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(unit) = ordered.get(u) else { break };
+                    for &i in unit {
+                        let result = run_case(&cases[i], cfg);
+                        if !quiet {
+                            let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+                            let mut line = format!(
+                                "  [{}] ({n}/{total}) {:<18} {}",
+                                result.status.label(),
+                                result.scenario,
+                                result.id
+                            );
+                            if matches!(result.status, Status::Fail | Status::Flaky | Status::XFail)
+                            {
+                                line.push_str(&format!("   {}", result.detail));
+                            }
+                            println!("{line}");
                         }
-                        println!("{line}");
+                        *results[i].lock().unwrap() = Some(result);
                     }
-                    *results[i].lock().unwrap() = Some(result);
                 }
             });
         }
@@ -323,7 +366,10 @@ pub fn run_all(cases: &[DemoCase], cfg: &DemoRunConfig, quiet: bool) -> Vec<Case
 pub fn describe(case: &DemoCase) -> String {
     let mut out = format!("{} | {}", case.demo, case.id);
     for p in &case.procs {
-        let bin = Path::new(&p.bin).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let bin = Path::new(&p.bin)
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
         out.push_str(&format!("\n    {:<20} {bin} {}", p.label, p.args.join(" ")));
     }
     out

@@ -403,7 +403,10 @@ macro_rules! receiver_churn_test {
                 t.join().unwrap();
             }
             <$chan>::clear_storage(&name);
-            assert_eq!(stalls, 0, "a writer stalled on an element no receiver would read");
+            assert_eq!(
+                stalls, 0,
+                "a writer stalled on an element no receiver would read"
+            );
             assert_eq!(gaps, 0, "a receiver missed a message");
         }
     };

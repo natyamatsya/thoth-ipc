@@ -128,9 +128,9 @@ fn gateway(devices: usize, per_device: usize) -> i32 {
     };
     // The deadline is just one more timer on the same loop (created inside the
     // runtime: a tokio timer needs its reactor).
-    let outcome = rt.block_on(local.run_until(async move {
-        tokio::time::timeout(GATEWAY_DEADLINE, run).await
-    }));
+    let outcome = rt.block_on(
+        local.run_until(async move { tokio::time::timeout(GATEWAY_DEADLINE, run).await }),
+    );
     match outcome {
         Ok(()) => 0,
         Err(_) => {
@@ -170,7 +170,8 @@ fn demo(devices: usize, readings: usize) -> i32 {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let arg = |i: usize, default: usize| args.get(i).and_then(|s| s.parse().ok()).unwrap_or(default);
+    let arg =
+        |i: usize, default: usize| args.get(i).and_then(|s| s.parse().ok()).unwrap_or(default);
     let code = match args.get(1).map(String::as_str) {
         Some("demo") => demo(arg(2, 4), arg(3, 10)),
         Some("gateway") => gateway(arg(2, 4), arg(3, 10)),

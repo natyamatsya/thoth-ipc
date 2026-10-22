@@ -244,8 +244,14 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                         scenario: "sync".into(),
                         id: format!("{} -> {} {}B", w.name, r.name, size),
                         kind: CaseKind::Group {
-                            readers: vec![Proc::new(r, rw_args("read", &channel, sc.count, size, &[]))],
-                            writers: vec![Proc::new(w, rw_args("write", &channel, sc.count, size, &[]))],
+                            readers: vec![Proc::new(
+                                r,
+                                rw_args("read", &channel, sc.count, size, &[]),
+                            )],
+                            writers: vec![Proc::new(
+                                w,
+                                rw_args("write", &channel, sc.count, size, &[]),
+                            )],
                         },
                         channel,
                         xfail: false,
@@ -266,8 +272,14 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                         scenario: "async".into(),
                         id: format!("{} -> {} {}B", w.name, r.name, size),
                         kind: CaseKind::Group {
-                            readers: vec![Proc::new(r, rw_args("aread", &channel, sc.count, size, &[]))],
-                            writers: vec![Proc::new(w, rw_args("write", &channel, sc.count, size, &[]))],
+                            readers: vec![Proc::new(
+                                r,
+                                rw_args("aread", &channel, sc.count, size, &[]),
+                            )],
+                            writers: vec![Proc::new(
+                                w,
+                                rw_args("write", &channel, sc.count, size, &[]),
+                            )],
                         },
                         channel,
                         xfail: false,
@@ -335,8 +347,7 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                         .map(|r| Proc::new(r, rw_args("read", &channel, sc.count, size, &[])))
                         .collect();
                     let minrecv = readers.len().to_string();
-                    let reader_names: Vec<&str> =
-                        langs.iter().map(|r| r.name.as_str()).collect();
+                    let reader_names: Vec<&str> = langs.iter().map(|r| r.name.as_str()).collect();
                     cases.push(Case {
                         scenario: "fanout".into(),
                         id: format!("{} -> [{}] {}B", w.name, reader_names.join("+"), size),
@@ -573,7 +584,10 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                 let ch = namer.next("p");
                 cases.push(Case {
                     scenario: "primitives".into(),
-                    id: format!("{} killed holding mutex -> {} lock recovers", a.name, b.name),
+                    id: format!(
+                        "{} killed holding mutex -> {} lock recovers",
+                        a.name, b.name
+                    ),
                     kind: CaseKind::HoldProbe {
                         holder: Proc::new(a, vec!["mhold".into(), ch.clone(), "20".into()]),
                         kill_holder: true,
@@ -658,7 +672,13 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                             kind: CaseKind::Group {
                                 readers: vec![Proc::new(
                                     r,
-                                    rw_args("sread-badkey", &channel, sc.count, sc.badkey_size, &[alg]),
+                                    rw_args(
+                                        "sread-badkey",
+                                        &channel,
+                                        sc.count,
+                                        sc.badkey_size,
+                                        &[alg],
+                                    ),
                                 )],
                                 writers: vec![Proc::new(
                                     w,

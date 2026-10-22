@@ -26,7 +26,10 @@ use crate::IpcMutex;
 pub struct IpcCondition {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     inner: crate::platform::linux::PlatformCondition,
-    #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
+    #[cfg(all(
+        unix,
+        not(any(target_os = "macos", target_os = "linux", target_os = "android"))
+    ))]
     inner: PosixCondition,
     #[cfg(target_os = "macos")]
     inner: AppleCondition,
@@ -41,7 +44,10 @@ impl IpcCondition {
         let abi_guard = crate::sync_abi::open_condition_guard(name)?;
         #[cfg(any(target_os = "linux", target_os = "android"))]
         let inner = crate::platform::linux::PlatformCondition::open(name)?;
-        #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
+        #[cfg(all(
+            unix,
+            not(any(target_os = "macos", target_os = "linux", target_os = "android"))
+        ))]
         let inner = PosixCondition::open(name)?;
         #[cfg(target_os = "macos")]
         let inner = AppleCondition::open(name)?;
@@ -108,7 +114,10 @@ impl IpcCondition {
         crate::sync_abi::clear_condition_storage(name);
         #[cfg(any(target_os = "linux", target_os = "android"))]
         crate::platform::linux::PlatformCondition::clear_storage(name);
-        #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
+        #[cfg(all(
+            unix,
+            not(any(target_os = "macos", target_os = "linux", target_os = "android"))
+        ))]
         PosixCondition::clear_storage(name);
         #[cfg(target_os = "macos")]
         AppleCondition::clear_storage(name);
@@ -135,13 +144,19 @@ use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 #[cfg(target_os = "macos")]
 use std::time::{Duration, Instant};
 
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "linux", target_os = "android"))
+))]
 struct PosixCondition {
     cached: Arc<CachedShm>,
     name: String,
 }
 
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "linux", target_os = "android"))
+))]
 impl PosixCondition {
     fn open(name: &str) -> io::Result<Self> {
         let shm_size = std::mem::size_of::<libc::pthread_cond_t>();
@@ -239,7 +254,10 @@ impl PosixCondition {
     }
 }
 
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "linux", target_os = "android"))
+))]
 impl Drop for PosixCondition {
     fn drop(&mut self) {
         // Don't call pthread_cond_destroy here. On macOS, the virtual

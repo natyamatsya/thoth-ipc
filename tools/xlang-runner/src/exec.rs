@@ -93,10 +93,7 @@ pub fn wait_collect(mut child: Child, timeout: Duration) -> std::io::Result<Wait
 }
 
 /// Convenience shim used by caps probing: Err(()) on spawn-side timeout.
-pub fn wait_with_timeout(
-    child: Child,
-    timeout: Duration,
-) -> Result<WaitResult, ()> {
+pub fn wait_with_timeout(child: Child, timeout: Duration) -> Result<WaitResult, ()> {
     match wait_collect(child, timeout) {
         Ok(r) if !r.timed_out => Ok(r),
         _ => Err(()),
@@ -163,23 +160,26 @@ fn run_group(readers: &[Proc], writers: &[Proc], channel: &str, cfg: &RunConfig)
 fn run_group_inner(readers: &[Proc], writers: &[Proc], cfg: &RunConfig) -> (bool, String) {
     let timeout = Duration::from_secs(cfg.pair_timeout_secs);
     let mut children: Vec<(String, Child)> = Vec::new();
-    let spawn_all = |procs: &[Proc], role: &str, children: &mut Vec<(String, Child)>| -> Result<(), String> {
-        for p in procs {
-            let label = format!("{role}[{}]", p.endpoint.lang);
-            match spawn(&p.endpoint.bin, &p.args) {
-                Ok(c) => children.push((label, c)),
-                Err(e) => return Err(format!("spawn {label} failed: {e}")),
+    let spawn_all =
+        |procs: &[Proc], role: &str, children: &mut Vec<(String, Child)>| -> Result<(), String> {
+            for p in procs {
+                let label = format!("{role}[{}]", p.endpoint.lang);
+                match spawn(&p.endpoint.bin, &p.args) {
+                    Ok(c) => children.push((label, c)),
+                    Err(e) => return Err(format!("spawn {label} failed: {e}")),
+                }
             }
-        }
-        Ok(())
-    };
+            Ok(())
+        };
 
-    let spawn_err = spawn_all(readers, "reader", &mut children).err().or_else(|| {
-        // Give the readers a moment to create the ring and register their
-        // receiver slots before any writer connects.
-        std::thread::sleep(Duration::from_millis(cfg.reader_warmup_ms));
-        spawn_all(writers, "writer", &mut children).err()
-    });
+    let spawn_err = spawn_all(readers, "reader", &mut children)
+        .err()
+        .or_else(|| {
+            // Give the readers a moment to create the ring and register their
+            // receiver slots before any writer connects.
+            std::thread::sleep(Duration::from_millis(cfg.reader_warmup_ms));
+            spawn_all(writers, "writer", &mut children).err()
+        });
     if let Some(e) = spawn_err {
         for (_, mut c) in children {
             let _ = c.kill();
@@ -423,7 +423,10 @@ fn probe_stdout(proc: &Proc, cfg: &RunConfig) -> Result<String, String> {
     }
     // Line endings are not part of a trace: a C++ harness on Windows writes
     // stdout in text mode (CRLF), a Rust one writes LF.
-    Ok(String::from_utf8_lossy(&r.stdout).replace("\r\n", "\n").trim().to_string())
+    Ok(String::from_utf8_lossy(&r.stdout)
+        .replace("\r\n", "\n")
+        .trim()
+        .to_string())
 }
 
 /// Compare a port's primitive trace against the reference implementation's.
@@ -432,11 +435,21 @@ fn probe_stdout(proc: &Proc, cfg: &RunConfig) -> Result<String, String> {
 fn run_conform(reference: &Proc, subject: &Proc, cfg: &RunConfig) -> (bool, String) {
     let want = match probe_stdout(reference, cfg) {
         Ok(v) => v,
-        Err(e) => return (false, format!("reference {} failed: {e}", reference.endpoint.lang)),
+        Err(e) => {
+            return (
+                false,
+                format!("reference {} failed: {e}", reference.endpoint.lang),
+            );
+        }
     };
     let got = match probe_stdout(subject, cfg) {
         Ok(v) => v,
-        Err(e) => return (false, format!("subject {} failed: {e}", subject.endpoint.lang)),
+        Err(e) => {
+            return (
+                false,
+                format!("subject {} failed: {e}", subject.endpoint.lang),
+            );
+        }
     };
     // A port that does not implement the primitive says so; that is a gap to
     // report, not a silent pass and not a failure of the reference.
@@ -446,10 +459,7 @@ fn run_conform(reference: &Proc, subject: &Proc, cfg: &RunConfig) -> (bool, Stri
     if got == want {
         return (true, String::new());
     }
-    let mut detail = format!(
-        "trace differs from {} reference\n",
-        reference.endpoint.lang
-    );
+    let mut detail = format!("trace differs from {} reference\n", reference.endpoint.lang);
     for (i, (w, g)) in want.lines().zip(got.lines()).enumerate() {
         if w != g {
             detail.push_str(&format!("  line {i}: want `{w}` got `{g}`\n"));
@@ -464,16 +474,22 @@ fn run_conform(reference: &Proc, subject: &Proc, cfg: &RunConfig) -> (bool, Stri
 
 fn run_once(case: &Case, cfg: &RunConfig) -> (bool, String) {
     match &case.kind {
-        CaseKind::Group { readers, writers } => {
-            run_group(readers, writers, &case.channel, cfg)
-        }
+        CaseKind::Group { readers, writers } => run_group(readers, writers, &case.channel, cfg),
         CaseKind::HoldProbe {
             holder,
             kill_holder,
             zombie,
             probes,
             then_group,
-        } => run_hold_probe(holder, *kill_holder, *zombie, probes, then_group, &case.channel, cfg),
+        } => run_hold_probe(
+            holder,
+            *kill_holder,
+            *zombie,
+            probes,
+            then_group,
+            &case.channel,
+            cfg,
+        ),
         CaseKind::Conform { reference, subject } => run_conform(reference, subject, cfg),
     }
 }
@@ -516,8 +532,7 @@ fn run_case(case: &Case, cfg: &RunConfig) -> CaseResult {
 pub fn run_all(cases: &[Case], cfg: &RunConfig, quiet: bool) -> Vec<CaseResult> {
     let jobs = cfg.jobs.max(1).min(cases.len().max(1));
     let next = AtomicUsize::new(0);
-    let results: Vec<Mutex<Option<CaseResult>>> =
-        cases.iter().map(|_| Mutex::new(None)).collect();
+    let results: Vec<Mutex<Option<CaseResult>>> = cases.iter().map(|_| Mutex::new(None)).collect();
     let done = AtomicUsize::new(0);
     let total = cases.len();
 

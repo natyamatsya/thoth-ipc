@@ -22,7 +22,10 @@ mod imp {
     const CLOCK: libc::clockid_t = libc::CLOCK_MONOTONIC;
 
     pub fn now_ns() -> u64 {
-        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
         // SAFETY: `ts` is a valid out-pointer; the clock id is supported here.
         unsafe { libc::clock_gettime(CLOCK, &mut ts) };
         ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
@@ -31,7 +34,9 @@ mod imp {
 
 #[cfg(windows)]
 mod imp {
-    use windows_sys::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+    use windows_sys::Win32::System::Performance::{
+        QueryPerformanceCounter, QueryPerformanceFrequency,
+    };
 
     pub fn now_ns() -> u64 {
         let (mut freq, mut ctr) = (0i64, 0i64);
@@ -55,6 +60,10 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         let b = super::steady_clock_ns();
         assert!(b > a);
-        assert!((15_000_000..2_000_000_000).contains(&(b - a)), "elapsed {} ns", b - a);
+        assert!(
+            (15_000_000..2_000_000_000).contains(&(b - a)),
+            "elapsed {} ns",
+            b - a
+        );
     }
 }

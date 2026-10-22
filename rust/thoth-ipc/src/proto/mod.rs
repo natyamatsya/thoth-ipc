@@ -31,10 +31,10 @@ pub use process_manager::{
     WaitResult,
 };
 pub use rt_prio::{audio_period_ns, set_realtime_priority};
-pub use steady_clock::steady_clock_ns;
 pub use service_group::{InstanceRole, ManagedInstance, ServiceGroup, ServiceGroupConfig};
 pub use service_registry::{ServiceEntry, ServiceRegistry, MAX_NAME_LEN, MAX_SERVICES};
 pub use shm_ring::ShmRing;
+pub use steady_clock::steady_clock_ns;
 pub use typed_channel::TypedChannel;
 #[cfg(feature = "codec-capnp")]
 pub use typed_channel_capnp::TypedChannelCapnp;

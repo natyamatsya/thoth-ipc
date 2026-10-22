@@ -46,17 +46,35 @@ impl SharedState {
         let p = unsafe { ffi::rt_ffi_shared_state_open(cstr(name).as_ptr()) };
         if p.is_null() { None } else { Some(Self(p)) }
     }
-    fn sample_rate(&self) -> u32 { unsafe { ffi::rt_ffi_state_sample_rate(self.0) } }
-    fn channels(&self) -> u32 { unsafe { ffi::rt_ffi_state_channels(self.0) } }
-    fn frames_per_buffer(&self) -> u32 { unsafe { ffi::rt_ffi_state_frames_per_buffer(self.0) } }
-    fn stream_active(&self) -> bool { unsafe { ffi::rt_ffi_state_stream_active(self.0) } }
-    fn gain(&self) -> f32 { unsafe { ffi::rt_ffi_state_gain(self.0) } }
-    fn pan(&self) -> f32 { unsafe { ffi::rt_ffi_state_pan(self.0) } }
-    fn add_blocks_produced(&self, n: u64) { unsafe { ffi::rt_ffi_state_add_blocks_produced(self.0, n) } }
-    fn touch_heartbeat(&self) { unsafe { ffi::rt_ffi_state_touch_heartbeat(self.0) } }
+    fn sample_rate(&self) -> u32 {
+        unsafe { ffi::rt_ffi_state_sample_rate(self.0) }
+    }
+    fn channels(&self) -> u32 {
+        unsafe { ffi::rt_ffi_state_channels(self.0) }
+    }
+    fn frames_per_buffer(&self) -> u32 {
+        unsafe { ffi::rt_ffi_state_frames_per_buffer(self.0) }
+    }
+    fn stream_active(&self) -> bool {
+        unsafe { ffi::rt_ffi_state_stream_active(self.0) }
+    }
+    fn gain(&self) -> f32 {
+        unsafe { ffi::rt_ffi_state_gain(self.0) }
+    }
+    fn pan(&self) -> f32 {
+        unsafe { ffi::rt_ffi_state_pan(self.0) }
+    }
+    fn add_blocks_produced(&self, n: u64) {
+        unsafe { ffi::rt_ffi_state_add_blocks_produced(self.0, n) }
+    }
+    fn touch_heartbeat(&self) {
+        unsafe { ffi::rt_ffi_state_touch_heartbeat(self.0) }
+    }
 }
 impl Drop for SharedState {
-    fn drop(&mut self) { unsafe { ffi::rt_ffi_shared_state_close(self.0) } }
+    fn drop(&mut self) {
+        unsafe { ffi::rt_ffi_shared_state_close(self.0) }
+    }
 }
 
 struct Ring(Handle);
@@ -70,7 +88,9 @@ impl Ring {
     }
 }
 impl Drop for Ring {
-    fn drop(&mut self) { unsafe { ffi::rt_ffi_ring_close(self.0) } }
+    fn drop(&mut self) {
+        unsafe { ffi::rt_ffi_ring_close(self.0) }
+    }
 }
 
 struct Registry(Handle);
@@ -81,8 +101,12 @@ impl Registry {
     }
     fn register_service(&self, name: &str, ctrl: &str, reply: &str) -> bool {
         unsafe {
-            ffi::rt_ffi_registry_register(self.0, cstr(name).as_ptr(),
-                                          cstr(ctrl).as_ptr(), cstr(reply).as_ptr())
+            ffi::rt_ffi_registry_register(
+                self.0,
+                cstr(name).as_ptr(),
+                cstr(ctrl).as_ptr(),
+                cstr(reply).as_ptr(),
+            )
         }
     }
     fn unregister_service(&self, name: &str) -> bool {
@@ -90,7 +114,9 @@ impl Registry {
     }
 }
 impl Drop for Registry {
-    fn drop(&mut self) { unsafe { ffi::rt_ffi_registry_close(self.0) } }
+    fn drop(&mut self) {
+        unsafe { ffi::rt_ffi_registry_close(self.0) }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -127,8 +153,12 @@ fn render_audio(blk: &mut AudioBlock, seq: u64, state: &SharedState) {
         let s = (two_pi * FREQ * t).sin();
         let ch = blk.channels as usize;
         let base = f as usize * ch;
-        if ch >= 1 { blk.samples[base] = s * l_gain; }
-        if ch >= 2 { blk.samples[base + 1] = s * r_gain; }
+        if ch >= 1 {
+            blk.samples[base] = s * l_gain;
+        }
+        if ch >= 2 {
+            blk.samples[base + 1] = s * r_gain;
+        }
     }
 }
 
@@ -139,7 +169,7 @@ fn render_audio(blk: &mut AudioBlock, seq: u64, state: &SharedState) {
 fn main() {
     // Install signal handlers
     unsafe {
-        libc_signal(2, signal_handler);  // SIGINT
+        libc_signal(2, signal_handler); // SIGINT
         libc_signal(15, signal_handler); // SIGTERM
     }
 
@@ -147,36 +177,39 @@ fn main() {
     let instance_id = args.get(1).map(|s| s.as_str()).unwrap_or("");
 
     let (svc_name, ring_name, state_name) = if instance_id.is_empty() {
-        ("rt_audio".to_string(), "rt_audio_ring".to_string(), "rt_audio_state".to_string())
+        (
+            "rt_audio".to_string(),
+            "rt_audio_ring".to_string(),
+            "rt_audio_state".to_string(),
+        )
     } else {
-        (format!("rt_audio.{instance_id}"),
-         format!("rt_audio_ring_{instance_id}"),
-         format!("rt_audio_state_{instance_id}"))
+        (
+            format!("rt_audio.{instance_id}"),
+            format!("rt_audio_ring_{instance_id}"),
+            format!("rt_audio_state_{instance_id}"),
+        )
     };
 
     let pid = unsafe { ffi::rt_ffi_getpid() };
     println!("rt_service_rs[{svc_name}]: starting (pid={pid})");
 
     // Open shared state
-    let state = SharedState::open(&state_name)
-        .unwrap_or_else(|| {
-            eprintln!("rt_service_rs[{svc_name}]: failed to open shared state '{state_name}'");
-            std::process::exit(1);
-        });
+    let state = SharedState::open(&state_name).unwrap_or_else(|| {
+        eprintln!("rt_service_rs[{svc_name}]: failed to open shared state '{state_name}'");
+        std::process::exit(1);
+    });
 
     // Open ring buffer
-    let ring = Ring::open(&ring_name)
-        .unwrap_or_else(|| {
-            eprintln!("rt_service_rs[{svc_name}]: failed to open ring buffer '{ring_name}'");
-            std::process::exit(1);
-        });
+    let ring = Ring::open(&ring_name).unwrap_or_else(|| {
+        eprintln!("rt_service_rs[{svc_name}]: failed to open ring buffer '{ring_name}'");
+        std::process::exit(1);
+    });
 
     // Register in the service registry
-    let registry = Registry::open("audio_rt")
-        .unwrap_or_else(|| {
-            eprintln!("rt_service_rs[{svc_name}]: failed to open registry");
-            std::process::exit(1);
-        });
+    let registry = Registry::open("audio_rt").unwrap_or_else(|| {
+        eprintln!("rt_service_rs[{svc_name}]: failed to open registry");
+        std::process::exit(1);
+    });
     registry.register_service(&svc_name, &ring_name, &state_name);
     println!("rt_service_rs[{svc_name}]: registered (ring={ring_name} state={state_name})");
 
@@ -208,9 +241,7 @@ fn main() {
             std::thread::sleep(Duration::from_millis(1));
             continue;
         }
-        let callback_period = Duration::from_nanos(
-            cur_fpb as u64 * 1_000_000_000 / cur_sr as u64,
-        );
+        let callback_period = Duration::from_nanos(cur_fpb as u64 * 1_000_000_000 / cur_sr as u64);
 
         let mut blk = AudioBlock::default();
         render_audio(&mut blk, seq, &state);

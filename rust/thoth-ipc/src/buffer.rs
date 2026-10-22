@@ -23,7 +23,9 @@ impl IpcBuffer {
 
     /// Create a buffer from raw bytes (copies the data).
     pub fn from_slice(data: &[u8]) -> Self {
-        Self { data: data.to_vec() }
+        Self {
+            data: data.to_vec(),
+        }
     }
 
     /// Create a buffer taking ownership of a `Vec<u8>`.

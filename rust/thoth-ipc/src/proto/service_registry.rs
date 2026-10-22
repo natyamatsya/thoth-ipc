@@ -45,17 +45,29 @@ impl ServiceEntry {
     }
 
     pub fn name_str(&self) -> &str {
-        let end = self.name.iter().position(|&b| b == 0).unwrap_or(MAX_NAME_LEN);
+        let end = self
+            .name
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(MAX_NAME_LEN);
         std::str::from_utf8(&self.name[..end]).unwrap_or("")
     }
 
     pub fn control_channel_str(&self) -> &str {
-        let end = self.control_channel.iter().position(|&b| b == 0).unwrap_or(MAX_NAME_LEN);
+        let end = self
+            .control_channel
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(MAX_NAME_LEN);
         std::str::from_utf8(&self.control_channel[..end]).unwrap_or("")
     }
 
     pub fn reply_channel_str(&self) -> &str {
-        let end = self.reply_channel.iter().position(|&b| b == 0).unwrap_or(MAX_NAME_LEN);
+        let end = self
+            .reply_channel
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(MAX_NAME_LEN);
         std::str::from_utf8(&self.reply_channel[..end]).unwrap_or("")
     }
 
@@ -83,7 +95,11 @@ struct RegistryData {
 
 impl RegistryData {
     fn lock(&self) {
-        while self.spinlock.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        while self
+            .spinlock
+            .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
             std::hint::spin_loop();
         }
     }
@@ -104,11 +120,9 @@ fn is_pid_alive(pid: i32) -> bool {
 
 #[cfg(windows)]
 fn is_pid_alive(pid: i32) -> bool {
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
     use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
     use windows_sys::Win32::System::Threading::GetExitCodeProcess;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
     unsafe {
         let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid as u32);
         if h.is_null() {
@@ -132,11 +146,17 @@ fn is_pid_alive(_pid: i32) -> bool {
 
 fn current_pid() -> i32 {
     #[cfg(unix)]
-    { unsafe { libc::getpid() } }
+    {
+        unsafe { libc::getpid() }
+    }
     #[cfg(windows)]
-    { unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() as i32 } }
+    {
+        unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() as i32 }
+    }
     #[cfg(not(any(unix, windows)))]
-    { 1 }
+    {
+        1
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +189,11 @@ impl ServiceRegistry {
     /// Open or create the registry for `domain` (default: `"default"`).
     pub fn open(domain: &str) -> io::Result<Self> {
         let name = Self::shm_name(domain);
-        let shm = ShmHandle::acquire(&name, std::mem::size_of::<RegistryData>(), ShmOpenMode::CreateOrOpen)?;
+        let shm = ShmHandle::acquire(
+            &name,
+            std::mem::size_of::<RegistryData>(),
+            ShmOpenMode::CreateOrOpen,
+        )?;
         let data = shm.get() as *mut RegistryData;
         Ok(Self { _shm: shm, data })
     }
@@ -196,8 +220,16 @@ impl ServiceRegistry {
     }
 
     /// Register with an explicit PID (useful for testing).
-    pub fn register_service_as(&self, name: &str, control_ch: &str, reply_ch: &str, pid: i32) -> bool {
-        if name.is_empty() { return false; }
+    pub fn register_service_as(
+        &self,
+        name: &str,
+        control_ch: &str,
+        reply_ch: &str,
+        pid: i32,
+    ) -> bool {
+        if name.is_empty() {
+            return false;
+        }
         let reg = self.reg();
         reg.lock();
         let entries = unsafe { &mut (*self.data).entries };
@@ -219,7 +251,9 @@ impl ServiceRegistry {
                 Self::fill_entry(e, name, control_ch, reply_ch, pid);
                 unsafe {
                     let count = &mut (*self.data).count;
-                    if (*count as usize) < MAX_SERVICES { *count += 1; }
+                    if (*count as usize) < MAX_SERVICES {
+                        *count += 1;
+                    }
                 }
                 reg.unlock();
                 return true;
@@ -277,7 +311,9 @@ impl ServiceRegistry {
         let entries = unsafe { &mut (*self.data).entries };
         let mut result = Vec::new();
         for e in entries.iter_mut() {
-            if !e.active() { continue; }
+            if !e.active() {
+                continue;
+            }
             if !e.is_alive() {
                 *e = ServiceEntry::default();
                 continue;
@@ -297,7 +333,9 @@ impl ServiceRegistry {
         let entries = unsafe { &mut (*self.data).entries };
         let mut result = Vec::new();
         for e in entries.iter_mut() {
-            if !e.active() { continue; }
+            if !e.active() {
+                continue;
+            }
             if !e.is_alive() {
                 *e = ServiceEntry::default();
                 continue;
@@ -330,7 +368,9 @@ impl ServiceRegistry {
         reg.lock();
         unsafe {
             let entries = &mut (*self.data).entries;
-            for e in entries.iter_mut() { *e = ServiceEntry::default(); }
+            for e in entries.iter_mut() {
+                *e = ServiceEntry::default();
+            }
             (*self.data).count = 0;
         }
         reg.unlock();

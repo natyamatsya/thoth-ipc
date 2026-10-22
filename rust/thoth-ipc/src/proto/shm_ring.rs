@@ -53,8 +53,15 @@ impl<T: Copy + 'static, const N: usize> ShmRing<T, N> {
 
     /// Create a new ring backed by `name`. Does not open SHM yet.
     pub fn new(name: &str) -> Self {
-        assert!((N & (N - 1)) == 0, "ShmRing capacity N must be a power of two");
-        Self { shm: None, name: name.to_owned(), _marker: PhantomData }
+        assert!(
+            (N & (N - 1)) == 0,
+            "ShmRing capacity N must be a power of two"
+        );
+        Self {
+            shm: None,
+            name: name.to_owned(),
+            _marker: PhantomData,
+        }
     }
 
     /// Open or create the shared memory segment.

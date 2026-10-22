@@ -53,7 +53,8 @@ impl ProcessHandle {
             use windows_sys::Win32::System::Threading::GetExitCodeProcess;
             unsafe {
                 let mut code: u32 = 0;
-                GetExitCodeProcess(self.hprocess as _, &mut code) != 0 && code == STILL_ACTIVE as u32
+                GetExitCodeProcess(self.hprocess as _, &mut code) != 0
+                    && code == STILL_ACTIVE as u32
             }
         }
         #[cfg(not(any(unix, windows)))]
@@ -282,9 +283,7 @@ pub fn wait_for_exit(h: &ProcessHandle, timeout: Duration) -> WaitResult {
     #[cfg(windows)]
     {
         use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
-        use windows_sys::Win32::System::Threading::{
-            GetExitCodeProcess, WaitForSingleObject,
-        };
+        use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
         let ms = timeout.as_millis().min(u32::MAX as u128) as u32;
         let ret = unsafe { WaitForSingleObject(h.hprocess as _, ms) };
         if ret == WAIT_OBJECT_0 {

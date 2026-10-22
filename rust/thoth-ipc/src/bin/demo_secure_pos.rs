@@ -41,9 +41,9 @@ struct ProcessorKey;
 impl OpenSslEvpKeyProvider for ProcessorKey {
     const KEY_ID: u32 = 0x50_4F_53_01; // "POS",1
     const KEY_BYTES: &'static [u8] = &[
-        0x8f, 0x3a, 0x11, 0xc4, 0x5e, 0x92, 0x07, 0x6b, 0xd0, 0x24, 0xa9, 0x71, 0x3c, 0xe8,
-        0x55, 0x1f, 0x60, 0xbb, 0x2d, 0x94, 0x48, 0x0e, 0xf3, 0x87, 0x19, 0xc2, 0x6d, 0xaa,
-        0x35, 0x7e, 0x01, 0xd8,
+        0x8f, 0x3a, 0x11, 0xc4, 0x5e, 0x92, 0x07, 0x6b, 0xd0, 0x24, 0xa9, 0x71, 0x3c, 0xe8, 0x55,
+        0x1f, 0x60, 0xbb, 0x2d, 0x94, 0x48, 0x0e, 0xf3, 0x87, 0x19, 0xc2, 0x6d, 0xaa, 0x35, 0x7e,
+        0x01, 0xd8,
     ];
 }
 
@@ -126,7 +126,11 @@ impl ProtobufWireMessage for CardEvent {
         }
         pos += 1;
         let seq = u32::try_from(get_varint(bytes, &mut pos)?).ok()?;
-        Some(CardEvent { pan, amount_cents, seq })
+        Some(CardEvent {
+            pan,
+            amount_cents,
+            seq,
+        })
     }
 }
 
@@ -141,7 +145,11 @@ fn mask(pan: &str) -> String {
 fn pinpad(count: u32) -> i32 {
     let mut bus = Sealed::<ProcessorKey>::connect(BUS, Mode::Sender).expect("connect");
     println!("[pinpad] waiting for POS + gateway to subscribe...");
-    if !bus.raw().wait_for_recv(2, Some(30_000)).expect("wait_for_recv") {
+    if !bus
+        .raw()
+        .wait_for_recv(2, Some(30_000))
+        .expect("wait_for_recv")
+    {
         eprintln!("[pinpad] POS and gateway did not both subscribe within 30s");
         return 1;
     }

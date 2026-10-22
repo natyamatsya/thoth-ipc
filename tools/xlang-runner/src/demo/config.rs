@@ -167,7 +167,10 @@ pub fn load(path: &std::path::Path) -> Result<DemoFile, String> {
                 ));
             }
             if !demo.bins.contains_key(&p.bin) {
-                return Err(format!("demo '{name}', role '{}': unknown bin '{}'", p.role, p.bin));
+                return Err(format!(
+                    "demo '{name}', role '{}': unknown bin '{}'",
+                    p.role, p.bin
+                ));
             }
             if let Some(by) = &p.spawned_by {
                 if p.slot.is_none() || !demo.procs.iter().any(|q| &q.role == by) {

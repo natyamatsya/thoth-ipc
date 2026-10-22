@@ -3,10 +3,10 @@
 //
 // Tests for the proto layer: shm_ring, service_registry, process_manager, rt_prio.
 
-use thoth_ipc::proto::{audio_period_ns, set_realtime_priority, ServiceRegistry, ShmRing};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
+use thoth_ipc::proto::{audio_period_ns, set_realtime_priority, ServiceRegistry, ShmRing};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
