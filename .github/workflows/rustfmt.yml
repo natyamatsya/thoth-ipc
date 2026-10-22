@@ -1,0 +1,29 @@
+name: Rust format
+
+# `cargo fmt --check` over every Rust crate in the repo (default rustfmt
+# style, no rustfmt.toml). The generated abi_generated.rs is exempt through
+# #[rustfmt::skip] on its module; its own gate is `tools/abi generate --check`.
+
+# Push triggers disabled to conserve CI budget; run manually via the Actions tab
+# (workflow_dispatch) or on pull requests.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt
+    - name: cargo fmt --check
+      run: |
+        for m in rust/thoth-ipc tools/xlang-runner tools/abi \
+                 cpp/thoth-ipc/demo/audio_realtime/rust_service; do
+          echo "== $m"
+          cargo fmt --manifest-path "$m/Cargo.toml" --check
+        done
