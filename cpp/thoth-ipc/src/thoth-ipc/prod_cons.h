@@ -4,6 +4,7 @@
 #include <utility>
 #include <cstring>
 #include <cstdint>
+#include <chrono>
 
 #include "thoth-ipc/def.h"
 
@@ -490,12 +491,24 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
     // it. It does what that owner's pop() would have: drop the mark, and release
     // the element if it was the last one. No writer can reuse such an element
     // meanwhile, since the (now connected) id still marks it.
+    //
+    // An element that carries the id but is not committed yet was claimed by a
+    // writer that has not finished writing it, so its position is unknown. A
+    // writer does not touch rc_ between claim and commit, so wait for the
+    // commit (bounded: a writer that died there blocks every reader anyway),
+    // then treat the element like any other.
     template <typename E, std::size_t N>
     void release_stale(circ::u2_t since, circ::cc_t cc_id, E (&elems)[N]) noexcept {
+        auto committed = [](flag_t fl) { return (fl >> 32) == 0xffffffffu; }; // ~position
+        auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
         for (auto& el : elems) {
             auto cur_fl = el.f_ct_.load(std::memory_order_acquire);
-            // Committed elements hold ~position (the upper half all ones).
-            if ((cur_fl >> 32) != 0xffffffffu) continue;
+            for (unsigned k = 0; !committed(cur_fl) && (el.rc_.load(std::memory_order_acquire) & cc_id)
+                                 && std::chrono::steady_clock::now() < deadline;) {
+                thoth::yield(k);
+                cur_fl = el.f_ct_.load(std::memory_order_acquire);
+            }
+            if (!committed(cur_fl)) continue;
             auto pos = static_cast<circ::u2_t>(~cur_fl);
             if (static_cast<std::int32_t>(pos - since) >= 0) continue; // ours to read
             auto cur_rc = el.rc_.load(std::memory_order_acquire);
