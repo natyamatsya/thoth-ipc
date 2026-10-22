@@ -68,9 +68,9 @@ cargo run --manifest-path tools/abi/Cargo.toml
 - **Backend-specific structs name their targets.** A struct only one platform's
   backend uses — the sync payloads `ulock_mutex` / `ulock_cond` (apple_arm64)
   and `a0_mtx` / `a0_cnd` (x86_64 = LP64 Linux) — carries `"targets": [...]`;
-  its values need only resolve there (`check` verifies they do). Swift skips a
-  struct its target lacks; Rust/C++/Zig emit it for every build (a layout constant
-  is harmless where its backend is not compiled in), and the code that uses it
+  its values need only resolve there (`check` verifies they do). Every port
+  emits it for every build (a layout constant is harmless where its backend is
+  not compiled in), and the code that uses it
   asserts against it under its own platform `cfg` / `#if`. A `ptr` field is a
   pointer-sized, process-local address (the a0 robust-list links).
 - **Protocols, not just bytes.** A field running a coordination algorithm carries
@@ -87,9 +87,11 @@ cargo run --manifest-path tools/abi/Cargo.toml
 
 `tools/abi generate --lang <zig|rust|swift|cpp> [--target T] [--out P] [--check]`
 emits a per-language constant module from `abi.json` (constants, enums, struct
-sizes/field-offsets, and `abi_version`, resolved for `--target`). Each language's
-idiom: Zig `pub const`, Rust `pub const` + `#[repr]` enums, Swift a caseless
-`enum ABI` namespace, C++ `namespace thoth::abi` with `inline constexpr`. CI runs
+sizes/field-offsets, and `abi_version`). A value that differs between the two
+align classes is emitted for both, selected at compile time (apple_arm64 vs the
+align-16 rest). Each language's idiom: Zig `pub const`, Rust `pub const` +
+`#[repr]` enums, Swift a caseless `enum ABI` namespace (`#if os(macOS) &&
+arch(arm64)`), C++ `namespace thoth::abi` with `inline constexpr`. CI runs
 `generate --lang <l> --check` for all four (staleness gate) and compiles the
 generated Rust/C++ modules.
 

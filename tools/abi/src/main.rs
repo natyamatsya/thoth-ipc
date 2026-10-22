@@ -703,9 +703,26 @@ fn swift_type(t: &str) -> &str {
     }
 }
 
-fn gen_swift(abi: &Value, target: &str) -> String {
+/// Swift analogue of `emit_cpp`: one line if uniform, else an `#if/#else/#endif`
+/// over the two align classes (apple_arm64 vs everything else). Swift runs on
+/// macOS and Linux only, so the align-8 class is `os(macOS) && arch(arm64)`.
+fn emit_swift(o: &mut String, prefix: &str, ts: &[String], render: impl Fn(&str) -> String) {
+    if ts.iter().all(|t| render(t) == render(&ts[0])) {
+        o.push_str(&format!("    {prefix} = {}\n", render(&ts[0])));
+    } else {
+        let other = ts.iter().find(|t| *t != "apple_arm64").expect("need a non-apple target");
+        o.push_str("    #if os(macOS) && arch(arm64)\n");
+        o.push_str(&format!("    {prefix} = {}\n", render("apple_arm64")));
+        o.push_str("    #else\n");
+        o.push_str(&format!("    {prefix} = {}\n", render(other)));
+        o.push_str("    #endif\n");
+    }
+}
+
+fn gen_swift(abi: &Value, _target: &str) -> String {
+    let ts = targets(abi);
     let mut o = String::new();
-    gen_header(&mut o, "swift", target, "//");
+    gen_header(&mut o, "swift", &ts.join(" / "), "//");
     o.push_str("\npublic enum ABI {\n");
     o.push_str(&format!("    public static let abi_version: String = \"{}\"\n\n", abi["version"].as_str().unwrap()));
 
@@ -718,7 +735,7 @@ fn gen_swift(abi: &Value, target: &str) -> String {
         if ty == "string" {
             o.push_str(&format!("    public static let {name}: String = \"{}\"\n", c["value"].as_str().unwrap()));
         } else {
-            o.push_str(&format!("    public static let {name}: {} = {}\n", swift_type(ty), zig_num(&c["value"], target)));
+            emit_swift(&mut o, &format!("public static let {name}: {}", swift_type(ty)), &ts, |t| zig_num(&c["value"], t));
         }
     }
 
@@ -736,26 +753,31 @@ fn gen_swift(abi: &Value, target: &str) -> String {
     }
 
     o.push_str("\n    // MARK: struct layout (byte sizes + field offsets)\n");
-    for s in abi["structs"].as_array().unwrap().iter().filter(|s| struct_on(s, target)) {
+    for s in abi["structs"].as_array().unwrap() {
         let name = s["name"].as_str().unwrap();
-        o.push_str(&format!("    public static let {name}_size: Int = {}\n", resolve_int(&s["size"], target).unwrap()));
-        o.push_str(&format!("    public static let {name}_align: Int = {}\n", resolve_int(&s["align"], target).unwrap()));
+        let sts = struct_targets(s, &ts);
+        if let Some(note) = struct_scope_note("    //", s) {
+            o.push_str(&format!("{note}\n"));
+        }
+        emit_swift(&mut o, &format!("public static let {name}_size: Int"), &sts, |t| resolve_int(&s["size"], t).unwrap().to_string());
+        emit_swift(&mut o, &format!("public static let {name}_align: Int"), &sts, |t| resolve_int(&s["align"], t).unwrap().to_string());
         for f in each_field(s) {
+            let fname = f["name"].as_str().unwrap();
             if let Some(p) = f["protocol"].as_str() {
                 o.push_str(&format!("    {}\n", protocol_note("///", p)));
             }
-            o.push_str(&format!("    public static let {name}_{}_off: Int = {}\n", f["name"].as_str().unwrap(), resolve_int(&f["offset"], target).unwrap()));
+            emit_swift(&mut o, &format!("public static let {name}_{fname}_off: Int"), &sts, |t| resolve_int(&f["offset"], t).unwrap().to_string());
         }
     }
 
     o.push_str("\n    // MARK: shm-name goldens (canonical binding — see abi/README.md)\n");
     for n in abi["names"].as_array().unwrap_or(&vec![]) {
         let nm = n["name"].as_str().unwrap();
-        if let Some(g) = n.get("golden").and_then(|g| resolve_str(g, target)) {
-            o.push_str(&format!("    public static let name_golden_{nm}: String = {g:?}\n"));
+        if n.get("golden").is_some() {
+            emit_swift(&mut o, &format!("public static let name_golden_{nm}: String"), &ts, |t| format!("{:?}", resolve_str(&n["golden"], t).unwrap()));
         }
-        if let Some(p) = n.get("posix_golden").and_then(|g| resolve_str(g, target)) {
-            o.push_str(&format!("    public static let name_golden_{nm}_posix: String = {p:?}\n"));
+        if n.get("posix_golden").is_some() {
+            emit_swift(&mut o, &format!("public static let name_golden_{nm}_posix: String"), &ts, |t| format!("{:?}", resolve_str(&n["posix_golden"], t).unwrap()));
         }
     }
     o.push_str("}\n");
