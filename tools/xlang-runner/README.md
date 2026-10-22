@@ -119,6 +119,10 @@ binary per language, its processes in start order with the role they play, and
 what each must print. A process takes its language from a **slot** (the planner
 assigns every present language to every slot: the Cartesian product) or is
 started once per language (`each_language`, for fan-in roles such as producers).
+A slot takes the languages that ship every binary its processes run, so a port
+of a single role fills only that role's slot: the `rust_ffi` "language" is the
+Rust audio_realtime service built against the C++ proto through a C FFI
+wrapper, and plays only the service.
 A process waits for the previous one's `ready` line before starting, the case
 has one deadline, and the verdict is every process's exit code plus exact counts
 of matching stdout lines, so a timeout that exits 0, a lost message or a hung
@@ -137,14 +141,15 @@ demo's `clear` verb before and after each case.
 | linux_service | client x service | C++, Rust, Zig |
 | async_gateway | gateway + one agent per language | Rust, Zig |
 | audio_service | host x service (the host spawns the service) | C++, Rust |
-| audio_realtime | host x service (the host spawns the service) | C++, Rust |
+| audio_realtime | host x service (the host spawns the service) | C++, Rust; service also Rust via C FFI (`rust_ffi`) |
 
 ```sh
 # From the repo root, with the demos built (see .github/workflows/demos.yml):
 export DEMO_CPP_DIR=cpp/thoth-ipc/build/bin DEMO_RUST_DIR=rust/thoth-ipc/target/release \
-       DEMO_ZIG_DIR=zig/thoth-ipc/zig-out/bin   # + DEMO_SWIFT_DIR on macOS
+       DEMO_ZIG_DIR=zig/thoth-ipc/zig-out/bin DEMO_RUST_FFI_DIR=cpp/thoth-ipc/build/bin
+       # + DEMO_SWIFT_DIR on macOS
 cargo run --release --manifest-path tools/xlang-runner/Cargo.toml --bin demo-runner -- \
-    --require cpp,rust,zig
+    --require cpp,rust,rust_ffi,zig
 ```
 
 Flags as above: `--list` prints every case with its commands, `--demo pipeline,chat`

@@ -19,11 +19,13 @@ on:
     branches: [ main, develop ]
 
 env:
-  # Every C++ demo the matrix runs (the FFI Rust audio service, which needs
-  # bindgen, is not one of them).
+  # Every C++ demo target the matrix runs, with the Rust audio_realtime service
+  # that links the C++ proto through a C FFI wrapper (rt_audio_service_rs: CMake
+  # builds it with cargo; bindgen needs libclang).
   CPP_DEMOS: >-
     pipeline bounded_buffer channel_aggregator secure_pos chat msg_que send_recv
     linux_service linux_client audio_host audio_service rt_audio_host rt_audio_service
+    rt_audio_service_rs
   RUST_FEATURES: secure-crypto-openssl,codec-protobuf,audio-demos,async-tokio
 
 jobs:
@@ -35,9 +37,10 @@ jobs:
         submodules: recursive
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
-    # GCC 14 for the C++23 <print> the audio services use.
-    - name: Install GCC 14 and OpenSSL headers
-      run: sudo apt-get update && sudo apt-get install -y g++-14 libssl-dev
+    # GCC 14 for the C++23 <print> the audio services use; libclang for the
+    # bindgen of the FFI audio service (Xcode ships it on macOS).
+    - name: Install GCC 14, OpenSSL headers and libclang
+      run: sudo apt-get update && sudo apt-get install -y g++-14 libssl-dev libclang-dev
     - name: Build C++ demos
       run: |
         cmake -B build -DCMAKE_BUILD_TYPE=Release -DTHOTH_IPC_BUILD_DEMOS=ON \
@@ -62,15 +65,16 @@ jobs:
       working-directory: zig/thoth-ipc
     - name: Build demo runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
-    - name: Run demo matrix (cpp, rust, zig)
+    - name: Run demo matrix (cpp, rust, rust_ffi, zig)
       run: |
         tools/xlang-runner/target/release/demo-runner \
           --config tools/demos.toml \
-          --require cpp,rust,zig \
+          --require cpp,rust,rust_ffi,zig \
           --junit demo-results.xml
       env:
         DEMO_CPP_DIR: cpp/thoth-ipc/build/bin
         DEMO_RUST_DIR: rust/thoth-ipc/target/release
+        DEMO_RUST_FFI_DIR: cpp/thoth-ipc/build/bin
         DEMO_ZIG_DIR: zig/thoth-ipc/zig-out/bin
     - uses: actions/upload-artifact@v4
       if: always()
@@ -111,16 +115,17 @@ jobs:
       working-directory: zig/thoth-ipc
     - name: Build demo runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
-    - name: Run demo matrix (cpp, rust, swift, zig)
+    - name: Run demo matrix (cpp, rust, rust_ffi, swift, zig)
       run: |
         export DEMO_SWIFT_DIR="$(cd swift/thoth-ipc && swift build -c release --show-bin-path)"
         tools/xlang-runner/target/release/demo-runner \
           --config tools/demos.toml \
-          --require cpp,rust,swift,zig \
+          --require cpp,rust,rust_ffi,swift,zig \
           --junit demo-results.xml
       env:
         DEMO_CPP_DIR: cpp/thoth-ipc/build/bin
         DEMO_RUST_DIR: rust/thoth-ipc/target/release
+        DEMO_RUST_FFI_DIR: cpp/thoth-ipc/build/bin
         DEMO_ZIG_DIR: zig/thoth-ipc/zig-out/bin
     - uses: actions/upload-artifact@v4
       if: always()

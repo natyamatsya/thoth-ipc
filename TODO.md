@@ -17,7 +17,9 @@ Open items left after the Linux Zig port and the cross-language demo matrix
 - [ ] **The new CI.** `.github/workflows/demos.yml` and the Zig steps added to
   the Linux jobs of `.github/workflows/xlang.yml` have not run yet. On macOS the
   C++ audio services may be skipped if Apple clang lacks C++23 `<print>`
-  (`THOTH_IPC_HAS_STD_PRINT`); `--require cpp` would then fail the job.
+  (`THOTH_IPC_HAS_STD_PRINT`); `--require cpp` would then fail the job. The
+  FFI audio service build (cargo from CMake, bindgen with apt's `libclang-dev`
+  on Linux and Xcode's libclang on macOS) has only run locally.
 - [ ] **Zig on macOS.** Since the Linux port it has only been type-checked for
   `aarch64-macos` (`zig build-exe -target aarch64-macos -fno-emit-bin`), never
   built or run there.
@@ -39,9 +41,6 @@ Open items left after the Linux Zig port and the cross-language demo matrix
   it yet, the element is skipped and the writer can still stall one lap later,
   until `force_push` disconnects the receiver. The churn tests have never hit
   it.
-- [ ] **FFI audio service not in the demo matrix.** `rt_audio_service_rs`
-  (cpp/thoth-ipc/demo/audio_realtime/rust_service) needs bindgen/libclang, so
-  `tools/demos.toml` and the demos workflow leave it out.
 
 ## Port coverage (by design, for now)
 

@@ -33,6 +33,13 @@ dir = "${DEMO_SWIFT_DIR}"    # swift build -c release --show-bin-path (macOS)
 [languages.zig]
 dir = "${DEMO_ZIG_DIR}"      # zig/thoth-ipc/zig-out/bin
 
+# The Rust audio_realtime service built against the C++ proto through a C FFI
+# wrapper (cpp/thoth-ipc/demo/audio_realtime/rust_service; bindgen needs
+# libclang). CMake builds it with the C++ demos, into their bin dir. It ports
+# one role only, so it fills just that demo's service slot.
+[languages.rust_ffi]
+dir = "${DEMO_RUST_FFI_DIR}" # cpp/thoth-ipc/build/bin (target rt_audio_service_rs)
+
 # --- pipeline: source -> stage -> stage -> sink over thoth::route hops -------
 # One process (and language) per hop; the sink prints each item with the tag of
 # every language it crossed, so the line proves the whole chain.
@@ -192,7 +199,7 @@ spawned_by = "host"
 [demos.audio_realtime]
 description = "lock-free shm_ring audio with a shared-state heartbeat and warm standby"
 bins.main = { cpp = "rt_audio_host", rust = "demo_rt_audio_host" }
-bins.service = { cpp = "rt_audio_service", rust = "demo_rt_audio_service" }
+bins.service = { cpp = "rt_audio_service", rust = "demo_rt_audio_service", rust_ffi = "rt_audio_service_rs" }
 serial = true
 count = 1
 

@@ -296,9 +296,10 @@ and wire format across the ports, so `demo-runner` (in the same crate, config
 [`tools/demos.toml`](tools/demos.toml)) runs every demo with every built
 language in every role — all 81 four-hop source → stage → stage → sink
 pipelines over C++, Rust and Zig, every pinpad × gateway × POS of the secure
-bus, every host × service of the audio demos, … — and checks each process's
+bus, every host × service of the audio demos (the realtime one's services
+including the Rust one built on the C++ proto through a C FFI wrapper), … — and checks each process's
 exit code and stdout, so a lost message or a hung role fails the case. On
-Linux that is 160 cases over eleven demos in about 30 s; the
+Linux that is 162 cases over eleven demos in about 30 s; the
 [demos workflow](.github/workflows/demos.yml) runs it on Linux and macOS.
 
 ## Usage

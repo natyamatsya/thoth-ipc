@@ -40,8 +40,12 @@ Notable changes to thoth-ipc. The format follows
   roles started once per language. It checks each process's exit code and
   stdout, so a lost message or a hung role fails the case; demos with fixed IPC
   names run one case at a time. Console, JUnit and JSON reporting as in
-  `xlang-runner`. It covers all eleven demos (160 cases with C++, Rust
-  and Zig on Linux, in about 30 s).
+  `xlang-runner`. It covers all eleven demos (162 cases with C++, Rust,
+  the FFI Rust audio service and Zig on Linux, in about 30 s). A slot takes the
+  languages that ship the binaries its processes run, so the Rust audio_realtime
+  service built against the C++ proto through a C FFI wrapper
+  (`rt_audio_service_rs`) joins as `rust_ffi` in just the service slot; CI builds
+  it (with libclang for bindgen) and requires it.
 
 ### Fixed
 - **Zig's channel clear removes everything C++'s does.** `clearStorage` (and so
