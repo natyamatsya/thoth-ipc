@@ -39,6 +39,23 @@ pub const Error = error{
 
 const Frag = struct { offset: usize, buf: []u8 };
 
+/// Where a receiver that read `since` from the write cursor and then claimed
+/// `bit` starts reading (C++ `prod_cons_impl::adopt`): at the earliest element
+/// published since then that already carries its mark. The writer saw it
+/// connected, so the element is addressed to it, and an unread mark would hold
+/// the writer up when it laps back to the element.
+fn adopt(base: [*]u8, since: u32, bit: u32) u32 {
+    const epoch = @atomicLoad(u64, layout.u64ptr(base, layout.off_epoch), .acquire);
+    var cur = @atomicLoad(u32, layout.u32ptr(base, layout.off_wt), .acquire);
+    var n: usize = 0;
+    while (cur != since and n < layout.ring_size) : (n += 1) {
+        const rc = @atomicLoad(u64, layout.slotRc(layout.slotBase(base, (cur -% 1) & 0xFF)), .acquire);
+        if (rc & bit == 0 or (rc & ~layout.ep_mask) != epoch) break;
+        cur -%= 1;
+    }
+    return cur;
+}
+
 pub const ChanInner = struct {
     alloc: std.mem.Allocator,
     prefix: []const u8,
@@ -114,6 +131,10 @@ pub const ChanInner = struct {
             // Reclaim slots held by dead peers before claiming one (byte-exact
             // reap-on-connect; safe by default — an unowned slot is skipped).
             _ = liveness.reapDeadReceivers(lv, @atomicLoad(u32, cc, .acquire), cc);
+            // Read the cursor before claiming a bit: whatever the writer pushes
+            // after seeing the bit is addressed to this receiver, and adopt()
+            // starts it at the first such element.
+            const since = @atomicLoad(u32, layout.u32ptr(base, layout.off_wt), .acquire);
             var k: u32 = 0;
             while (true) {
                 const curr = @atomicLoad(u32, cc, .acquire);
@@ -125,10 +146,12 @@ pub const ChanInner = struct {
                 }
                 layout.adaptiveYield(&k);
             }
-            // Read the cursor right after claiming the bit, as C++ `queue::connect`
-            // does: a sender may push as soon as it sees the bit, and a later read
-            // would start past that message. setOwner reads /proc on Linux.
-            self.read_cursor = @atomicLoad(u32, layout.u32ptr(base, layout.off_wt), .acquire);
+            // Record where this receiver starts, so the writer can tell a
+            // previous owner's leftover mark from one of ours (liveness.liveMarks),
+            // then start at the first element already addressed to us. setOwner
+            // reads /proc on Linux, so it comes after.
+            liveness.setSince(lv, self.conn_id, since);
+            self.read_cursor = adopt(base, since, self.conn_id);
             liveness.setOwner(lv, self.conn_id);
             // Wake any sender parked in waitForRecv (CC waiter).
             try self.cc_waiter.broadcast();
@@ -234,7 +257,12 @@ pub const ChanInner = struct {
             const rc_p = layout.slotRc(sb);
             const cur_rc = @atomicLoad(u64, rc_p, .acquire);
             const rem_cc = cur_rc & layout.ep_mask;
-            if ((cc & rem_cc) != 0 and (cur_rc & ~layout.ep_mask) == epoch) {
+            // (A mark from before its receiver started is a previous owner's
+            // leftover: only marks of receivers that started by then count.)
+            const prev = wt -% @as(u32, layout.ring_size);
+            if ((cc & rem_cc) != 0 and (cur_rc & ~layout.ep_mask) == epoch and
+                liveness.liveMarks(self.liveness_shm.ptr(), @truncate(cc & rem_cc), prev) != 0)
+            {
                 // Slot still busy — a live reader has not consumed it yet.
                 if (layout.nowNs() >= deadline_ns) return false;
                 layout.adaptiveYield(&yk);

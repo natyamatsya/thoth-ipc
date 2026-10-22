@@ -65,6 +65,49 @@ inline fn slotFct(sb: [*]u8) *u64 {
     return @ptrCast(@alignCast(sb + elem_fct_off));
 }
 
+/// Where a receiver that read `since` from the commit index and then claimed
+/// `bit` starts reading (C++ `prod_cons_impl<multi,multi,broadcast>::adopt`): at
+/// the earliest slot claimed since then that already carries its mark (it may
+/// still be uncommitted; recv waits for that).
+fn adopt(base: [*]u8, since: u32, bit: u32) u32 {
+    const epoch = @atomicLoad(u64, layout.u64ptr(base, layout.off_epoch), .acquire);
+    var cur = @atomicLoad(u32, layout.u32ptr(base, off_ct), .acquire);
+    var n: usize = 0;
+    while (cur != since and n < layout.ring_size) : (n += 1) {
+        const rc = @atomicLoad(u64, slotRc(slotBase(base, (cur -% 1) % layout.ring_size)), .acquire);
+        if (rc & bit == 0 or (rc & ~ep_mask) != epoch) break;
+        cur -%= 1;
+    }
+    return cur;
+}
+
+/// A receiver that read `since` and then claimed `bit` drops the marks a previous
+/// owner of the bit left unread (C++ `release_stale`). Every slot addressed to
+/// this receiver is at or after `since`, so its bit on a committed slot from
+/// before is a leftover that would hold the writers up when they lap back to it.
+/// Does what that owner's recv would have: drop the mark, and release the slot
+/// if it was the last one. No writer can reuse such a slot meanwhile, since the
+/// (now connected) bit still marks it.
+fn releaseStale(base: [*]u8, since: u32, bit: u32) void {
+    for (0..layout.ring_size) |idx| {
+        const sb = slotBase(base, idx);
+        const cur_fl = @atomicLoad(u64, slotFct(sb), .acquire);
+        // Committed slots hold ~position (the upper half all ones).
+        if (cur_fl >> 32 != 0xffff_ffff) continue;
+        const pos: u32 = @truncate(~cur_fl);
+        if (@as(i32, @bitCast(pos -% since)) >= 0) continue; // ours to read
+        var cur_rc = @atomicLoad(u64, slotRc(sb), .acquire);
+        while (cur_rc & bit != 0) {
+            const nxt_rc = incRc(cur_rc) & ~@as(u64, bit);
+            cur_rc = @cmpxchgWeak(u64, slotRc(sb), cur_rc, nxt_rc, .release, .acquire) orelse {
+                // Release as recv does: f_ct_ = the next lap's ct.
+                if (nxt_rc & rc_mask == 0) @atomicStore(u64, slotFct(sb), @as(u64, pos) + layout.ring_size, .release);
+                break;
+            };
+        }
+    }
+}
+
 comptime {
     std.debug.assert(layout.off_block + elem_stride * layout.ring_size == 24768);
     std.debug.assert(elem_fct_off + 8 == elem_stride);
@@ -147,6 +190,10 @@ pub const ChannelInner = struct {
             const cc = layout.u32ptr(base, layout.off_cc);
             const lv = self.liveness_shm.ptr();
             _ = liveness.reapDeadReceivers(lv, @atomicLoad(u32, cc, .acquire), cc);
+            // Read the cursor before claiming a bit: whatever a writer claims
+            // after seeing the bit is addressed to this receiver, and adopt()
+            // starts it at the first such slot.
+            const since = @atomicLoad(u32, layout.u32ptr(base, off_ct), .acquire);
             var k: u32 = 0;
             while (true) {
                 const curr = @atomicLoad(u32, cc, .acquire);
@@ -158,10 +205,12 @@ pub const ChannelInner = struct {
                 }
                 layout.adaptiveYield(&k);
             }
-            // Read the cursor right after claiming the bit, as C++ `queue::connect`
-            // does: a sender may push as soon as it sees the bit, and a later read
-            // would start past that message. setOwner reads /proc on Linux.
-            self.read_cursor = @atomicLoad(u32, layout.u32ptr(base, off_ct), .acquire);
+            // Record where this receiver starts, drop what a previous owner of
+            // the bit left unread, then start at the first slot already
+            // addressed to us. setOwner reads /proc on Linux, so it comes after.
+            liveness.setSince(lv, self.conn_id, since);
+            releaseStale(base, since, self.conn_id);
+            self.read_cursor = adopt(base, since, self.conn_id);
             liveness.setOwner(lv, self.conn_id);
             try self.cc_waiter.broadcast();
         }

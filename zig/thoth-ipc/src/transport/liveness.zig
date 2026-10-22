@@ -26,6 +26,7 @@ const ShmHandle = shm.ShmHandle;
 pub const max_slots: usize = 32; // one slot per cc_ bit (32-bit connection bitmask)
 pub const slot_stride: usize = abi.liveness_slot_size; // sizeof(slot_owner) = 16
 const pid_off: usize = abi.liveness_slot_pid_off; // int32 @0
+const since_off: usize = abi.liveness_slot_since_off; // uint32 @4
 const tok_off: usize = abi.liveness_slot_start_tok_off; // uint64 @8
 pub const shm_size_bytes: usize = max_slots * slot_stride; // 512
 
@@ -41,6 +42,9 @@ inline fn pidPtr(lv: [*]u8, idx: usize) *u32 {
 }
 inline fn tokPtr(lv: [*]u8, idx: usize) *u64 {
     return @ptrCast(@alignCast(lv + idx * slot_stride + tok_off));
+}
+inline fn sincePtr(lv: [*]u8, idx: usize) *u32 {
+    return @ptrCast(@alignCast(lv + idx * slot_stride + since_off));
 }
 
 pub fn selfPid() i32 {
@@ -164,6 +168,32 @@ pub fn setOwner(lv: [*]u8, bit: u32) void {
     // Token first, then pid with release: a reader that sees our pid sees the token.
     @atomicStore(u64, tokPtr(lv, idx), startToken(selfPid()), .monotonic);
     @atomicStore(u32, pidPtr(lv, idx), @bitCast(selfPid()), .release);
+}
+
+/// Record where a broadcast receiver starts: the write cursor it read just before
+/// claiming `bit`. Every element it must read is at or after that position, so a
+/// mark of `bit` on an element from before it can only be a previous owner's
+/// leftover. Store it right after the claim (byte-exact with C++
+/// `liveness_set_since`); a writer that still sees the previous owner's value
+/// treats the mark as live and retries.
+pub fn setSince(lv: [*]u8, bit: u32, since: u32) void {
+    if (bit == 0) return;
+    @atomicStore(u32, sincePtr(lv, slotIndex(bit)), since, .release);
+}
+
+/// Of the marks `bits` found on the element that held position `pos`, those
+/// whose current receiver started at or before `pos` (C++ `liveness_live_marks`).
+/// The others were left by a receiver that has since disconnected, and must not
+/// hold up the writer.
+pub fn liveMarks(lv: [*]u8, bits: u32, pos: u32) u32 {
+    var live: u32 = 0;
+    var m = bits;
+    while (m != 0) : (m &= m - 1) {
+        const bit = m & (~m +% 1);
+        const since = @atomicLoad(u32, sincePtr(lv, slotIndex(bit)), .acquire);
+        if (@as(i32, @bitCast(pos -% since)) >= 0) live |= bit; // pos at or after since (wrapping)
+    }
+    return live;
 }
 
 /// Release ownership of a slot on clean disconnect.
