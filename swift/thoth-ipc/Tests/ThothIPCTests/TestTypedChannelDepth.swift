@@ -8,7 +8,11 @@
 
 import Testing
 import FlatBuffers
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 @testable import ThothIPC
 
 // MARK: - Raw payload helpers (mirror Rust make_raw_payload / read_raw_payload)

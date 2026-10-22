@@ -15,7 +15,11 @@
 //
 // Invoked from main.swift when --alloc is passed.
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import ThothIPC
 
 // MARK: - Workload sizes

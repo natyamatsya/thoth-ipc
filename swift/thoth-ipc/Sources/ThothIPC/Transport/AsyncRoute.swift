@@ -12,7 +12,11 @@
 // Single-consumer: drive `recv()` from one task at a time (as with the Rust
 // `AsyncRoute`, which takes `&mut self`).
 
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Dispatch
 
 public final class AsyncRoute: @unchecked Sendable {

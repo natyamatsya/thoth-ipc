@@ -32,7 +32,14 @@ let package = Package(
         .target(
             name: "ThothIPCShim",
             path: "Sources/ThothIPCShim",
-            publicHeadersPath: "include"
+            // vendor/ links to the C++ tree's platform/linux, whose a0/ sources
+            // the a0_*.c units compile on Linux; it is only a header path here.
+            exclude: ["vendor"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("vendor"),
+                .define("_GNU_SOURCE", .when(platforms: [.linux])),
+            ]
         ),
         .target(
             name: "ThothIPC",

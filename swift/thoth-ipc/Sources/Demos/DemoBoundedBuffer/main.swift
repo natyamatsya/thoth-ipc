@@ -16,7 +16,11 @@
 // across the C++, Rust, Swift and Zig ports.
 
 import ThothIPC
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 private let SHM = "__BBUF__"
 private let MUTEX = "bbuf_m"
@@ -26,7 +30,7 @@ private let CAP: UInt32 = 4
 private let SLOT = 48
 private let SHM_SIZE = 8 + Int(CAP) * 48
 
-private func eprint(_ s: String) { fputs(s + "\n", stderr) }
+private func eprint(_ s: String) { fputs(s + "\n", stderrStream) }
 
 // Raw ring accessors over the shm mapping: head(u32)@0, tail(u32)@4, slots@8.
 private func head(_ p: UnsafeMutableRawPointer) -> UInt32 { p.load(fromByteOffset: 0, as: UInt32.self) }
@@ -106,7 +110,7 @@ private func clear() async {
 // MARK: - Entry point
 
 // Line-buffer stdout so each status line shows up immediately when piped.
-setvbuf(stdout, nil, _IOLBF, 0)
+setvbuf(stdoutStream, nil, _IOLBF, 0)
 
 let a = CommandLine.arguments
 switch (a.count >= 2 ? a[1] : "") {

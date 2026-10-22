@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // MARK: - Stats
 

@@ -8,7 +8,11 @@
 // k < 32:  cooperative task yield
 // k >= 32: sleep 1 ms
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// Synchronous adaptive backoff — for use in non-async spin loops.
 /// k < 4:  busy spin; k < 16: pause hint; k >= 16: sched_yield()

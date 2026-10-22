@@ -9,7 +9,11 @@
 
 import Testing
 @testable import ThothIPC
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // MARK: - raw semaphore helpers for pthread tests
 

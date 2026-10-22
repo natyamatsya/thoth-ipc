@@ -20,7 +20,11 @@
 // (exit 4 on failure) and exits 0. `clear` removes the channel's storage.
 
 import ThothIPC
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // MARK: - Signal handling
 
@@ -51,7 +55,7 @@ private func doSend(size: Int, intervalMs: UInt64) async {
         }
         ch.disconnect()
     } catch {
-        fputs("send error: \(error)\n", stderr)
+        fputs("send error: \(error)\n", stderrStream)
     }
 }
 
@@ -71,7 +75,7 @@ private func doRecv(intervalMs: UInt64) async {
         }
         ch.disconnect()
     } catch {
-        fputs("recv error: \(error)\n", stderr)
+        fputs("recv error: \(error)\n", stderrStream)
     }
 }
 
@@ -85,19 +89,19 @@ private func sleepMs(_ ms: UInt64) {
 /// Wait for a receiver, then send `count` messages of `size` bytes.
 private func doSendCount(size: Int, intervalMs: UInt64, count: Int) async -> Int32 {
     guard let ch = try? await Channel.connect(name: "ipc", mode: .sender) else {
-        fputs("send: connect failed\n", stderr)
+        fputs("send: connect failed\n", stderrStream)
         return 3
     }
     defer { ch.disconnect() }
     guard (try? ch.waitForRecv(count: 1, timeout: .milliseconds(5000))) == true else {
-        fputs("send: no receiver within 5s -- start the receiver first\n", stderr)
+        fputs("send: no receiver within 5s -- start the receiver first\n", stderrStream)
         return 2
     }
     let buffer = [UInt8](repeating: UInt8(ascii: "A"), count: size)
     for k in 0..<count {
         print("send size: \(buffer.count)")
         guard (try? ch.send(data: buffer, timeout: .milliseconds(2000))) == true else {
-            fputs("send: failed to send message \(k)\n", stderr)
+            fputs("send: failed to send message \(k)\n", stderrStream)
             return 4
         }
         sleepMs(intervalMs)
@@ -108,14 +112,14 @@ private func doSendCount(size: Int, intervalMs: UInt64, count: Int) async -> Int
 /// Receive `count` messages, each within 10 s.
 private func doRecvCount(count: Int) async -> Int32 {
     guard let ch = try? await Channel.connect(name: "ipc", mode: .receiver) else {
-        fputs("recv: connect failed\n", stderr)
+        fputs("recv: connect failed\n", stderrStream)
         return 3
     }
     defer { ch.disconnect() }
     print("recv ready")
     for k in 0..<count {
         guard let buf = try? ch.recv(timeout: .seconds(10)), !buf.isEmpty else {
-            fputs("recv: timed out waiting for message \(k)\n", stderr)
+            fputs("recv: timed out waiting for message \(k)\n", stderrStream)
             return 5
         }
         print("recv size: \(buf.count)")
@@ -126,7 +130,7 @@ private func doRecvCount(count: Int) async -> Int32 {
 // MARK: - Entry point
 
 // Line-buffer stdout so each status line shows up immediately when piped.
-setvbuf(stdout, nil, _IOLBF, 0)
+setvbuf(stdoutStream, nil, _IOLBF, 0)
 
 installSignalHandlers()
 
@@ -136,21 +140,21 @@ if args.count >= 2 && args[1] == "clear" {
     exit(0)
 }
 guard args.count >= 3 else {
-    fputs("usage: demo-send-recv send <size> <interval_ms> [count]\n", stderr)
-    fputs("       demo-send-recv recv <interval_ms> [count]\n", stderr)
-    fputs("       demo-send-recv clear\n", stderr)
+    fputs("usage: demo-send-recv send <size> <interval_ms> [count]\n", stderrStream)
+    fputs("       demo-send-recv recv <interval_ms> [count]\n", stderrStream)
+    fputs("       demo-send-recv clear\n", stderrStream)
     exit(1)
 }
 
 switch args[1] {
 case "send":
     guard args.count >= 4, let size = Int(args[2]), let interval = UInt64(args[3]) else {
-        fputs("usage: demo-send-recv send <size> <interval_ms> [count]\n", stderr)
+        fputs("usage: demo-send-recv send <size> <interval_ms> [count]\n", stderrStream)
         exit(1)
     }
     if args.count >= 5 {
         guard let count = Int(args[4]) else {
-            fputs("usage: demo-send-recv send <size> <interval_ms> [count]\n", stderr)
+            fputs("usage: demo-send-recv send <size> <interval_ms> [count]\n", stderrStream)
             exit(1)
         }
         exit(await doSendCount(size: size, intervalMs: interval, count: count))
@@ -159,12 +163,12 @@ case "send":
 
 case "recv":
     guard let interval = UInt64(args[2]) else {
-        fputs("usage: demo-send-recv recv <interval_ms> [count]\n", stderr)
+        fputs("usage: demo-send-recv recv <interval_ms> [count]\n", stderrStream)
         exit(1)
     }
     if args.count >= 4 {
         guard let count = Int(args[3]) else {
-            fputs("usage: demo-send-recv recv <interval_ms> [count]\n", stderr)
+            fputs("usage: demo-send-recv recv <interval_ms> [count]\n", stderrStream)
             exit(1)
         }
         exit(await doRecvCount(count: count))
@@ -172,6 +176,6 @@ case "recv":
     await doRecv(intervalMs: interval)
 
 default:
-    fputs("unknown mode: \(args[1])\n", stderr)
+    fputs("unknown mode: \(args[1])\n", stderrStream)
     exit(1)
 }

@@ -11,7 +11,11 @@
 // chunk_info_t: id_pool { next_[32]@0; cursor_@32; prepared_@33 } + spin_lock@36.
 // chunk: conns (UInt32) @0, payload @ make_align(8,4)=8.
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Atomics
 
 // MARK: - Constants
@@ -69,16 +73,16 @@ private func ciLockPtr(_ base: UnsafeMutableRawPointer) -> UnsafeMutableRawPoint
 /// stores 1 there.
 private func spinLock(_ raw: UnsafeMutableRawPointer) {
     var k: UInt32 = 0
-    raw.withMemoryRebound(to: UInt32.AtomicRepresentation.self, capacity: 1) { rep in
-        while UInt32.AtomicRepresentation.atomicExchange(1, at: rep, ordering: .acquiring) != 0 {
+    raw.withMemoryRebound(to: UnsafeAtomic<UInt32>.Storage.self, capacity: 1) { rep in
+        while UnsafeAtomic<UInt32>.Storage.atomicExchange(1, at: rep, ordering: .acquiring) != 0 {
             adaptiveYieldSync(&k)
         }
     }
 }
 
 private func spinUnlock(_ raw: UnsafeMutableRawPointer) {
-    raw.withMemoryRebound(to: UInt32.AtomicRepresentation.self, capacity: 1) { rep in
-        UInt32.AtomicRepresentation.atomicStore(0, at: rep, ordering: .releasing)
+    raw.withMemoryRebound(to: UnsafeAtomic<UInt32>.Storage.self, capacity: 1) { rep in
+        UnsafeAtomic<UInt32>.Storage.atomicStore(0, at: rep, ordering: .releasing)
     }
 }
 
@@ -156,11 +160,11 @@ func recycleStorage(shm: borrowing ShmHandle, chunkSize: Int, id: StorageId, con
     let connsRaw = chunkConnsPtr(base, chunkSize: chunkSize, id: id)
     var k: UInt32 = 0
     var isLast = false
-    connsRaw.withMemoryRebound(to: UInt32.AtomicRepresentation.self, capacity: 1) { rep in
+    connsRaw.withMemoryRebound(to: UnsafeAtomic<UInt32>.Storage.self, capacity: 1) { rep in
         while true {
-            let cur = UInt32.AtomicRepresentation.atomicLoad(at: rep, ordering: .acquiring)
+            let cur = UnsafeAtomic<UInt32>.Storage.atomicLoad(at: rep, ordering: .acquiring)
             let nxt = cur & ~connId
-            let (didExchange, _) = UInt32.AtomicRepresentation.atomicWeakCompareExchange(
+            let (didExchange, _) = UnsafeAtomic<UInt32>.Storage.atomicWeakCompareExchange(
                 expected: cur, desired: nxt, at: rep, successOrdering: .releasing, failureOrdering: .relaxed)
             if didExchange { isLast = (nxt == 0); return }
             adaptiveYieldSync(&k)
@@ -184,8 +188,8 @@ func acquireStorage(shm: borrowing ShmHandle, chunkSize: Int, conns: UInt32) -> 
     let id = chunkAcquire(base)
     spinUnlock(lock)
     guard id >= 0 else { return nil }
-    chunkConnsPtr(base, chunkSize: chunkSize, id: id).withMemoryRebound(to: UInt32.AtomicRepresentation.self, capacity: 1) { rep in
-        UInt32.AtomicRepresentation.atomicStore(conns, at: rep, ordering: .relaxed)
+    chunkConnsPtr(base, chunkSize: chunkSize, id: id).withMemoryRebound(to: UnsafeAtomic<UInt32>.Storage.self, capacity: 1) { rep in
+        UnsafeAtomic<UInt32>.Storage.atomicStore(conns, at: rep, ordering: .relaxed)
     }
     return (id, chunkPayloadPtr(base, chunkSize: chunkSize, id: id))
 }

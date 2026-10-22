@@ -5,7 +5,11 @@
 // IPC channels built on top of shared memory, condition variables, and
 // a lock-free circular ring buffer.
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Atomics
 
 // MARK: - UnsafeAtomic helpers for in-shm fields
@@ -15,14 +19,14 @@ import Atomics
 // wraps a raw pointer and exposes the full ordering-parameterised API.
 
 @inline(__always)
-private func ua32(_ field: inout UInt32.AtomicRepresentation) -> UnsafeAtomic<UInt32> {
+private func ua32(_ field: inout UnsafeAtomic<UInt32>.Storage) -> UnsafeAtomic<UInt32> {
     UnsafeAtomic(at: withUnsafeMutablePointer(to: &field) {
         $0.withMemoryRebound(to: UnsafeAtomic<UInt32>.Storage.self, capacity: 1) { $0 }
     })
 }
 
 @inline(__always)
-private func ua64(_ field: inout UInt64.AtomicRepresentation) -> UnsafeAtomic<UInt64> {
+private func ua64(_ field: inout UnsafeAtomic<UInt64>.Storage) -> UnsafeAtomic<UInt64> {
     UnsafeAtomic(at: withUnsafeMutablePointer(to: &field) {
         $0.withMemoryRebound(to: UnsafeAtomic<UInt64>.Storage.self, capacity: 1) { $0 }
     })
@@ -178,24 +182,25 @@ func releaseStale(_ ringBase: UnsafeMutableRawPointer, since: UInt32, bit: UInt3
 // not a sized wrapper). Guarded at runtime by assertHeaderLayout().
 @_alignment(8)
 struct RingHeader {
-    var connections: UInt32.AtomicRepresentation = .init(0)   // @0
-    var lc: UInt32.AtomicRepresentation = .init(0)            // @4
+    var connections: UnsafeAtomic<UInt32>.Storage = .init(0)   // @0
+    var lc: UnsafeAtomic<UInt32>.Storage = .init(0)            // @4
     var constructed: UInt8 = 0                                // @8
     var _padA: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-    var writeCursor: UInt32.AtomicRepresentation = .init(0)   // @64
+    var writeCursor: UnsafeAtomic<UInt32>.Storage = .init(0)   // @64
     var _padB: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-    var epoch: UInt64.AtomicRepresentation = .init(0)         // @128
-    var senderCount: UInt32.AtomicRepresentation = .init(0)   // @136
+    var epoch: UnsafeAtomic<UInt64>.Storage = .init(0)         // @128
+    var senderCount: UnsafeAtomic<UInt32>.Storage = .init(0)   // @136
     var _padC: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 }
 
 let ringHeaderSize = MemoryLayout<RingHeader>.size
-let ringShmSizeBytes = ABI.route_ring_size  // sizeof(C++ elem_array<broadcast,80,8>) on Apple arm64
+let ringShmSizeBytes = ABI.route_ring_size  // sizeof(C++ elem_array<broadcast,80,AlignSize>)
 func ringShmSize() -> Int { ringShmSizeBytes }
 
 // Ring element alignment folded into the shm name: C++ AlignSize =
-// min(dataLength, alignof(max_align_t)) = 8 on Apple arm64 (16 on x86-64).
-let ringAlign = 8
+// min(dataLength, alignof(max_align_t)) = 8 on Apple arm64, 16 on x86-64 and
+// Linux aarch64 (the generated layout is for this target).
+let ringAlign = ABI.route_elem_align
 
 // Byte-exact object names (C++ make_public_abi_prefix: prefix + "__THOTH_SHM__" + TAG + ...).
 @inline(__always) func fullPrefix(_ prefix: String) -> String { "\(prefix)__THOTH_SHM__" }
@@ -476,7 +481,7 @@ final class ChanInner: @unchecked Sendable {
     /// `native_wait_handle()`.
     func nativeWaitHandle() -> Int32 {
         guard mode == .receiver else { return -1 }
-        if !notifySink.valid { notifySink.open(prefix, name) }
+        if !notifySink.valid { notifySink.open(prefix, name, slotBit: connId) }
         return notifySink.valid ? notifySink.fd : -1
     }
 
@@ -570,8 +575,8 @@ extension ChanInner {
             if !(try pushFragment(msgId: msgId, remain: remain, payload: Array(data[offset...]), timeout: timeout)) { return false }
         }
         // Layer 1: wake any async receiver parked on the readiness fd (byte-exact
-        // with C++/Rust notify_signal). libnotify is multicast; a no-op if unlistened.
-        notifySource.signal(prefix, name)
+        // with C++/Rust notify_signal); a no-op if nobody listens.
+        notifySource.signal(prefix, name, conns: ua32(&hdrPtr.pointee.connections).load(ordering: .acquiring), selfBit: connId)
         return true
     }
 

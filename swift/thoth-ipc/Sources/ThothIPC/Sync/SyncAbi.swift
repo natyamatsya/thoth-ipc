@@ -2,7 +2,11 @@
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 
 import Atomics
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 private let syncAbiMagic: UInt32 = ABI.syncabi_magic // "LISA" (0x4C495341)
 private let syncAbiInitInProgress: UInt32 = .max
@@ -10,18 +14,18 @@ private let syncAbiVersionMajor: UInt32 = 1
 private let syncAbiVersionMinor: UInt32 = 0
 private let syncAbiInitWaitLimit: UInt32 = 16_384
 
-// Swift macOS sync uses the Apple ulock profile.
+// The backend this platform runs, as the C++ `sync_abi.h` selects it.
+#if os(macOS)
 private let syncAbiBackendId: UInt32 = ABI.syncabi_backend_ulock // apple_ulock (2)
+#else
+private let syncAbiBackendId: UInt32 = ABI.syncabi_backend_linux_a0 // linux_a0 (5)
+#endif
 
-// Payload sizes derived from the actual shared-memory layout structs, mirroring
-// the C++ sizeof(ulock_mutex_t) / sizeof(ulock_cond_t) approach.
-//
-// Mutex layout:     state(UInt32) + holder(UInt32)  = 8 bytes
-// Condition layout: seq(UInt32)   + waiters(Int32)  = 8 bytes
-private let syncAbiMutexPayloadSize: UInt32 =
-    UInt32(MemoryLayout<UInt32>.stride + MemoryLayout<UInt32>.stride) // = 8
-private let syncAbiConditionPayloadSize: UInt32 =
-    UInt32(MemoryLayout<UInt32>.stride + MemoryLayout<Int32>.stride)  // = 8
+// Payload sizes of the shared mutex and condition, as the C++ sizeof(the
+// backend's struct): 8 and 8 for the ulock word mutex and sequence condition,
+// 24 and 4 for linux_a0's a0_mtx_t and a0_cnd_t.
+private let syncAbiMutexPayloadSize = UInt32(mutexPayloadSize)
+private let syncAbiConditionPayloadSize = UInt32(conditionPayloadSize)
 
 private enum SyncAbiPrimitive: UInt32 {
     case mutex = 1

@@ -4,7 +4,11 @@
 // Port of cpp-ipc/include/libipc/proto/service_group.h.
 // Redundant service group with automatic failover.
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // MARK: - InstanceRole
 

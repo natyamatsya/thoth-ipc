@@ -3,7 +3,11 @@
 //
 // waitForRecv + clearStorage + Route + Channel public types.
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // MARK: - Async→sync bridge (no Foundation)
 

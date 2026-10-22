@@ -18,7 +18,12 @@
 //   swift run -c release bench-ipc --gcd 4                # GCD, up to 4
 //   swift run -c release bench-ipc --threads --gcd 4      # both backends
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+import ThothIPC
 
 // MARK: - Argument parsing
 
@@ -36,7 +41,7 @@ while i < CommandLine.arguments.count {
     case "--alloc":   runAlloc = true
     default:
         if let n = Int(CommandLine.arguments[i]) { maxThreads = n }
-        else { fputs("unknown argument: \(CommandLine.arguments[i])\n", stderr); exit(1) }
+        else { fputs("unknown argument: \(CommandLine.arguments[i])\n", stderrStream); exit(1) }
     }
     i += 1
 }
@@ -85,9 +90,14 @@ func runSyncBackend(
 
 // MARK: - Entry point
 
-let nCPU = Int(sysconf(_SC_NPROCESSORS_ONLN))
+let nCPU = Int(sysconf(Int32(_SC_NPROCESSORS_ONLN)))
 print("cpp-ipc benchmark (Swift port)")
-print("Platform: macOS, \(nCPU) hardware threads")
+#if os(macOS)
+let platformName = "macOS"
+#else
+let platformName = "Linux"
+#endif
+print("Platform: \(platformName), \(nCPU) hardware threads")
 
 for backend in backends {
     switch backend {

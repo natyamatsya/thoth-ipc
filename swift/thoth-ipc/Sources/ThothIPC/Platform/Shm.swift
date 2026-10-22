@@ -4,7 +4,11 @@
 // Port of cpp-ipc/src/libipc/platform/posix/shm_posix.cpp
 // POSIX shared memory handle — binary-compatible with thoth::shm::handle.
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Atomics
 import ThothIPCShim
 

@@ -5,7 +5,11 @@
 
 import Testing
 @testable import ThothIPC
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 @Suite("Route depth")
 struct TestRouteDepth {
@@ -96,7 +100,7 @@ struct TestRouteDepth {
 
         let waited = try sender.waitForRecv(count: 1, timeout: .seconds(1))
         #expect(waited)
-        recvTask.cancel()
+        await recvTask.value // no task may outlive the test
         sender.disconnect()
     }
 

@@ -2,7 +2,11 @@
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 
 import Testing
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 @testable import ThothIPC
 
 @Suite("ServiceRegistry", .serialized)

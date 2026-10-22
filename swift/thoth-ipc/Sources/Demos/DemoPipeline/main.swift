@@ -15,9 +15,13 @@
 // transformed item. See demo/pipeline/run.sh and the repo README.
 
 import ThothIPC
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
-private func eprint(_ s: String) { fputs(s + "\n", stderr) }
+private func eprint(_ s: String) { fputs(s + "\n", stderrStream) }
 
 private func decode(_ buf: IpcBuffer) -> String {
     var b = buf.bytes
@@ -66,7 +70,7 @@ private func sink(in inName: String, count: Int, tag: String) {
 // MARK: - Entry point
 
 // Line-buffer stdout so each status line shows up immediately when piped.
-setvbuf(stdout, nil, _IOLBF, 0)
+setvbuf(stdoutStream, nil, _IOLBF, 0)
 
 let a = CommandLine.arguments
 func num(_ i: Int) -> Int { i < a.count ? (Int(a[i]) ?? 0) : 0 }

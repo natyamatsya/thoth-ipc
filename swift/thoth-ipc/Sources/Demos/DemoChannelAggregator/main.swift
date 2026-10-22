@@ -15,11 +15,15 @@
 // languages (see the repo README).
 
 import ThothIPC
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 private let channelName = "ipc-aggregator"
 
-private func eprint(_ s: String) { fputs(s + "\n", stderr) }
+private func eprint(_ s: String) { fputs(s + "\n", stderrStream) }
 
 private func decode(_ buf: IpcBuffer) -> String {
     var b = buf.bytes
@@ -72,7 +76,7 @@ private func produce(id: String, count: Int) {
 // MARK: - Entry point
 
 // Line-buffer stdout so each status line shows up immediately when piped.
-setvbuf(stdout, nil, _IOLBF, 0)
+setvbuf(stdoutStream, nil, _IOLBF, 0)
 
 let args = CommandLine.arguments
 switch (args.count >= 2 ? args[1] : "") {

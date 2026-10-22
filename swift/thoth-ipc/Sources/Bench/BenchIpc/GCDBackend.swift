@@ -6,7 +6,11 @@
 // but with work-stealing and automatic pool sizing.
 
 import ThothIPC
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Dispatch
 
 // MARK: - Route 1-N (GCD)
@@ -20,12 +24,12 @@ func gcdBenchRoute(nReceivers: Int, count: Int, msgLo: Int, msgHi: Int) -> Stats
     let sender    = Route.connectBlocking(name: name, mode: .sender)
     let receivers = (0..<nReceivers).map { _ in Route.connectBlocking(name: name, mode: .receiver) }
 
-    var doneFlag: Bool = false
+    let doneFlag = Flag()
     let done = DispatchSemaphore(value: 0)
 
     for r in receivers {
         DispatchQueue.global().async {
-            while !doneFlag { _ = try? r.recv(timeout: .milliseconds(1)) }
+            while !doneFlag.value { _ = try? r.recv(timeout: .milliseconds(1)) }
             r.disconnect()
             done.signal()
         }
@@ -35,7 +39,7 @@ func gcdBenchRoute(nReceivers: Int, count: Int, msgLo: Int, msgHi: Int) -> Stats
     for size in sizes { _ = try? sender.send(data: Array(payload[..<size])) }
     let totalMs = nowMs() - t0
 
-    doneFlag = true
+    doneFlag.value = true
     sender.disconnect()
     for _ in 0..<nReceivers { done.wait() }
 
@@ -57,13 +61,13 @@ func gcdBenchChannel(pattern: String, n: Int, count: Int, msgLo: Int, msgHi: Int
     let receivers = (0..<nReceivers).map { _ in Channel.connectBlocking(name: name, mode: .receiver) }
     let senders   = (0..<nSenders).map   { _ in Channel.connectBlocking(name: name, mode: .sender) }
 
-    var doneFlag: Bool = false
+    let doneFlag = Flag()
     let recvDone = DispatchSemaphore(value: 0)
     let sendDone = DispatchSemaphore(value: 0)
 
     for ch in receivers {
         DispatchQueue.global().async {
-            while !doneFlag { _ = try? ch.recv(timeout: .milliseconds(1)) }
+            while !doneFlag.value { _ = try? ch.recv(timeout: .milliseconds(1)) }
             ch.disconnect()
             recvDone.signal()
         }
@@ -85,7 +89,7 @@ func gcdBenchChannel(pattern: String, n: Int, count: Int, msgLo: Int, msgHi: Int
 
     let totalMs = nowMs() - t0
 
-    doneFlag = true
+    doneFlag.value = true
     ctrl.disconnect()
     for _ in 0..<nReceivers { recvDone.wait() }
 

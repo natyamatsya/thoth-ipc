@@ -4,7 +4,11 @@
 // Port of cpp-ipc/include/libipc/proto/process_manager.h.
 // Process spawning and lifecycle management (POSIX / macOS).
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import ThothIPCShim
 
 // MARK: - WaitResult

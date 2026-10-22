@@ -4,7 +4,12 @@
 // Port of cpp-ipc/include/libipc/proto/service_registry.h.
 // SHM-backed process service registry.
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+import Atomics
 
 // MARK: - Constants
 
@@ -74,7 +79,7 @@ extension ServiceEntry {
         writeTuple(&self.controlChannel, from: ctrl)
         writeTuple(&self.replyChannel, from: reply)
         self.pid = pid
-        self.registeredAt = Int64(Darwin.time(nil))
+        self.registeredAt = posixTime()
     }
 }
 
@@ -274,14 +279,20 @@ public final class ServiceRegistry: @unchecked Sendable {
         data.pointee.spinlock = 0
     }
 
+    private var spinlockAtomic: UnsafeAtomic<Int32> {
+        let off = MemoryLayout<RegistryData>.offset(of: \.spinlock)!
+        return shmAtomicI32(at: UnsafeMutableRawPointer(data).advanced(by: off))
+    }
+
     private func lock() {
-        while !OSAtomicCompareAndSwap32(0, 1, &data.pointee.spinlock) {
+        while !spinlockAtomic.compareExchange(
+            expected: 0, desired: 1, successOrdering: .acquiring, failureOrdering: .relaxed).exchanged {
             sched_yield()
         }
     }
 
     private func unlock() {
-        OSAtomicCompareAndSwap32(1, 0, &data.pointee.spinlock)
+        spinlockAtomic.store(0, ordering: .releasing)
     }
 
     @discardableResult

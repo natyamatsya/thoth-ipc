@@ -452,7 +452,7 @@ if verb == "mhold" {
     exit(runBlocking {
         guard let m = try? await IpcMutex.open(name: name + "_m") else { perr("[swift-prim] open mutex failed"); return 3 }
         guard (try? m.lock()) != nil else { perr("[swift-prim] lock failed"); return 3 }
-        print("READY"); fflush(stdout)
+        print("READY"); fflush(stdoutStream)
         try? await Task.sleep(nanoseconds: UInt64(secs) * 1_000_000_000)
         try? m.unlock()
         return 0
@@ -527,7 +527,7 @@ if verb == "cvnotify" {
         guard let c = try? await IpcCondition.open(name: name + "_c") else { perr("[swift-prim] open condition failed"); return 3 }
         for _ in 0..<30 {
             if (try? m.lock()) != nil {
-                try? c.broadcast()
+                try? c.broadcast(mutex: m)
                 try? m.unlock()
             }
             try? await Task.sleep(nanoseconds: 100_000_000)
@@ -552,7 +552,7 @@ if verb == "hold" {
     // SIGKILL this process and check a reaper reclaims the slot.
     let secs = args.count > 3 ? (Int(args[3]) ?? 30) : 30
     let r = Route.connectBlocking(name: name, mode: .receiver)
-    print("READY"); fflush(stdout)
+    print("READY"); fflush(stdoutStream)
     Thread.sleep(forTimeInterval: TimeInterval(secs))
     _ = r
     exit(0)
@@ -564,7 +564,7 @@ if verb == "shold" {
     let secs = args.count > 3 ? (Int(args[3]) ?? 30) : 30
     let s = Route.connectBlocking(name: name, mode: .sender)
     guard s.senderReady() else { perr("sender slot not claimed"); exit(1) }
-    print("READY"); fflush(stdout)
+    print("READY"); fflush(stdoutStream)
     Thread.sleep(forTimeInterval: TimeInterval(secs))
     _ = s
     exit(0)

@@ -24,7 +24,11 @@
 // `do_recv: received <count> messages, <bytes> bytes`.
 
 import ThothIPC
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Atomics
 
 private let channelName = "ipc-msg-que"
@@ -70,7 +74,7 @@ private func doSend() async {
     print("do_send: start [\(strOfSize(minSz)) - \(strOfSize(maxSz))]...")
     await Route.clearStorage(name: channelName)
     guard let route = try? await Route.connect(name: channelName, mode: .sender) else {
-        fputs("send: connect failed\n", stderr); return
+        fputs("send: connect failed\n", stderrStream); return
     }
     print("do_send: waiting for receiver...")
     _ = try? route.waitForRecv(count: 1, timeout: nil)
@@ -99,7 +103,7 @@ private func doSend() async {
 private func doRecv() async {
     print("do_recv: start [\(strOfSize(minSz)) - \(strOfSize(maxSz))]...")
     guard let route = try? await Route.connect(name: channelName, mode: .receiver) else {
-        fputs("recv: connect failed\n", stderr); return
+        fputs("recv: connect failed\n", stderrStream); return
     }
 
     let counter = ManagedAtomic<Int>(0)
@@ -126,18 +130,18 @@ private func byteOf(_ k: Int) -> UInt8 { UInt8(k % 251) }
 
 private func doSendCount(_ count: Int) async -> Int32 {
     guard let route = try? await Route.connect(name: channelName, mode: .sender) else {
-        fputs("do_send: connect failed.\n", stderr); return 3
+        fputs("do_send: connect failed.\n", stderrStream); return 3
     }
     defer { route.disconnect() }
     guard (try? route.waitForRecv(count: 1, timeout: .milliseconds(5000))) == true else {
-        fputs("do_send: no receiver within 5 s.\n", stderr); return 2
+        fputs("do_send: no receiver within 5 s.\n", stderrStream); return 2
     }
     var total = 0
     for k in 0..<count {
         let sz = sizeOf(k)
         let payload = [UInt8](repeating: byteOf(k), count: sz)
         guard (try? route.send(data: payload, timeout: .milliseconds(2000))) == true else {
-            fputs("do_send: send of message \(k) failed.\n", stderr); return 4
+            fputs("do_send: send of message \(k) failed.\n", stderrStream); return 4
         }
         total += sz
     }
@@ -147,14 +151,14 @@ private func doSendCount(_ count: Int) async -> Int32 {
 
 private func doRecvCount(_ count: Int) async -> Int32 {
     guard let route = try? await Route.connect(name: channelName, mode: .receiver) else {
-        fputs("do_recv: connect failed.\n", stderr); return 3
+        fputs("do_recv: connect failed.\n", stderrStream); return 3
     }
     defer { route.disconnect() }
     print("do_recv: ready")
     var total = 0
     for k in 0..<count {
         guard let buf = try? route.recv(timeout: .milliseconds(10_000)), !buf.isEmpty else {
-            fputs("do_recv: timed out after \(k)/\(count) messages.\n", stderr); return 5
+            fputs("do_recv: timed out after \(k)/\(count) messages.\n", stderrStream); return 5
         }
         let b = buf.bytes
         let ok = (minSz...maxSz).contains(b.count)
@@ -162,7 +166,7 @@ private func doRecvCount(_ count: Int) async -> Int32 {
             && b[0] == byteOf(k)
             && b.allSatisfy { $0 == b[0] }
         guard ok else {
-            fputs("do_recv: message \(k) is corrupt (\(b.count) bytes, expected \(sizeOf(k)) bytes of \(byteOf(k))).\n", stderr)
+            fputs("do_recv: message \(k) is corrupt (\(b.count) bytes, expected \(sizeOf(k)) bytes of \(byteOf(k))).\n", stderrStream)
             return 6
         }
         total += b.count
@@ -174,13 +178,13 @@ private func doRecvCount(_ count: Int) async -> Int32 {
 // MARK: - Entry point
 
 // Line-buffer stdout so each status line shows up immediately when piped.
-setvbuf(stdout, nil, _IOLBF, 0)
+setvbuf(stdoutStream, nil, _IOLBF, 0)
 
 installSignalHandlers()
 
 let args = CommandLine.arguments
 guard args.count >= 2 else {
-    fputs("usage: demo-msg-que s|r [<count>] | clear\n", stderr)
+    fputs("usage: demo-msg-que s|r [<count>] | clear\n", stderrStream)
     exit(1)
 }
 
@@ -190,7 +194,7 @@ if args[1] == "clear" {
 }
 if args.count >= 3, args[1] == "s" || args[1] == "r" {
     guard let count = Int(args[2]), count >= 0 else {
-        fputs("invalid count: \(args[2])\n", stderr)
+        fputs("invalid count: \(args[2])\n", stderrStream)
         exit(1)
     }
     let code: Int32
@@ -202,6 +206,6 @@ switch args[1] {
 case "s": await doSend()
 case "r": await doRecv()
 default:
-    fputs("unknown mode: \(args[1])  (use 's' or 'r')\n", stderr)
+    fputs("unknown mode: \(args[1])  (use 's' or 'r')\n", stderrStream)
     exit(1)
 }

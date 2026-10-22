@@ -74,6 +74,9 @@ struct TestMutex {
     // mapping alive via CachedShm ARC — and a fresh open(name) must be an
     // independent segment. See context/refcount-aware-clear-storage-rfc.md.
     @Test("clearStorage orphans a live handle; fresh open is independent")
+    // On the main actor, so the lock and unlock around the awaits stay on one
+    // thread (a robust Linux mutex belongs to the thread that locked it).
+    @MainActor
     func clearStorageOrphansLiveHandle() async throws {
         let name = "swift_test_mtx_orphan_\(UInt32.random(in: 0..<UInt32.max))"
         await IpcMutex.clearStorage(name: name)

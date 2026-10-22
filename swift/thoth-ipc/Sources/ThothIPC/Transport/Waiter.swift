@@ -5,7 +5,11 @@
 // Condition-variable + mutex wrapper used by the IPC channel to
 // sleep/wake sender and receiver threads.
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Atomics
 
 /// A named waiter combining a condition variable, a mutex, and a quit flag.
@@ -79,12 +83,25 @@ public struct Waiter: ~Copyable, @unchecked Sendable {
 
     /// Wake one waiter.
     public func notify() throws(IpcError) {
-        try cond.notify()
+        try barrier()
+        try cond.notify(mutex: lock)
     }
 
     /// Wake all waiters.
     public func broadcast() throws(IpcError) {
-        try cond.broadcast()
+        try barrier()
+        try cond.broadcast(mutex: lock)
+    }
+
+    /// On Linux, take the lock once before a wake: a waiter between its
+    /// predicate check and its sleep holds it, so the wake cannot slip past it
+    /// (the ulock condition needs no barrier: its sequence word catches that).
+    @inline(__always)
+    private func barrier() throws(IpcError) {
+        #if !os(macOS)
+        try lock.lock()
+        try lock.unlock()
+        #endif
     }
 
     /// Signal quit and broadcast to wake all waiters.

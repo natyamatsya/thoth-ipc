@@ -16,14 +16,18 @@
 // Type a message and press Enter to broadcast it.  Type "q" to quit.
 
 import ThothIPC
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Atomics
 
 private let channelName = "ipc-chat"
 private let quit = "q"
 private let accStorage = "__CHAT_ACC_STORAGE__"
 
-private func eprint(_ s: String) { fputs(s + "\n", stderr) }
+private func eprint(_ s: String) { fputs(s + "\n", stderrStream) }
 
 // MARK: - Unique ID via SHM atomic counter
 
@@ -33,12 +37,12 @@ private func eprint(_ s: String) { fputs(s + "\n", stderr) }
 // a failed acquire aborts the demo.)
 private let idCounterShm = try! ShmHandle.acquire(
     name: accStorage,
-    size: MemoryLayout<UInt64.AtomicRepresentation>.size,
+    size: MemoryLayout<UnsafeAtomic<UInt64>.Storage>.size,
     mode: .createOrOpen
 )
 
 private func calcUniqueId() -> UInt64 {
-    let ptr = idCounterShm.ptr.assumingMemoryBound(to: UInt64.AtomicRepresentation.self)
+    let ptr = idCounterShm.ptr.assumingMemoryBound(to: UnsafeAtomic<UInt64>.Storage.self)
     let atomic = UnsafeAtomic<UInt64>(at: ptr.withMemoryRebound(
         to: UnsafeAtomic<UInt64>.Storage.self, capacity: 1) { $0 })
     return atomic.loadThenWrappingIncrement(ordering: .relaxed)
@@ -112,7 +116,7 @@ private func bot(lines: Int, peers: Int) async throws -> Int32 {
 // MARK: - Entry point
 
 // Line-buffer stdout so each status line shows up immediately when piped.
-setvbuf(stdout, nil, _IOLBF, 0)
+setvbuf(stdoutStream, nil, _IOLBF, 0)
 
 let args = CommandLine.arguments
 if args.count >= 2 {
@@ -138,7 +142,7 @@ let recvTask = Task { await recvLoop(id: id, ch: receiver) }
 
 while true {
     print("> ", terminator: "")
-    fflush(stdout)
+    fflush(stdoutStream)
     guard let line = readLine(strippingNewline: true), !line.isEmpty else { break }
     if line == quit { break }
     // send(string:) appends the null terminator a C++ receiver expects.

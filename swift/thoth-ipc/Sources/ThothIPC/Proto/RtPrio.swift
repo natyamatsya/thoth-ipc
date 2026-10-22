@@ -2,9 +2,14 @@
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Port of cpp-ipc/include/libipc/proto/rt_prio.h.
-// Real-time thread priority — macOS Mach time constraint policy.
+// Real-time thread priority — macOS Mach time constraint policy (not
+// implemented on Linux, as in C++).
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import ThothIPCShim
 
 // MARK: - audio_period_ns
@@ -31,10 +36,20 @@ public func setRealtimePriority(
 ) -> Bool {
     let comp = computationNs ?? (periodNs / 2)
     let constr = constraintNs ?? periodNs
+    #if os(macOS)
     return setRealtimeMacOS(periodNs: periodNs, computationNs: comp, constraintNs: constr)
+    #else
+    // As C++ rt_prio.h: SCHED_FIFO would need CAP_SYS_NICE; not implemented.
+    _ = (comp, constr)
+    let msg = "rt_prio: not implemented on this platform\n"
+    _ = msg.withCString { write(2, $0, strlen($0)) }
+    return false
+    #endif
 }
 
 // MARK: - macOS Mach thread time constraint policy
+
+#if os(macOS)
 
 private func setRealtimeMacOS(periodNs: UInt64, computationNs: UInt64, constraintNs: UInt64) -> Bool {
     var tb = mach_timebase_info_data_t()
@@ -65,3 +80,4 @@ private func setRealtimeMacOS(periodNs: UInt64, computationNs: UInt64, constrain
     }
     return kr == KERN_SUCCESS
 }
+#endif

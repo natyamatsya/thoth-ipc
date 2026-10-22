@@ -15,7 +15,11 @@
 // Swift struct layout is not C-guaranteed, so the table is accessed via raw byte
 // offsets + UnsafeAtomic, the same way the ring header/slots are.
 
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Atomics
 
 let livenessMaxSlots = 32
@@ -46,31 +50,61 @@ func livenessName(_ prefix: String, _ name: String) -> String {
 
 @inline(__always) func selfPid() -> Int32 { getpid() }
 
-/// Process start token — byte-exact with C++/Rust: BSD start time packed as
-/// tvsec * 1_000_000 + tvusec. 0 == "couldn't determine".
+/// Process start token — byte-exact with C++/Rust. macOS: the BSD start time
+/// packed as tvsec * 1_000_000 + tvusec. Linux: the raw starttime jiffies,
+/// field 22 of /proc/<pid>/stat. 0 == "couldn't determine".
 func startToken(_ pid: Int32) -> UInt64 {
     guard pid > 0 else { return 0 }
+    #if os(macOS)
     var info = proc_bsdinfo()
     let sz = Int32(MemoryLayout<proc_bsdinfo>.size)
     let n = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sz)
     guard n == sz else { return 0 }
     return UInt64(info.pbi_start_tvsec) &* 1_000_000 &+ UInt64(info.pbi_start_tvusec)
+    #else
+    // After the last ')' (comm may hold spaces and parentheses) come field 3
+    // (state) onward.
+    guard let rest = procStatAfterComm(pid) else { return 0 }
+    let fields = rest.split(separator: " ", omittingEmptySubsequences: true)
+    guard fields.count >= 20 else { return 0 }
+    return UInt64(fields[19]) ?? 0 // field 22
+    #endif
 }
+
+#if os(Linux)
+/// The text of /proc/<pid>/stat after the comm field's closing ')'.
+private func procStatAfterComm(_ pid: Int32) -> Substring? {
+    guard let f = fopen("/proc/\(pid)/stat", "re") else { return nil }
+    defer { fclose(f) }
+    var buf = [CChar](repeating: 0, count: 1024)
+    guard fgets(&buf, Int32(buf.count), f) != nil else { return nil }
+    let line = String(cString: buf)
+    guard let close = line.lastIndex(of: ")") else { return nil }
+    return line[line.index(after: close)...]
+}
+#endif
 
 /// Whether `pid` is a zombie: it has exited and only waits for its parent to
 /// reap it, which may never happen (e.g. a parent that cannot wait for a child a
 /// debugger traces). A zombie holds nothing, but `kill(pid, 0)` still succeeds for
 /// it and its start token can no longer be read, so without this check it would
 /// count as alive for as long as its parent lives. Byte-exact with C++ `is_zombie`
-/// (liveness.h): sysctl KERN_PROC_PID (what ps reads; proc_pidinfo fails for
-/// zombies), `kp_proc.p_stat == SZOMB` (5).
+/// (liveness.h): on macOS sysctl KERN_PROC_PID (what ps reads; proc_pidinfo fails
+/// for zombies), `kp_proc.p_stat == SZOMB` (5); on Linux /proc/<pid>/stat state
+/// Z (or X, dead).
 func isZombie(_ pid: Int32) -> Bool {
     guard pid > 0 else { return false }
+    #if os(macOS)
     var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
     var kp = kinfo_proc()
     var len = MemoryLayout<kinfo_proc>.size
     guard sysctl(&mib, 4, &kp, &len, nil, 0) == 0, len == MemoryLayout<kinfo_proc>.size else { return false }
     return kp.kp_proc.p_stat == 5 // SZOMB
+    #else
+    guard let rest = procStatAfterComm(pid), rest.hasPrefix(" ") else { return false }
+    let state = rest.dropFirst().first
+    return state == "Z" || state == "X"
+    #endif
 }
 
 /// Is the recorded process (pid + token) still alive? Conservative: any

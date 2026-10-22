@@ -7,7 +7,11 @@
 // T must be BitwiseCopyable (trivially copyable, fixed size).
 // capacity must be a power of two.
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Atomics
 import ThothIPCShim
 
@@ -179,7 +183,7 @@ private func rawAcquire(name: String, size: Int, create: Bool) throws(IpcError) 
         let f = posixName.withCString { thoth_ipc_shm_open_create($0, perms) }
         if f != -1 {
             guard ftruncate(f, off_t(total)) == 0 else {
-                let e = errno; Darwin.close(f); throw .osError(e)
+                let e = errno; posixClose(f); throw .osError(e)
             }
             fd = f
         } else {
@@ -195,7 +199,7 @@ private func rawAcquire(name: String, size: Int, create: Bool) throws(IpcError) 
     }
 
     let raw = mmap(nil, total, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)
-    Darwin.close(fd)
+    posixClose(fd)
     guard raw != MAP_FAILED, let m = raw else { throw .osError(errno) }
     return (m, total, posixName)
 }
@@ -203,7 +207,7 @@ private func rawAcquire(name: String, size: Int, create: Bool) throws(IpcError) 
 // MARK: - Ring header layout (192 bytes = 3 × 64-byte cache lines)
 
 private struct RingHeader192 {
-    var writeIdx: UInt64.AtomicRepresentation = .init(0)
+    var writeIdx: UnsafeAtomic<UInt64>.Storage = .init(0)
     var _pad0: (UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
                 UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
                 UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
@@ -213,7 +217,7 @@ private struct RingHeader192 {
                 UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8) =
         (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
          0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
-    var readIdx: UInt64.AtomicRepresentation = .init(0)
+    var readIdx: UnsafeAtomic<UInt64>.Storage = .init(0)
     var _pad1: (UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
                 UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
                 UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
@@ -223,7 +227,7 @@ private struct RingHeader192 {
                 UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8) =
         (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
          0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
-    var constructed: UInt8.AtomicRepresentation = .init(0)
+    var constructed: UnsafeAtomic<UInt8>.Storage = .init(0)
     var _pad2: (UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
                 UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
                 UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,UInt8,
@@ -239,14 +243,14 @@ private struct RingHeader192 {
 // MARK: - UnsafeAtomic helpers
 
 @inline(__always)
-private func ua8(_ field: inout UInt8.AtomicRepresentation) -> UnsafeAtomic<UInt8> {
+private func ua8(_ field: inout UnsafeAtomic<UInt8>.Storage) -> UnsafeAtomic<UInt8> {
     UnsafeAtomic(at: withUnsafeMutablePointer(to: &field) {
         $0.withMemoryRebound(to: UnsafeAtomic<UInt8>.Storage.self, capacity: 1) { $0 }
     })
 }
 
 @inline(__always)
-private func ua64(_ field: inout UInt64.AtomicRepresentation) -> UnsafeAtomic<UInt64> {
+private func ua64(_ field: inout UnsafeAtomic<UInt64>.Storage) -> UnsafeAtomic<UInt64> {
     UnsafeAtomic(at: withUnsafeMutablePointer(to: &field) {
         $0.withMemoryRebound(to: UnsafeAtomic<UInt64>.Storage.self, capacity: 1) { $0 }
     })

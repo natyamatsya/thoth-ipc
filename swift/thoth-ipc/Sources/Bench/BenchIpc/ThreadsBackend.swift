@@ -4,7 +4,11 @@
 // Benchmark backend using raw POSIX threads — mirrors the Rust thread::spawn approach.
 
 import ThothIPC
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // MARK: - pthread helpers
 
@@ -12,13 +16,25 @@ import Darwin.POSIX
 private func spawnThread(_ body: @escaping @Sendable () -> Void) -> pthread_t {
     // Box the closure so we can pass it through a C void*.
     let box = Unmanaged.passRetained(ClosureBox(body))
+    // pthread_t is an optional pointer on Darwin and an integer on Linux, and the
+    // start routine's argument is optional only on Linux.
+    #if canImport(Darwin)
     var tid: pthread_t?
+    #else
+    var tid = pthread_t()
+    #endif
     pthread_create(&tid, nil, { ptr -> UnsafeMutableRawPointer? in
-        Unmanaged<ClosureBox>.fromOpaque(ptr).takeRetainedValue().body()
+        Unmanaged<ClosureBox>.fromOpaque(threadArg(ptr)).takeRetainedValue().body()
         return nil
     }, box.toOpaque())
+    #if canImport(Darwin)
     return tid.unsafelyUnwrapped
+    #else
+    return tid
+    #endif
 }
+
+@inline(__always) private func threadArg(_ p: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer { p! }
 
 private final class ClosureBox: @unchecked Sendable {
     let body: @Sendable () -> Void
@@ -27,7 +43,7 @@ private final class ClosureBox: @unchecked Sendable {
 
 // MARK: - Shared ready/done flags (plain Bool + pthread_mutex for simplicity)
 
-private final class Flag: @unchecked Sendable {
+final class Flag: @unchecked Sendable {
     private var _value = false
     private var mu = pthread_mutex_t()
     init() { pthread_mutex_init(&mu, nil) }

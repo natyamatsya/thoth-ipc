@@ -9,7 +9,11 @@
 //
 // Not thread-safe; use one per thread or protect with a lock.
 
-import Darwin.C
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 /// Monotonic bump-pointer arena.
 ///

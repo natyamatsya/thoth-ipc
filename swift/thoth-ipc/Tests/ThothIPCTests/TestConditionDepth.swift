@@ -5,7 +5,11 @@
 
 import Testing
 @testable import ThothIPC
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // MARK: - Tests
 
@@ -40,7 +44,7 @@ struct TestConditionDepth {
         let cv  = try await IpcCondition.open(name: cvName)
         let mtx = try await IpcMutex.open(name: mtxName)
         try mtx.lock()
-        try cv.notify()
+        try cv.notify(mutex: mtx)
         try mtx.unlock()
 
         await joinThread(waiter)
@@ -77,7 +81,7 @@ struct TestConditionDepth {
         let cv  = try await IpcCondition.open(name: cvName)
         let mtx = try await IpcMutex.open(name: mtxName)
         try mtx.lock()
-        try cv.broadcast()
+        try cv.broadcast(mutex: mtx)
         try mtx.unlock()
 
         for w in waiters { await joinThread(w) }
@@ -128,7 +132,7 @@ struct TestConditionDepth {
             let mtx = try! IpcMutex.openSync(name: mtxName)
             try! mtx.lock()
             buffer = 42; ready = true
-            try! cv.notify()
+            try! cv.notify(mutex: mtx)
             try! mtx.unlock()
         }
 
@@ -178,7 +182,7 @@ struct TestConditionDepth {
             var ts = timespec(tv_sec: 0, tv_nsec: 50_000_000); nanosleep(&ts, nil)
             let cv  = try await IpcCondition.open(name: cvName)
             let mtx = try await IpcMutex.open(name: mtxName)
-            try mtx.lock(); try cv.notify(); try mtx.unlock()
+            try mtx.lock(); try cv.notify(mutex: mtx); try mtx.unlock()
         }
 
         await joinThread(waiter)
@@ -222,7 +226,7 @@ struct TestConditionDepth {
 
         let cv  = try await IpcCondition.open(name: cvName)
         let mtx = try await IpcMutex.open(name: mtxName)
-        try mtx.lock(); predicate.value = true; try cv.notify(); try mtx.unlock()
+        try mtx.lock(); predicate.value = true; try cv.notify(mutex: mtx); try mtx.unlock()
 
         await joinThread(waiter)
         #expect(done.value)
@@ -257,7 +261,7 @@ struct TestConditionDepth {
 
         let cv  = try await IpcCondition.open(name: cvName)
         let mtx = try await IpcMutex.open(name: mtxName)
-        try mtx.lock(); try cv.broadcast(); try mtx.unlock()
+        try mtx.lock(); try cv.broadcast(mutex: mtx); try mtx.unlock()
 
         for t in threads { await joinThread(t) }
         #expect(processed == 4)
@@ -289,7 +293,7 @@ struct TestConditionDepth {
             var ts = timespec(tv_sec: 0, tv_nsec: 50_000_000); nanosleep(&ts, nil)
             let cv  = try! IpcCondition.openSync(name: cvName)
             let mtx = try! IpcMutex.openSync(name: mtxName)
-            try! mtx.lock(); try! cv.notify(); try! mtx.unlock()
+            try! mtx.lock(); try! cv.notify(mutex: mtx); try! mtx.unlock()
         }
 
         await joinThread(t1); await joinThread(t2)
@@ -323,7 +327,7 @@ struct TestConditionDepth {
         var ts20 = timespec(tv_sec: 0, tv_nsec: 20_000_000); nanosleep(&ts20, nil)
         let cv  = try await IpcCondition.open(name: cvName)
         let mtx = try await IpcMutex.open(name: mtxName)
-        try mtx.lock(); try cv.notify(); try mtx.unlock()
+        try mtx.lock(); try cv.notify(mutex: mtx); try mtx.unlock()
         for t in phase1 { await joinThread(t) }
         #expect(wokenByNotify >= 1)
 
@@ -340,7 +344,7 @@ struct TestConditionDepth {
             }
         }
         var ts50 = timespec(tv_sec: 0, tv_nsec: 50_000_000); nanosleep(&ts50, nil)
-        try mtx.lock(); try cv.broadcast(); try mtx.unlock()
+        try mtx.lock(); try cv.broadcast(mutex: mtx); try mtx.unlock()
         for t in phase2 { await joinThread(t) }
         #expect(wokenByBroadcast == 3)
     }

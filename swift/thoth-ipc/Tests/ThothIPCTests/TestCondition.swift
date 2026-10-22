@@ -20,16 +20,20 @@ struct TestCondition {
     func notifyNoWaiters() async throws {
         let name = "swift_test_cond_notify_\(UInt32.random(in: 0..<UInt32.max))"
         defer { Task { await IpcCondition.clearStorage(name: name) } }
+        defer { Task { await IpcMutex.clearStorage(name: name + "_m") } }
+        let mtx = try await IpcMutex.open(name: name + "_m")
         let cond = try await IpcCondition.open(name: name)
-        try cond.notify()
+        try cond.notify(mutex: mtx)
     }
 
     @Test("broadcast does not hang when no waiters")
     func broadcastNoWaiters() async throws {
         let name = "swift_test_cond_bcast_\(UInt32.random(in: 0..<UInt32.max))"
         defer { Task { await IpcCondition.clearStorage(name: name) } }
+        defer { Task { await IpcMutex.clearStorage(name: name + "_m") } }
+        let mtx = try await IpcMutex.open(name: name + "_m")
         let cond = try await IpcCondition.open(name: name)
-        try cond.broadcast()
+        try cond.broadcast(mutex: mtx)
     }
 
     @Test("wait with timeout returns false when not signalled")
@@ -68,7 +72,7 @@ struct TestCondition {
 
         // Give the waiter time to enter the wait.
         try await Task.sleep(for: .milliseconds(20))
-        try cond.notify()
+        try cond.notify(mutex: mtx)
 
         let signalled = try await waiterTask.value
         #expect(signalled)

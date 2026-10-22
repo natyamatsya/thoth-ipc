@@ -5,7 +5,11 @@
 
 import ThothIPC
 import Atomics
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // MARK: - Route 1-N
 

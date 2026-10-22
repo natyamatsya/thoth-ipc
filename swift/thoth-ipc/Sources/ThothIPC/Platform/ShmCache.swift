@@ -11,8 +11,6 @@
 // maintains a process-local cache of open shm handles keyed by name.
 
 import Atomics
-import Darwin.POSIX
-import os
 
 // MARK: - CachedShm
 
@@ -37,17 +35,17 @@ final class CachedShm: @unchecked Sendable {
 /// of which concurrency model the caller uses.
 final class ShmCacheStorage: @unchecked Sendable {
     private var map: [String: CachedShm] = [:]
-    private var lock = os_unfair_lock()
+    private let lock = LocalLock()
 
     func acquire(
         name: String,
         size: Int,
         initialize: (UnsafeMutableRawPointer) throws -> Void
     ) throws -> CachedShm {
-        os_unfair_lock_lock(&lock)
+        lock.lock()
         if let existing = map[name] {
             existing.localRef.wrappingIncrement(ordering: .relaxed)
-            os_unfair_lock_unlock(&lock)
+            lock.unlock()
             return existing
         }
         // shm_open + mmap are fast syscalls — safe to hold the lock across them.
@@ -56,25 +54,25 @@ final class ShmCacheStorage: @unchecked Sendable {
             if shm.previousRefCount == 0 { try initialize(shm.ptr) }
             let entry = CachedShm(shm: shm)
             map[name] = entry
-            os_unfair_lock_unlock(&lock)
+            lock.unlock()
             return entry
         } catch {
-            os_unfair_lock_unlock(&lock)
+            lock.unlock()
             throw error
         }
     }
 
     func release(name: String) {
-        os_unfair_lock_lock(&lock)
-        defer { os_unfair_lock_unlock(&lock) }
+        lock.lock()
+        defer { lock.unlock() }
         guard let entry = map[name] else { return }
         let prev = entry.localRef.loadThenWrappingDecrement(ordering: .acquiringAndReleasing)
         if prev <= 1 { map.removeValue(forKey: name) }
     }
 
     func purge(name: String) {
-        os_unfair_lock_lock(&lock)
-        defer { os_unfair_lock_unlock(&lock) }
+        lock.lock()
+        defer { lock.unlock() }
         map.removeValue(forKey: name)
     }
 }

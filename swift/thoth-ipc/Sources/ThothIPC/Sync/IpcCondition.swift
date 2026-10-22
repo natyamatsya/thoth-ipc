@@ -2,18 +2,34 @@
 // SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 //
 // Port of cpp-ipc/src/libipc/platform/apple/condition.h + rust/thoth-ipc/src/condition.rs
-// Named inter-process condition variable: ulock sequence-counter in shared memory.
+// Named inter-process condition variable: ulock sequence-counter in shared
+// memory on macOS, the linux_a0 requeue-PI condition (C++
+// platform/linux/condition.h) on Linux.
 
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Atomics
+import ThothIPCShim
+
+#if os(macOS)
+/// seq(u32) + waiters(i32).
+let conditionPayloadSize = 8
+#else
+/// The alephzero a0_cnd_t, a u32 futex sequence word.
+let conditionPayloadSize = ABI.a0_cnd_size
+#endif
 
 // MARK: - IpcCondition
 
 /// A named, inter-process condition variable.
 ///
-/// On Darwin this is a ulock sequence-counter condition variable in shared
-/// memory, binary-compatible with `thoth::sync::condition` from the C++ libipc
-/// library.
+/// Binary-compatible with `thoth::sync::condition` from the C++ library: a
+/// ulock sequence-counter condition on Darwin (layout below), the linux_a0
+/// a0_cnd_t (4 bytes) on Linux, whose waiters the kernel requeues onto the
+/// paired mutex.
 ///
 /// Shared-memory layout (8 bytes):
 ///   offset 0: atomic<u32>  seq     — monotonically incremented on notify/broadcast
@@ -37,13 +53,12 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
     /// All callers within the same process that open the same `name` share a
     /// single mmap (via `condCache`), matching the C++ `curr_prog` pattern.
     public static func open(name: String) async throws(IpcError) -> IpcCondition {
-        let size = 8 // seq(u32) + waiters(i32)
+        let size = conditionPayloadSize
         let cached: CachedShm
         let abiGuard = try SyncAbiGuard.openCondition(name: name)
         do {
             cached = try await condCache.acquire(name: name, size: size) { base in
-                shmAtomicU32(at: base).store(0, ordering: .releasing)
-                shmAtomicI32(at: base.advanced(by: 4)).store(0, ordering: .releasing)
+                base.initializeMemory(as: UInt8.self, repeating: 0, count: size)
             }
         } catch let e as IpcError {
             throw e
@@ -55,18 +70,19 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
 
     /// Open via the shared cache without an actor hop — for use from POSIX threads.
     static func openSync(name: String) throws(IpcError) -> IpcCondition {
-        let size = 8 // seq(u32) + waiters(i32)
+        let size = conditionPayloadSize
         let cached: CachedShm
         let abiGuard = try SyncAbiGuard.openCondition(name: name)
         do {
             cached = try condCache.acquireSync(name: name, size: size) { base in
-                shmAtomicU32(at: base).store(0, ordering: .releasing)
-                shmAtomicI32(at: base.advanced(by: 4)).store(0, ordering: .releasing)
+                base.initializeMemory(as: UInt8.self, repeating: 0, count: size)
             }
         } catch let e as IpcError { throw e }
           catch { throw IpcError.osError(EINVAL) }
         return IpcCondition(cached: cached, abiGuard: abiGuard, name_: name, inCache: true, syncOpened: true)
     }
+
+    #if os(macOS)
 
     // MARK: Internal accessors
 
@@ -139,21 +155,70 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
         return notified
     }
 
-    /// Wake one waiter.
-    public func notify() throws(IpcError) {
+    /// Wake one waiter. `mutex` is the one waiters pass to `wait`; this backend
+    /// does not need it (Linux requeues waiters onto it).
+    public func notify(mutex: borrowing IpcMutex) throws(IpcError) {
         _ = seqAtomic.loadThenWrappingIncrement(ordering: .acquiringAndReleasing)
         if waitersAtomic.load(ordering: .acquiring) > 0 {
             _ = _ulockWake(kULCompareAndWaitShared, seqWordPtr, 0)
         }
     }
 
-    /// Wake all waiters.
-    public func broadcast() throws(IpcError) {
+    /// Wake all waiters. `mutex` as for `notify`.
+    public func broadcast(mutex: borrowing IpcMutex) throws(IpcError) {
         _ = seqAtomic.loadThenWrappingIncrement(ordering: .acquiringAndReleasing)
         if waitersAtomic.load(ordering: .acquiring) > 0 {
             _ = _ulockWake(kULCompareAndWaitShared | kULFWakeAll, seqWordPtr, 0)
         }
     }
+    #else
+
+    // MARK: Wait / Notify / Broadcast (linux_a0, C++ platform/linux/condition.h)
+
+    private var a0Cond: UnsafeMutableRawPointer { cached.shm.ptr }
+
+    /// One a0_cnd wait. A mutex that comes back from a dead holder is made
+    /// consistent and the wait reports a wake-up (callers re-check their
+    /// predicate), as Rust and Zig do. True if signalled.
+    private func waitA0(_ mutex: borrowing IpcMutex, timeoutNs: Int64) throws(IpcError) -> Bool {
+        let eno = thoth_a0_cnd_wait(a0Cond, mutex.shmBase, timeoutNs)
+        switch eno {
+        case 0: return true
+        case ETIMEDOUT: return false
+        case EOWNERDEAD:
+            _ = thoth_a0_mtx_consistent(mutex.shmBase) // held by this thread
+            return true
+        default: throw .osError(eno)
+        }
+    }
+
+    /// Wait on the condition variable. The caller must hold `mutex` locked.
+    /// The mutex is atomically released and re-acquired around the wait.
+    /// Blocks indefinitely until signalled.
+    public func wait(mutex: borrowing IpcMutex) throws(IpcError) {
+        _ = try waitA0(mutex, timeoutNs: -1)
+    }
+
+    /// Wait on the condition variable with a timeout.
+    /// Returns `true` if signalled within `timeout`, `false` on timeout.
+    /// The caller must hold `mutex` locked.
+    public func wait(mutex: borrowing IpcMutex, timeout: Duration) throws(IpcError) -> Bool {
+        try waitA0(mutex, timeoutNs: durationNs(timeout))
+    }
+
+    /// Wake one waiter, requeued onto `mutex` (the one waiters pass to `wait`).
+    public func notify(mutex: borrowing IpcMutex) throws(IpcError) {
+        let eno = thoth_a0_cnd_signal(a0Cond, mutex.shmBase)
+        if eno != 0 { throw .osError(eno) }
+    }
+
+    /// Wake all waiters, requeued onto `mutex`.
+    public func broadcast(mutex: borrowing IpcMutex) throws(IpcError) {
+        let eno = thoth_a0_cnd_broadcast(a0Cond, mutex.shmBase)
+        if eno != 0 { throw .osError(eno) }
+    }
+
+    #endif
 
     // MARK: Storage
 

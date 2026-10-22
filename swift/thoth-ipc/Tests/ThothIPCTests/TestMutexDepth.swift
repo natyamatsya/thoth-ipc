@@ -5,7 +5,11 @@
 
 import Testing
 @testable import ThothIPC
-import Darwin.POSIX
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // MARK: - Tests
 
@@ -152,23 +156,37 @@ struct TestMutexDepth {
         #expect(counter == 8 * 50)
     }
 
+    /// Hold the mutex `name` on a dedicated thread while `contend` runs on
+    /// another. A robust (Linux) mutex belongs to the thread that locked it, so
+    /// the holder must lock and unlock on one thread, not across an `await`.
+    private func whileHeld(_ name: String, _ contend: @escaping @Sendable () -> Void) async {
+        nonisolated(unsafe) var locked = false
+        nonisolated(unsafe) var release = false
+        let holder = spawnPthread {
+            let m = try! IpcMutex.openSync(name: name)
+            try! m.lock()
+            locked = true
+            while !release { var ts = timespec(tv_sec: 0, tv_nsec: 1_000_000); nanosleep(&ts, nil) }
+            try! m.unlock()
+        }
+        while !locked { var ts = timespec(tv_sec: 0, tv_nsec: 1_000_000); nanosleep(&ts, nil) }
+        await joinThread(spawnPthread(contend))
+        release = true
+        await joinThread(holder)
+    }
+
     // Port of MutexTest.lock_timeout_times_out_when_held
     @Test("lock(timeout:) times out when held by another thread")
     func lockTimeoutTimesOut() async throws {
         let name = "swift_mtxd_lttimeout_\(UInt32.random(in: 0..<UInt32.max))"
         defer { Task { await IpcMutex.clearStorage(name: name) } }
-        let mtx = try await IpcMutex.open(name: name)
-        try mtx.lock()
-
         nonisolated(unsafe) var timedOut = false
-        let t = spawnPthread {
+        await whileHeld(name) {
             let mtx2 = try! IpcMutex.openSync(name: name)
             // lock(timeout:) is async — bridge via runBlocking
             let acquired = try! runBlocking { try await mtx2.lock(timeout: .milliseconds(50)) }
             timedOut = !acquired
         }
-        await joinThread(t)
-        try mtx.unlock()
         #expect(timedOut)
     }
 
@@ -177,19 +195,13 @@ struct TestMutexDepth {
     func tryLockContended() async throws {
         let name = "swift_mtxd_trycontend_\(UInt32.random(in: 0..<UInt32.max))"
         defer { Task { await IpcMutex.clearStorage(name: name) } }
-        let mtx = try await IpcMutex.open(name: name)
-        try mtx.lock()
-
         nonisolated(unsafe) var sawContention = false
-        let t = spawnPthread {
+        await whileHeld(name) {
             let mtx2 = try! IpcMutex.openSync(name: name)
             let acquired = try! mtx2.tryLock()
             if !acquired { sawContention = true }
             else { try! mtx2.unlock() }
         }
-        var ts = timespec(tv_sec: 0, tv_nsec: 50_000_000); nanosleep(&ts, nil)
-        await joinThread(t)
-        try mtx.unlock()
         #expect(sawContention)
     }
 }
