@@ -65,6 +65,17 @@ inline fn slotFct(sb: [*]u8) *u64 {
     return @ptrCast(@alignCast(sb + elem_fct_off));
 }
 
+/// Whether a writer at commit index `ct` must wait for the slot `sb` (whose rc_
+/// is `cur_rc`): a connected reader of `epoch` still marks it, or it is free of
+/// marks but the previous lap's last reader has not released it yet.
+fn busy(sb: [*]u8, cc: u64, ct: u32, epoch: u64, cur_rc: u64) bool {
+    const rem_cc = cur_rc & rc_mask;
+    if ((cc & rem_cc) != 0 and (cur_rc & ~ep_mask) == epoch) return true;
+    if (rem_cc != 0) return false;
+    const cur_fl = @atomicLoad(u64, slotFct(sb), .acquire);
+    return cur_fl != @as(u64, ct) and cur_fl != 0;
+}
+
 /// Where a receiver that read `since` from the commit index and then claimed
 /// `bit` starts reading (C++ `prod_cons_impl<multi,multi,broadcast>::adopt`): at
 /// the earliest slot claimed since then that already carries its mark (it may
@@ -228,6 +239,8 @@ pub const ChannelInner = struct {
             const cc = layout.u32ptr(self.ring.ptr(), layout.off_cc);
             _ = @atomicRmw(u32, cc, .And, ~self.conn_id, .acq_rel);
             liveness.clearOwner(self.liveness_shm.ptr(), self.conn_id);
+            // Its marks no longer hold a sender up: wake any parked on a slot.
+            self.wt_waiter.broadcast() catch {};
         }
         self.disconnected = true;
     }
@@ -250,12 +263,21 @@ pub const ChannelInner = struct {
         self.ring.release();
     }
 
+    /// Wait until at least `count` receivers are connected, parked on the CC
+    /// waiter that a connecting receiver wakes.
     pub fn waitForRecv(self: *ChannelInner, count: usize, deadline_ns: i128) bool {
+        const Few = struct {
+            ch: *ChannelInner,
+            n: usize,
+            pub fn blocked(f: @This()) bool {
+                return f.ch.recvCount() < f.n;
+            }
+        };
         var yk: u32 = 0;
         while (true) {
             if (self.recvCount() >= count) return true;
             if (layout.nowNs() >= deadline_ns) return false;
-            layout.adaptiveYield(&yk);
+            self.cc_waiter.backoff(&yk, deadline_ns, Few{ .ch = self, .n = count }) catch layout.adaptiveYield(&yk);
         }
     }
 
@@ -290,13 +312,25 @@ pub const ChannelInner = struct {
     }
 
     /// Claim the next commit slot (C++ multi-producer push): `ct_` claim +
-    /// `f_ct_ = ~ct` publish, per prod_cons.h L337-372. Busy-polls with a
+    /// `f_ct_ = ~ct` publish, per prod_cons.h L337-372. Waits (WT waiter) with a
     /// deadline while the target slot is still being read / not yet drained.
     fn pushFragment(self: *ChannelInner, msg_id: u32, remain: i32, payload: []const u8, deadline_ns: i128) Error!bool {
         const base = self.ring.ptr();
         const cc_p = layout.u32ptr(base, layout.off_cc);
         const ct_p = layout.u32ptr(base, off_ct);
         const epoch_p = layout.u64ptr(base, layout.off_epoch);
+
+        // Parked on the WT waiter while the slot is unread; a reader wakes it.
+        const Busy = struct {
+            base: [*]u8,
+            epoch: u64,
+            pub fn blocked(b: @This()) bool {
+                const cc: u64 = @atomicLoad(u32, layout.u32ptr(b.base, layout.off_cc), .monotonic);
+                const ct = @atomicLoad(u32, layout.u32ptr(b.base, off_ct), .monotonic);
+                const sb = slotBase(b.base, ct % layout.ring_size);
+                return cc != 0 and busy(sb, cc, ct, b.epoch, @atomicLoad(u64, slotRc(sb), .monotonic));
+            }
+        };
 
         var epoch = @atomicLoad(u64, epoch_p, .acquire);
         var claimed_ct: u32 = 0;
@@ -308,20 +342,10 @@ pub const ChannelInner = struct {
             const sb = slotBase(base, cur_ct % layout.ring_size);
             const rc_p = slotRc(sb);
             const cur_rc = @atomicLoad(u64, rc_p, .monotonic);
-            const rem_cc = cur_rc & rc_mask;
-            if ((cc & rem_cc) != 0 and (cur_rc & ~ep_mask) == epoch) {
-                // Slot still held by a live reader from the current epoch.
+            if (busy(sb, cc, cur_ct, epoch, cur_rc)) {
                 if (layout.nowNs() >= deadline_ns) return false;
-                layout.adaptiveYield(&yk);
+                try self.wt_waiter.backoff(&yk, deadline_ns, Busy{ .base = base, .epoch = epoch });
                 continue :claim;
-            } else if (rem_cc == 0) {
-                const cur_fl = @atomicLoad(u64, slotFct(sb), .acquire);
-                if (cur_fl != @as(u64, cur_ct) and cur_fl != 0) {
-                    // Previous lap's data not yet drained by the reader.
-                    if (layout.nowNs() >= deadline_ns) return false;
-                    layout.adaptiveYield(&yk);
-                    continue :claim;
-                }
             }
             const desired = incMask(epoch | (cur_rc & ep_mask)) | cc;
             if (@cmpxchgWeak(u64, rc_p, cur_rc, desired, .monotonic, .monotonic) == null) {
@@ -353,6 +377,15 @@ pub const ChannelInner = struct {
 
     pub fn recv(self: *ChannelInner, deadline_ns: i128) Error!?[]u8 {
         const base = self.ring.ptr();
+        // Parked on the RD waiter while the ring is empty; a writer wakes it.
+        const Empty = struct {
+            base: [*]u8,
+            cur: u32,
+            pub fn blocked(e: @This()) bool {
+                const sb = slotBase(e.base, e.cur % layout.ring_size);
+                return @atomicLoad(u64, slotFct(sb), .acquire) != ~@as(u64, e.cur);
+            }
+        };
         var yk: u32 = 0;
         while (true) {
             const cur = self.read_cursor;
@@ -361,7 +394,7 @@ pub const ChannelInner = struct {
             if (fct != ~@as(u64, cur)) {
                 // Empty — the sender hasn't published this cursor's commit flag.
                 if (layout.nowNs() >= deadline_ns) return null;
-                layout.adaptiveYield(&yk);
+                try self.rd_waiter.backoff(&yk, deadline_ns, Empty{ .base = base, .cur = cur });
                 continue;
             }
             yk = 0;

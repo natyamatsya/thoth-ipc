@@ -6,10 +6,9 @@
 // prod_cons.h) and the Swift port (swift/thoth-ipc/.../Transport/Channel.swift).
 // See context/xlang-channel-abi.md §5/§6/§6a/§6b.
 //
-// v1 scope: the mandatory core transport (sync + fanout scenarios). No named
-// waiter (readers busy-poll the write cursor) and no LV_CONN__ liveness table
-// (unpopulated slots are "safe by default" — a reaping peer skips pid==0), which
-// are deferred to the reap phase. Large (>64B) messages are read via the
+// Readers and the sender wait on the route's named RD/WT/CC waiters
+// (waiter.zig), as the other ports do. There is no force_push: a sender gives
+// up at its deadline. Large (>64B) messages are read via the
 // receive-side chunk-storage decoder; this port's sender fragments.
 
 const std = @import("std");
@@ -70,9 +69,9 @@ pub const ChanInner = struct {
     send_seq: u32 = 0,
     recv_cache: std.AutoHashMap(u32, Frag),
     chunk_shms: std.AutoHashMap(usize, ShmHandle),
-    // RD/WT/CC condition-variable waiters. This port busy-polls, so we only ever
-    // signal them — to wake a blocked C++/Rust/Swift peer (reader parked when the
-    // ring looks empty, sender parked when it looks full).
+    // RD/WT/CC condition-variable waiters: a reader parks on RD while the ring
+    // is empty, a sender on WT while its slot is unread and on CC in
+    // waitForRecv. Every port signals them after the matching change.
     rd_waiter: Waiter,
     wt_waiter: Waiter,
     cc_waiter: Waiter,
@@ -181,6 +180,8 @@ pub const ChanInner = struct {
             const cc = layout.u32ptr(self.ring.ptr(), layout.off_cc);
             _ = @atomicRmw(u32, cc, .And, ~self.conn_id, .acq_rel);
             liveness.clearOwner(self.liveness_shm.ptr(), self.conn_id);
+            // Its marks no longer hold a sender up: wake any parked on a slot.
+            self.wt_waiter.broadcast() catch {};
         } else if (self.sender_claimed) {
             liveness.releaseSoleOwner(self.ring.ptr() + layout.off_sender_owner);
             self.sender_claimed = false;
@@ -237,7 +238,7 @@ pub const ChanInner = struct {
     }
 
     /// Claim the next ring slot (C++ broadcast push) and write one msg_t
-    /// fragment, then advance wt_. Busy-polls while the target slot is still
+    /// fragment, then advance wt_. Waits (WT waiter) while the target slot is still
     /// being read by a live receiver (v1 has no force_push/reaper eviction —
     /// deferred to the reap phase; in the matrix every reader is alive).
     fn pushFragment(self: *ChanInner, msg_id: u32, remain: i32, payload: []const u8, deadline_ns: i128) Error!bool {
@@ -245,6 +246,14 @@ pub const ChanInner = struct {
         const cc_p = layout.u32ptr(base, layout.off_cc);
         const wt_p = layout.u32ptr(base, layout.off_wt);
         const epoch_p = layout.u64ptr(base, layout.off_epoch);
+
+        // Parked on the WT waiter while the slot is unread; a reader wakes it.
+        const Busy = struct {
+            ch: *const ChanInner,
+            pub fn blocked(b: @This()) bool {
+                return b.ch.slotBusy(@atomicLoad(u32, layout.u32ptr(b.ch.ring.ptr(), layout.off_wt), .monotonic));
+            }
+        };
 
         var claimed_wt: u32 = 0;
         var yk: u32 = 0;
@@ -256,16 +265,9 @@ pub const ChanInner = struct {
             const sb = layout.slotBase(base, wt & 0xFF);
             const rc_p = layout.slotRc(sb);
             const cur_rc = @atomicLoad(u64, rc_p, .acquire);
-            const rem_cc = cur_rc & layout.ep_mask;
-            // (A mark from before its receiver started is a previous owner's
-            // leftover: only marks of receivers that started by then count.)
-            const prev = wt -% @as(u32, layout.ring_size);
-            if ((cc & rem_cc) != 0 and (cur_rc & ~layout.ep_mask) == epoch and
-                liveness.liveMarks(self.liveness_shm.ptr(), @truncate(cc & rem_cc), prev) != 0)
-            {
-                // Slot still busy — a live reader has not consumed it yet.
+            if (busy(self.liveness_shm.ptr(), cc, epoch, cur_rc, wt)) {
                 if (layout.nowNs() >= deadline_ns) return false;
-                layout.adaptiveYield(&yk);
+                try self.wt_waiter.backoff(&yk, deadline_ns, Busy{ .ch = self });
                 continue :claim;
             }
             if (@cmpxchgWeak(u64, rc_p, cur_rc, epoch | cc, .release, .monotonic) == null) {
@@ -283,6 +285,25 @@ pub const ChanInner = struct {
         return true;
     }
 
+    /// Whether the slot for write position `wt` still holds a message that a
+    /// live reader has to read: `cur_rc` (its rc_) marks a connected receiver in
+    /// the current epoch. A mark from before its receiver started is a previous
+    /// owner's leftover, so only receivers that had started by the slot's
+    /// previous position count.
+    fn busy(lv: [*]u8, cc: u64, epoch: u64, cur_rc: u64, wt: u32) bool {
+        const marks = cc & cur_rc & layout.ep_mask;
+        if (marks == 0 or (cur_rc & ~layout.ep_mask) != epoch) return false;
+        return liveness.liveMarks(lv, @truncate(marks), wt -% @as(u32, layout.ring_size)) != 0;
+    }
+
+    fn slotBusy(self: *const ChanInner, wt: u32) bool {
+        const base = self.ring.ptr();
+        const cc: u64 = @atomicLoad(u32, layout.u32ptr(base, layout.off_cc), .monotonic);
+        const epoch = @atomicLoad(u64, layout.u64ptr(base, layout.off_epoch), .monotonic);
+        const cur_rc = @atomicLoad(u64, layout.slotRc(layout.slotBase(base, wt & 0xFF)), .acquire);
+        return busy(self.liveness_shm.ptr(), cc, epoch, cur_rc, wt);
+    }
+
     // --- Recv (reassemble msg_t fragments by id_, C++ ipc.cpp recv) ---------
 
     /// Receive one full message. Returns an allocated slice the caller must free,
@@ -290,12 +311,19 @@ pub const ChanInner = struct {
     pub fn recv(self: *ChanInner, deadline_ns: i128) Error!?[]u8 {
         const base = self.ring.ptr();
         const wt_p = layout.u32ptr(base, layout.off_wt);
+        // Parked on the RD waiter while the ring is empty; a writer wakes it.
+        const Empty = struct {
+            ch: *const ChanInner,
+            pub fn blocked(e: @This()) bool {
+                return @atomicLoad(u32, layout.u32ptr(e.ch.ring.ptr(), layout.off_wt), .acquire) == e.ch.read_cursor;
+            }
+        };
         var yk: u32 = 0;
         while (true) {
             const wc = @atomicLoad(u32, wt_p, .acquire);
             if (wc == self.read_cursor) {
                 if (layout.nowNs() >= deadline_ns) return null;
-                layout.adaptiveYield(&yk);
+                try self.rd_waiter.backoff(&yk, deadline_ns, Empty{ .ch = self });
                 continue;
             }
             yk = 0;
@@ -384,12 +412,21 @@ pub const ChanInner = struct {
         return h;
     }
 
+    /// Wait until at least `count` receivers are connected, parked on the CC
+    /// waiter that a connecting receiver wakes.
     pub fn waitForRecv(self: *ChanInner, count: usize, deadline_ns: i128) bool {
+        const Few = struct {
+            ch: *ChanInner,
+            n: usize,
+            pub fn blocked(f: @This()) bool {
+                return f.ch.recvCount() < f.n;
+            }
+        };
         var yk: u32 = 0;
         while (true) {
             if (self.recvCount() >= count) return true;
             if (layout.nowNs() >= deadline_ns) return false;
-            layout.adaptiveYield(&yk);
+            self.cc_waiter.backoff(&yk, deadline_ns, Few{ .ch = self, .n = count }) catch layout.adaptiveYield(&yk);
         }
     }
 };

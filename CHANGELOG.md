@@ -44,6 +44,15 @@ Notable changes to thoth-ipc. The format follows
   and Zig on Linux, in about 30 s).
 
 ### Fixed
+- **Zig receivers and senders sleep while they wait.** `recv` on an empty ring,
+  a send whose slot is still unread and `waitForRecv` spun, yielded and then
+  polled every millisecond, about 1000 wake-ups a second for an idle receiver.
+  They now spin briefly and then park on the route's RD/WT/CC waiter, as C++,
+  Rust and Swift do, and are woken by the peer's signal, re-checking at least
+  every 100 ms. An idle receiver went from about 950 to about 10 context switches a
+  second. The waiter (`transport/waiter.zig`) gains its wait side and is one type
+  over the macOS and Linux condition and mutex. A disconnecting receiver now also
+  wakes a parked sender.
 - **A reconnecting broadcast receiver no longer stalls the writers (ABI 1.3.0).**
   A writer could stamp an element for a receiver between the receiver claiming its
   connection bit and reading the cursor, and a receiver that disconnected left its

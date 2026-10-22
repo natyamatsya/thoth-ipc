@@ -39,10 +39,6 @@ Open items left after the Linux Zig port and the cross-language demo matrix
   it yet, the element is skipped and the writer can still stall one lap later,
   until `force_push` disconnects the receiver. The churn tests have never hit
   it.
-- [ ] **Zig receive spins.** `ChanInner.recv` / `ChannelInner.recv` wait by
-  spinning with adaptive yield instead of sleeping on the route's waiter, which
-  burns CPU on long waits (e.g. the Zig send_recv receiver and linux_service
-  client in their default modes).
 - [ ] **Zig channel clear is incomplete.** `transport/channel.zig`
   `clearStorage` removes the ring, `AC_CONN__` and `LV_CONN__` segments but not
   the RD/WT/CC waiter condition and mutex segments, which C++
