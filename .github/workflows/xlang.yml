@@ -1,6 +1,6 @@
 name: Cross-language ABI
 
-# Proves the C++, Rust and Swift ports share one byte-exact wire ABI
+# Proves the C++, Rust, Swift and Zig ports share one byte-exact wire ABI
 # (context/xlang-channel-abi.md) by running every writer->reader pairing over
 # an thoth::route channel and checking the payload round-trips byte-for-byte.
 # Same-language test suites do NOT catch ABI drift — this matrix does.
@@ -21,8 +21,8 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  # Linux runners have no Swift toolchain in this project, so the Linux matrix
-  # covers the C++ <-> Rust <-> Zig pairings.
+  # Linux runs every pairing of the four ports. Swift uses the toolchain the
+  # Ubuntu runner image ships (Package.swift needs swift-tools 6.0).
   matrix-linux:
     runs-on: ubuntu-latest
     steps:
@@ -53,15 +53,24 @@ jobs:
     - name: Build Zig harness
       run: zig build -Doptimize=ReleaseSafe
       working-directory: zig/thoth-ipc
+    - name: Build Swift harness (secure codec enabled)
+      run: |
+        swift --version
+        swift build -c release --product xlang-harness
+      working-directory: swift/thoth-ipc
+      env:
+        THOTH_IPC_SECURE_OPENSSL: "1"
+        THOTH_IPC_OPENSSL_PREFIX: /usr
     - name: Build matrix runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
     # No --scenario filter: every scenario with participants runs (async has
     # none in this job; its endpoints are built in the async jobs).
-    - name: Run cross-language matrix (cpp, rust, zig)
+    - name: Run cross-language matrix (cpp, rust, swift, zig)
       run: |
+        export XLANG_SWIFT_BIN="$(cd swift/thoth-ipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
         tools/xlang-runner/target/release/xlang-runner \
           --config tools/xlang-ci.toml \
-          --require cpp,rust,zig --strict-caps \
+          --require cpp,rust,swift,zig --strict-caps \
           --junit xlang-results.xml
       env:
         XLANG_CPP_BIN: cpp/thoth-ipc/bin/xlang_ipc
@@ -73,8 +82,8 @@ jobs:
         name: xlang-results-linux
         path: xlang-results.xml
 
-  # macOS runners have C++, Rust and Swift — the full 3x3 matrix
-  # (sync + reap + secure).
+  # macOS runs every pairing of the four ports too, on the Apple backends
+  # (ulock sync, libnotify).
   matrix-macos:
     runs-on: macos-latest
     steps:
@@ -163,14 +172,18 @@ jobs:
     - name: Build Zig harness (Layer 1 notify + aread)
       run: zig build -Doptimize=ReleaseSafe
       working-directory: zig/thoth-ipc
+    - name: Build Swift harness (Layer 1 FIFO notify + AsyncRoute)
+      run: swift build -c release --product xlang-harness
+      working-directory: swift/thoth-ipc
     - name: Build matrix runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
-    - name: Run async matrix (cpp, rust, zig)
+    - name: Run async matrix (cpp, rust, swift, zig)
       run: |
+        export XLANG_SWIFT_ASYNC_BIN="$(cd swift/thoth-ipc && swift build -c release --product xlang-harness --show-bin-path)/xlang-harness"
         tools/xlang-runner/target/release/xlang-runner \
           --config tools/xlang-ci.toml \
           --scenario async \
-          --require cpp-async,cpp-coro,rust-async,zig-async --strict-caps \
+          --require cpp-async,cpp-coro,rust-async,swift-async,zig-async --strict-caps \
           --junit xlang-results.xml
       env:
         XLANG_CPP_ASYNC_BIN: cpp/thoth-ipc/bin/xasync

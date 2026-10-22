@@ -9,7 +9,8 @@ name: Cross-language demos
 # process's exit code and stdout.
 #
 # --require makes a demo binary that failed to build fail the job instead of
-# being skipped. Linux has no Swift toolchain in this project.
+# being skipped. Both jobs run all five: C++, Rust, the FFI Rust audio service,
+# Swift and Zig (Linux uses the Swift toolchain of the Ubuntu runner image).
 
 # Push triggers disabled to conserve CI budget; run manually via the Actions tab
 # (workflow_dispatch) or on pull requests.
@@ -56,6 +57,11 @@ jobs:
       env:
         THOTH_IPC_OPENSSL_PREFIX: /usr
         FLATC: ${{ github.workspace }}/cpp/thoth-ipc/build/bin/flatc
+    - name: Build Swift demos
+      run: |
+        swift --version
+        swift build -c release
+      working-directory: swift/thoth-ipc
     - name: Set up Zig
       uses: mlugg/setup-zig@v2
       with:
@@ -65,11 +71,12 @@ jobs:
       working-directory: zig/thoth-ipc
     - name: Build demo runner
       run: cargo build --release --manifest-path tools/xlang-runner/Cargo.toml
-    - name: Run demo matrix (cpp, rust, rust_ffi, zig)
+    - name: Run demo matrix (cpp, rust, rust_ffi, swift, zig)
       run: |
+        export DEMO_SWIFT_DIR="$(cd swift/thoth-ipc && swift build -c release --show-bin-path)"
         tools/xlang-runner/target/release/demo-runner \
           --config tools/demos.toml \
-          --require cpp,rust,rust_ffi,zig \
+          --require cpp,rust,rust_ffi,swift,zig \
           --junit demo-results.xml
       env:
         DEMO_CPP_DIR: cpp/thoth-ipc/build/bin

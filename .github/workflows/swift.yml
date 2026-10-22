@@ -1,0 +1,45 @@
+name: Swift
+
+# The Swift port's own test suite (swift/thoth-ipc/Tests), on both platforms it
+# runs on: macOS (ulock sync, libnotify) and Linux (linux_a0 sync, FIFO notify).
+# Cross-language interop is the xlang and demos workflows' job.
+
+# Push triggers disabled to conserve CI budget; run manually via the Actions tab
+# (workflow_dispatch) or on pull requests.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Install OpenSSL headers
+      run: sudo apt-get update && sudo apt-get install -y libssl-dev
+    # The Swift toolchain of the Ubuntu runner image (Package.swift needs
+    # swift-tools 6.0).
+    - name: Test
+      run: |
+        swift --version
+        swift test
+      working-directory: swift/thoth-ipc
+      env:
+        THOTH_IPC_SECURE_OPENSSL: "1"
+        THOTH_IPC_OPENSSL_PREFIX: /usr
+
+  test-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Test
+      run: swift test
+      working-directory: swift/thoth-ipc
+      env:
+        THOTH_IPC_SECURE_OPENSSL: "1"
+        THOTH_IPC_OPENSSL_PREFIX: /opt/homebrew/opt/openssl@3
