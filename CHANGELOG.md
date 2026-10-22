@@ -44,6 +44,12 @@ Notable changes to thoth-ipc. The format follows
   and Zig on Linux, in about 30 s).
 
 ### Fixed
+- **Zig's channel clear removes everything C++'s does.** `clearStorage` (and so
+  the Zig demos' `clear` verbs) removed the ring and the `AC_CONN__` and
+  `LV_CONN__` segments, but not the RD/WT/CC waiter conditions and mutexes,
+  their guard sidecars, or the Linux notify FIFOs. After a process died holding
+  a channel, 12 of its 15 shm objects survived a Zig `clear`; none do now, as
+  with C++ `clear_storage`.
 - **Zig receivers and senders sleep while they wait.** `recv` on an empty ring,
   a send whose slot is still unread and `waitForRecv` spun, yielded and then
   polled every millisecond, about 1000 wake-ups a second for an idle receiver.

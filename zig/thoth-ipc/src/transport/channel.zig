@@ -431,17 +431,53 @@ pub const ChanInner = struct {
     }
 };
 
-/// clearStorage: unlink this channel's ring and its per-channel AC_CONN__ msg-id
-/// counter. The CA_CONN__ cc_id counter and the CHUNK_INFO__<size> chunk pools
-/// are prefix-global (shared by every channel of this prefix), so a per-channel
-/// clear must NOT unlink them — byte-exact with C++ route::clear_storage, which
+/// clearStorage: unlink everything that belongs to this channel, as C++
+/// route::clear_storage (conn_info_head::clear_storage) does: the ring, the
+/// CC/WT/RD waiters (condition, mutex and their guard sidecars), the AC_CONN__
+/// msg-id counter, the LV_CONN__ owner table and the notify FIFOs. Both the
+/// route and the multi-writer channel use it. The CA_CONN__ cc_id counter and
+/// the CHUNK_INFO__<size> chunk pools are prefix-global (shared by every
+/// channel of this prefix), so a per-channel clear must NOT unlink them; C++
 /// clears neither. (Unlinking a live shared chunk pool splits a concurrent
 /// channel's writer and reader across inodes; see the secure-scenario flake.)
 pub fn clearStorage(prefix: []const u8, name: []const u8) void {
     var rbuf: [256]u8 = undefined;
     shm.ShmHandle.clearStorage(shmname.ringName(&rbuf, prefix, name));
+    for ([_][]const u8{ "CC_CONN__", "WT_CONN__", "RD_CONN__" }) |tag| waiter.clearStorage(prefix, name, tag);
     var abuf: [256]u8 = undefined;
     shm.ShmHandle.clearStorage(shmname.acConnName(&abuf, prefix, name));
     var lbuf: [256]u8 = undefined;
     shm.ShmHandle.clearStorage(liveness.livenessName(&lbuf, prefix, name));
+    notify.clearStorage(prefix, name);
+}
+
+test "clearStorage removes every object of the channel" {
+    const prefix = "zclr";
+    const name = "chan";
+    clearStorage(prefix, name);
+    // Clear while the endpoints still hold everything, as `clear` does after a
+    // process died holding it (a last handle's release unlinks on its own).
+    var rx = try ChanInner.open(std.testing.allocator, prefix, name, .receiver);
+    defer rx.deinit();
+    var tx = try ChanInner.open(std.testing.allocator, prefix, name, .sender);
+    defer tx.deinit();
+    clearStorage(prefix, name);
+
+    var buf: [256]u8 = undefined;
+    const Probe = struct {
+        fn gone(n: []const u8) bool {
+            var h = ShmHandle.acquire(n, 4, .open) catch return true;
+            h.release();
+            return false;
+        }
+    };
+    try std.testing.expect(Probe.gone(shmname.ringName(&buf, prefix, name)));
+    try std.testing.expect(Probe.gone(shmname.acConnName(&buf, prefix, name)));
+    try std.testing.expect(Probe.gone(liveness.livenessName(&buf, prefix, name)));
+    for ([_][]const u8{ "CC_CONN__", "WT_CONN__", "RD_CONN__" }) |tag| {
+        for ([_][]const u8{ "COND", "LOCK" }) |kind| {
+            const n = std.fmt.bufPrint(&buf, "{s}__THOTH_SHM__{s}{s}_WAITER_{s}_", .{ prefix, tag, name, kind }) catch unreachable;
+            try std.testing.expect(Probe.gone(n));
+        }
+    }
 }

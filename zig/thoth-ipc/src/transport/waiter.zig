@@ -36,6 +36,14 @@ fn waiterName(buf: []u8, prefix: []const u8, name: []const u8, tag: []const u8, 
     return std.fmt.bufPrint(buf, "{s}__THOTH_SHM__{s}{s}_WAITER_{s}_", .{ prefix, tag, name, kind }) catch unreachable;
 }
 
+/// Remove one waiter's condition and mutex, guard sidecars included (C++
+/// `waiter::clear_storage`).
+pub fn clearStorage(prefix: []const u8, name: []const u8, tag: []const u8) void {
+    var buf: [256]u8 = undefined;
+    Condition.clearStorage(waiterName(&buf, prefix, name, tag, "COND"));
+    Mutex.clearStorage(waiterName(&buf, prefix, name, tag, "LOCK"));
+}
+
 /// One route waiter (RD/WT/CC).
 pub const Waiter = struct {
     cond: Condition,

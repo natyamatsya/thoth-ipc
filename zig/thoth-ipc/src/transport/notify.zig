@@ -36,6 +36,14 @@ pub const Sink = switch (builtin.os.tag) {
     else => @compileError("thoth-ipc: no notify backend for " ++ @tagName(builtin.os.tag)),
 };
 
+/// Remove a channel's readiness objects (C++ `notify_clear_storage`): the FIFO
+/// of every reader slot on Linux. libnotify keeps no named objects.
+pub fn clearStorage(prefix: []const u8, name: []const u8) void {
+    if (builtin.os.tag != .linux) return;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    for (0..fifo.max_slots) |slot| _ = std.c.unlink(fifo.fifoPath(&buf, prefix, name, slot).ptr);
+}
+
 /// The channel's 16-hex notify hash (C++ `notify_hash`).
 fn notifyHash(prefix: []const u8, name: []const u8) [16]u8 {
     var sbuf: [256]u8 = undefined;
