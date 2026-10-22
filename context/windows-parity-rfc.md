@@ -31,8 +31,8 @@ Three assumptions in the proposal below were wrong on real hardware:
 - **Scope:** bring Windows **C++↔Rust** to the parity macOS and Linux already
   have: the byte-exact wire ABI, Layer-1 notify, Layer-2 async (C++ stdexec
   senders **and** both coroutine paths; Rust `AsyncRoute`), and the
-  dead-connection reaper. **Swift is a macOS-only SwiftPM package and is out of
-  scope on Windows.**
+  dead-connection reaper. **Swift (a SwiftPM package for macOS and Linux) is out
+  of scope on Windows.**
 - **Relates to:** [`os-parity.md`](os-parity.md),
   [`xlang-channel-abi.md`](xlang-channel-abi.md) (§2 spin_lock, §8 notify, §9
   liveness), [`stdexec-async-recv-rfc.md`](stdexec-async-recv-rfc.md),

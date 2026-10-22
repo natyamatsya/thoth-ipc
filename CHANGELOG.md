@@ -7,6 +7,25 @@ Notable changes to thoth-ipc. The format follows
 ## [Unreleased]
 
 ### Added
+- **The Swift package runs on Linux.** It builds with Swift 6 (6.3 here) and
+  joins every xlang scenario and every demo there, byte-exact with the C++,
+  Rust and Zig Linux ports:
+  - **Sync:** `IpcMutex` and `IpcCondition` run linux_a0, the robust
+    priority-inheriting futex mutex and requeue-PI condition. They are compiled
+    from the vendored alephzero C sources that C++ uses, through the
+    `ThothIPCShim` target. `IpcSemaphore` is the `sem_open` semaphore, with
+    C++'s naming and last-handle unlink.
+  - **Notify and reaper:** per-reader FIFO notify readiness, and a
+    `/proc/<pid>/stat` start token and zombie check for the reaper.
+  - **Layout:** the align-16 ring layout.
+
+  The macOS backends are unchanged. Because Linux waiters sleep requeued onto
+  the paired mutex, `IpcCondition.notify` and `broadcast` now take that mutex
+  on both platforms. The ABI generator emits Swift for every target, as it
+  does for C++, Rust and Zig, so the ring alignment in the shm name is now
+  correct on Intel Macs too (it was hardcoded to 8). A new Swift workflow
+  runs the package's tests on Linux and macOS. The Linux xlang and demo jobs
+  now include Swift.
 - **The Zig port runs on Linux.** It joins every xlang scenario there, byte-exact
   with the C++ and Rust Linux ports: the `linux_a0` robust priority-inheriting
   futex mutex and requeue-PI condition (a port of the C++/Rust alephzero code,
@@ -35,13 +54,13 @@ Notable changes to thoth-ipc. The format follows
   protobuf card event in a SIPC v1 AES-256-GCM envelope via std.crypto.
 - **A cross-language demo matrix.** `demo-runner` (a second binary of
   `tools/xlang-runner`) runs every demo in `tools/demos.toml` with every present
-  language in every role: the Cartesian product over the demo's slots (all 81
-  four-hop source/stage/stage/sink pipelines for three languages), plus fan-in
+  language in every role: the Cartesian product over the demo's slots (all 256
+  four-hop source/stage/stage/sink pipelines for four languages), plus fan-in
   roles started once per language. It checks each process's exit code and
   stdout, so a lost message or a hung role fails the case; demos with fixed IPC
   names run one case at a time. Console, JUnit and JSON reporting as in
-  `xlang-runner`. It covers all eleven demos (162 cases with C++, Rust,
-  the FFI Rust audio service and Zig on Linux, in about 30 s). A slot takes the
+  `xlang-runner`. It covers all eleven demos (360 cases with C++, Rust,
+  the FFI Rust audio service, Swift and Zig on Linux, in about 80 s). A slot takes the
   languages that ship the binaries its processes run, so the Rust audio_realtime
   service built against the C++ proto through a C FFI wrapper
   (`rt_audio_service_rs`) joins as `rust_ffi` in just the service slot; CI builds

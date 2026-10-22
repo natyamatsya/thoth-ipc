@@ -21,8 +21,7 @@ synchronisation protocol.
   Rust test files. Interop tests (Swift ↔ C++ / Swift ↔ Rust) are added as soon
   as the transport layer is complete.
 - **macOS first, Linux later.** The Rust port targets macOS and Linux. The Swift
-  port starts on macOS (Darwin POSIX) and extends to Linux (Swift on Linux /
-  FoundationEssentials) in a later phase.
+  port started on macOS (Darwin POSIX) and now runs on Linux too (Phase 6).
 
 ---
 
@@ -322,12 +321,19 @@ Package Manager executable targets.
 
 ---
 
-## Phase 6 — Linux support
+## Phase 6 — Linux support (done)
 
-- Replace `sem_open` with `sem_init` + shm-backed semaphore where needed
-- `rt_prio`: `pthread_setschedparam` path
-- CI: add `ubuntu-latest` job to `.github/workflows/swift.yml`
-- Validate binary compatibility with C++ and Rust on Linux
+- Sync: `IpcMutex` / `IpcCondition` run linux_a0 (the vendored alephzero C
+  sources C++ uses, compiled in `ThothIPCShim`); `IpcSemaphore` keeps
+  `sem_open`, which is what C++ and Rust use on Linux
+- Notify: per-reader FIFOs; reaper: `/proc/<pid>/stat` start token and zombie
+  check; the align-16 ring layout from the two-target generated ABI
+- `rt_prio`: not implemented on Linux, as in C++ (`SCHED_FIFO` needs
+  `CAP_SYS_NICE`)
+- CI: `ubuntu-latest` jobs in `.github/workflows/swift.yml`, `xlang.yml` and
+  `demos.yml`
+- Binary compatibility with C++, Rust and Zig on Linux: every xlang scenario and
+  every demo
 
 ---
 

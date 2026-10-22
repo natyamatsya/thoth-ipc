@@ -3,12 +3,12 @@
 # SPDX-FileCopyrightText: 2025-2026 natyamatsya and thoth-ipc contributors
 #
 # Cross-language bounded buffer launcher. One consumer drains a small shared
-# ring fed by one producer per built port — C++, Rust, Zig and (on macOS) Swift —
+# ring fed by one producer per built port — C++, Rust, Zig and Swift —
 # all synchronising through a byte-exact named mutex + two counting semaphores
 # (empty/full). The 4-slot ring forces the semaphores to actually block, so this
 # exercises real cross-language producer/consumer coordination.
 #
-# The consumer is Swift when it is built (macOS), else the first of C++, Rust,
+# The consumer is Swift when it is built, else the first of C++, Rust,
 # Zig. For every language as the consumer, run the demo matrix instead:
 #   tools/xlang-runner's demo-runner --demo bounded_buffer (see tools/demos.toml).
 #
@@ -26,7 +26,7 @@ declare -A BIN=(
   [zig]="$ROOT/zig/thoth-ipc/zig-out/bin/demo_bounded_buffer"
 )
 declare -A BUILD=(
-  [swift]="(cd swift/thoth-ipc && swift build -c release --product demo-bounded-buffer)   # macOS"
+  [swift]="(cd swift/thoth-ipc && swift build -c release --product demo-bounded-buffer)"
   [cpp]="(cd cpp/thoth-ipc  && cmake -B build -DTHOTH_IPC_BUILD_DEMOS=ON . && cmake --build build --target bounded_buffer -j)"
   [rust]="(cd rust/thoth-ipc && cargo build --release --bin demo_bounded_buffer)"
   [zig]="(cd zig/thoth-ipc  && zig build -Doptimize=ReleaseSafe)"

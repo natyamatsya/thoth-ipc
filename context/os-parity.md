@@ -4,8 +4,8 @@
 wire ABI, Layer-1 notify, Layer-2 async (C++ stdexec **and** coroutines; Rust
 `AsyncRoute`), and the dead-connection reaper are implemented and **matrix-verified**
 on all three via `tools/xlang-runner` in CI (Windows in full only since
-2026-10-21 — footnote 2). Swift adds a third language on macOS
-(it is a macOS-only SwiftPM package — out of scope on Linux/Windows). FreeBSD /
+2026-10-21 — footnote 2). Swift and Zig add a third and fourth language on macOS
+and Linux (Swift is a SwiftPM package, out of scope on Windows). FreeBSD /
 other POSIX remain untested. The open items are that last row plus native-runtime
 CI for the new `clear_storage` orphan-safety row (implemented + locally verified;
 see the Remaining section).
@@ -139,7 +139,8 @@ compile-time layout asserts + the `matrix-linux` CI (message + chunk-storage
 interop). Also fixed the Linux FIFO notify compile bug (`sigtimedwait`).
 Notify (FIFO), async (epoll + tokio `AsyncFd`), and the reaper (`kill(pid,0)` +
 `/proc/<pid>/stat`) already worked and are CI-covered. **Linux C++↔Rust is now at
-full parity.** (Swift remains macOS-only.)
+full parity.** Swift and Zig run the same linux_a0 sync, FIFO notify and
+`/proc` reaper there and join every Linux matrix.
 
 ### Windows — DONE
 All three layers landed and are matrix-verified on `windows-latest`/MSVC
@@ -199,7 +200,7 @@ byte-exact asserts + a CI run before claiming parity.
    phases; matrices green on `windows-latest`/MSVC since 2026-10-21, after the
    chunk-segment lifetime fix and the reap keeper — footnote 2).
 3. **FreeBSD / other POSIX validation** — open item (medium; mostly a
-   BSD `start_token` source + a CI run). Swift stays macOS-only.
+   BSD `start_token` source + a CI run). Swift covers macOS and Linux only.
 4. **`clear_storage` orphan-safety native runtime on Linux** — small: the fix is
    implemented and macOS-runtime + ASan proven, but the posix/linux C++ path is
    so far only type-checked locally. Dispatch the `c-cpp.yml` ubuntu `test-ipc`

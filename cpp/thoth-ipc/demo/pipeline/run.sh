@@ -13,7 +13,7 @@
 # byte-exact across the ports, so this "just works".
 #
 # The chain uses whichever ports are built (at least two), in the order above:
-# on Linux, where there is no Swift, it is Zig source → Rust stage → C++ sink.
+# without Swift it is Zig source → Rust stage → C++ sink.
 # For every mix of languages in every role, run the demo matrix instead:
 #   tools/xlang-runner's demo-runner --demo pipeline (see tools/demos.toml).
 #
@@ -33,7 +33,7 @@ declare -A BIN=(
 declare -A BUILD=(
   [zig]="(cd zig/thoth-ipc  && zig build -Doptimize=ReleaseSafe)"
   [rust]="(cd rust/thoth-ipc && cargo build --release --bin demo_pipeline)"
-  [swift]="(cd swift/thoth-ipc && swift build -c release --product demo-pipeline)   # macOS"
+  [swift]="(cd swift/thoth-ipc && swift build -c release --product demo-pipeline)"
   [cpp]="(cd cpp/thoth-ipc  && cmake -B build -DTHOTH_IPC_BUILD_DEMOS=ON . && cmake --build build --target pipeline -j)"
 )
 

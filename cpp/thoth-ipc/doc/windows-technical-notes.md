@@ -311,7 +311,7 @@ All targets build and run correctly in the same CMake invocation.
 ## 8. Cross-language C++↔Rust parity (wire ABI, notify, async, reaper)
 
 Bringing Windows C++↔Rust to the parity Linux and macOS already have (per
-`context/windows-parity-rfc.md`). Swift is a macOS-only SwiftPM package and is out
+`context/windows-parity-rfc.md`). Swift (a SwiftPM package for macOS and Linux) is out
 of scope on Windows. Verified by the xlang matrices: sync 16/16, reap 8/8, async
 36/36. See also ADR-0005 (the async readiness-handle contract).
 

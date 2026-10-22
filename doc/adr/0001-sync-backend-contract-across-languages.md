@@ -103,8 +103,8 @@ The backend follows the C++ platform classification (`detect_plat.h`,
 Status: C++ and Rust implement `linux_a0` (C++ through the vendored a0 C, Rust
 natively). (Until 2026-10 the Rust port used
 `posix_pthread` on Linux, so every C++<->Rust channel on Linux failed the open
-with a backend 1 vs 5 mismatch.) Swift and Zig are macOS-only and implement
-`apple_ulock` only.
+with a backend 1 vs 5 mismatch.) Swift and Zig implement `apple_ulock` on macOS
+and `linux_a0` on Linux (Swift compiles the vendored alephzero C sources C++ uses).
 
 ### 6) Interop tests are required
 
