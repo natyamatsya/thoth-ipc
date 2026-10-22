@@ -54,6 +54,7 @@ namespace detail {
 // token — see start_token()). sizeof == 16.
 struct slot_owner {
     std::atomic<std::int32_t>  pid{0};       // @0  0 == free
+    std::atomic<std::uint32_t> since{0};     // @4  write cursor the owner read before claiming its bit
     std::atomic<std::uint64_t> start_tok{0}; // @8  process start token (PID-reuse guard)
 };
 static_assert(sizeof(slot_owner) == 16, "slot_owner must be 16 bytes (xlang ABI)");
@@ -244,6 +245,31 @@ inline void liveness_set_owner(conn_liveness *lv, thoth::circ::cc_t bit) noexcep
     // our pid (acquire) is guaranteed to also see the matching token.
     lv->slots[idx].start_tok.store(self_start_token(), std::memory_order_relaxed);
     lv->slots[idx].pid.store(self_pid(), std::memory_order_release);
+}
+
+// Record where a broadcast receiver starts: the write cursor it read just before
+// claiming `bit`. Every element it must read is at or after that position, so a
+// mark of `bit` on an element from before it can only be a previous owner's
+// leftover. Store it right after the claim; a writer that still sees the
+// previous owner's value treats the mark as live and retries.
+inline void liveness_set_since(conn_liveness *lv, thoth::circ::cc_t bit, std::uint32_t since) noexcept {
+    if (lv == nullptr || bit == 0) return;
+    lv->slots[slot_index(bit)].since.store(since, std::memory_order_release);
+}
+
+// Of the marks `bits` found on the element at position `pos`, those that belong
+// to their current receiver: it started at or before `pos`. The others were left
+// by a receiver that has since disconnected, and must not hold up the writer.
+inline thoth::circ::cc_t liveness_live_marks(conn_liveness const *lv, thoth::circ::cc_t bits,
+                                            std::uint32_t pos) noexcept {
+    if (lv == nullptr) return bits;
+    thoth::circ::cc_t live = 0;
+    for (thoth::circ::cc_t m = bits; m != 0; m &= m - 1) {
+        thoth::circ::cc_t bit = m & (~m + 1);
+        std::uint32_t since = lv->slots[slot_index(bit)].since.load(std::memory_order_acquire);
+        if (static_cast<std::int32_t>(pos - since) >= 0) live |= bit; // pos at/after since (wrapping)
+    }
+    return live;
 }
 
 // Release ownership of a slot on clean disconnect.

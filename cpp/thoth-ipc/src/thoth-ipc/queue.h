@@ -74,15 +74,25 @@ public:
         return connected_;
     }
 
-    template <typename Elems>
-    auto connect(Elems* elems) noexcept
+    // `started(since, id)` runs right after the id is claimed, with the cursor
+    // read just before claiming it (see receiver_cursor()).
+    template <typename Elems, typename F>
+    auto connect(Elems* elems, F&& started) noexcept
                          /*needs 'optional' here*/
      -> std::tuple<bool, bool, decltype(std::declval<Elems>().cursor())> {
         if (elems == nullptr) return {};
         // if it's already connected, just return
         if (connected(elems)) return {connected(elems), false, 0};
+        // Read the cursor before claiming an id: whatever a writer pushes after
+        // seeing the id is addressed to this receiver, and receiver_cursor()
+        // starts it at the first such element.
+        auto since = elems->cursor();
         connected_ = elems->connect_receiver();
-        return {connected(elems), true, elems->cursor()};
+        if (connected_ != 0) {
+            std::forward<F>(started)(since, connected_);
+            elems->release_stale(since, connected_);
+        }
+        return {connected(elems), true, elems->receiver_cursor(since, connected_)};
     }
 
     template <typename Elems>
@@ -179,8 +189,17 @@ public:
         return base_t::connected(elems_);
     }
 
+    // Of the receivers `bits` that marked the element at `pos` as unread, those
+    // that really still have to read it (a mark from before its receiver started
+    // was left by a previous owner of the id).
+    circ::cc_t live_marks(circ::cc_t bits, circ::u2_t pos) const noexcept {
+        return thoth::detail::liveness_live_marks(liveness_, bits, pos);
+    }
+
     bool connect() noexcept {
-        auto tp = base_t::connect(elems_);
+        auto tp = base_t::connect(elems_, [this](circ::u2_t since, circ::cc_t id) {
+            thoth::detail::liveness_set_since(liveness_, id, since);
+        });
         if (std::get<0>(tp) && std::get<1>(tp)) {
             cursor_ = std::get<2>(tp);
             return true;

@@ -21,6 +21,27 @@ namespace thoth {
 template <typename Flag>
 struct prod_cons_impl;
 
+namespace detail_pc {
+
+// Elements per ring: a cursor addresses its element modulo this (circ::index_of).
+constexpr circ::u2_t ring_lap = static_cast<circ::u2_t>((std::numeric_limits<circ::u1_t>::max)()) + 1;
+
+// Of the broadcast receivers `bits` still marked on the element a writer is
+// about to reuse, those that really have yet to read it: the element held
+// position `pos`, and a mark from before its receiver started is a previous
+// owner's leftover (thoth::detail::liveness_live_marks). Wrappers without a
+// liveness table count every mark.
+template <typename W>
+circ::cc_t live_marks(W* wrapper, circ::cc_t bits, circ::u2_t pos) noexcept {
+    if constexpr (requires { wrapper->live_marks(bits, pos); }) {
+        return wrapper->live_marks(bits, pos);
+    } else {
+        return bits;
+    }
+}
+
+} // namespace detail_pc
+
 template <>
 struct prod_cons_impl<wr<relat::single, relat::single, trans::unicast>> {
 
@@ -220,11 +241,13 @@ struct prod_cons_impl<wr<relat::single, relat::multi, trans::broadcast>> {
         for (unsigned k = 0;;) {
             circ::cc_t cc = wrapper->elems()->connections(std::memory_order_relaxed);
             if (cc == 0) return false; // no reader
-            el = elems + circ::index_of(wt_.load(std::memory_order_relaxed));
+            circ::u2_t wt = wt_.load(std::memory_order_relaxed);
+            el = elems + circ::index_of(wt);
             // check all consumers have finished reading this element
             auto cur_rc = el->rc_.load(std::memory_order_acquire);
             circ::cc_t rem_cc = cur_rc & ep_mask;
-            if ((cc & rem_cc) && ((cur_rc & ~ep_mask) == epoch_)) {
+            if ((cc & rem_cc) && ((cur_rc & ~ep_mask) == epoch_) &&
+                detail_pc::live_marks(wrapper, cc & rem_cc, wt - detail_pc::ring_lap)) {
                 return false; // has not finished yet
             }
             // consider rem_cc to be 0 here
@@ -247,10 +270,12 @@ struct prod_cons_impl<wr<relat::single, relat::multi, trans::broadcast>> {
         for (unsigned k = 0;;) {
             circ::cc_t cc = wrapper->elems()->connections(std::memory_order_relaxed);
             if (cc == 0) return false; // no reader
-            el = elems + circ::index_of(wt_.load(std::memory_order_relaxed));
-            // check all consumers have finished reading this element
+            circ::u2_t wt = wt_.load(std::memory_order_relaxed);
+            el = elems + circ::index_of(wt);
+            // check all consumers have finished reading this element (a previous
+            // owner's leftover mark is not a wedged reader: do not disconnect it)
             auto cur_rc = el->rc_.load(std::memory_order_acquire);
-            circ::cc_t rem_cc = cur_rc & ep_mask;
+            circ::cc_t rem_cc = detail_pc::live_marks(wrapper, cur_rc & ep_mask & cc, wt - detail_pc::ring_lap);
             if (cc & rem_cc) {
                 log.debug("force_push: k = ", k, ", cc = ", cc, ", rem_cc = ", rem_cc);
                 // Reap only the readers on this stuck element whose owner process
@@ -295,6 +320,21 @@ struct prod_cons_impl<wr<relat::single, relat::multi, trans::broadcast>> {
             }
             thoth::yield(k);
         }
+    }
+
+    // A receiver that read `since` from cursor() and then claimed `cc_id` starts
+    // at the earliest element pushed since then that already carries its id: the
+    // writer saw it connected, so the element is addressed to it, and an unread
+    // mark would hold the writer up when it laps back to the element.
+    template <typename E, std::size_t N>
+    circ::u2_t adopt(circ::u2_t since, circ::cc_t cc_id, E const (&elems)[N]) const noexcept {
+        circ::u2_t cur = cursor();
+        for (std::size_t n = 0; (cur != since) && (n < N); ++n) {
+            auto cur_rc = elems[circ::index_of(cur - 1)].rc_.load(std::memory_order_acquire);
+            if (!(cur_rc & cc_id) || ((cur_rc & ~ep_mask) != epoch_)) break;
+            --cur;
+        }
+        return cur;
     }
 };
 
@@ -346,6 +386,10 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
             // check all consumers have finished reading this element
             auto cur_rc = el->rc_.load(std::memory_order_relaxed);
             circ::cc_t rem_cc = cur_rc & rc_mask;
+            // (Every mark counts here, unlike for the single-producer route: a
+            // concurrent writer may have just stamped this element for cur_ct
+            // itself. A previous owner's leftover marks are dropped by the next
+            // owner of the id when it connects, see release_stale().)
             if ((cc & rem_cc) && ((cur_rc & ~ep_mask) == epoch)) {
                 return false; // has not finished yet
             }
@@ -437,6 +481,50 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
             }
             thoth::yield(k);
         }
+    }
+
+    // A receiver that read `since` and then claimed `cc_id` drops the marks a
+    // previous owner of the id left unread: every element addressed to this
+    // receiver is at or after `since`, so its id on a committed element from
+    // before is a leftover, and would hold the writers up when they lap back to
+    // it. It does what that owner's pop() would have: drop the mark, and release
+    // the element if it was the last one. No writer can reuse such an element
+    // meanwhile, since the (now connected) id still marks it.
+    template <typename E, std::size_t N>
+    void release_stale(circ::u2_t since, circ::cc_t cc_id, E (&elems)[N]) noexcept {
+        for (auto& el : elems) {
+            auto cur_fl = el.f_ct_.load(std::memory_order_acquire);
+            // Committed elements hold ~position (the upper half all ones).
+            if ((cur_fl >> 32) != 0xffffffffu) continue;
+            auto pos = static_cast<circ::u2_t>(~cur_fl);
+            if (static_cast<std::int32_t>(pos - since) >= 0) continue; // ours to read
+            auto cur_rc = el.rc_.load(std::memory_order_acquire);
+            while (cur_rc & cc_id) {
+                auto nxt_rc = inc_rc(cur_rc) & ~static_cast<rc_t>(cc_id);
+                if (el.rc_.compare_exchange_weak(cur_rc, nxt_rc, std::memory_order_release,
+                                                 std::memory_order_acquire)) {
+                    if ((nxt_rc & rc_mask) == 0) {
+                        el.f_ct_.store(pos + N, std::memory_order_release); // as pop() releases
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // As for the single-producer broadcast: start a receiver that read `since`
+    // and then claimed `cc_id` at the earliest element claimed since then that
+    // already carries its id (it may still be uncommitted; pop() waits for that).
+    template <typename E, std::size_t N>
+    circ::u2_t adopt(circ::u2_t since, circ::cc_t cc_id, E const (&elems)[N]) const noexcept {
+        circ::u2_t cur = cursor();
+        rc_t epoch = epoch_.load(std::memory_order_acquire);
+        for (std::size_t n = 0; (cur != since) && (n < N); ++n) {
+            auto cur_rc = elems[circ::index_of(cur - 1)].rc_.load(std::memory_order_acquire);
+            if (!(cur_rc & cc_id) || ((cur_rc & ~ep_mask) != epoch)) break;
+            --cur;
+        }
+        return cur;
     }
 };
 

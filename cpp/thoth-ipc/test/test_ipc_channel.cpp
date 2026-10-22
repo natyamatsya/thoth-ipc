@@ -654,6 +654,55 @@ void expect_disconnect_wakes_recv_empty(char const *prefix) {
   EXPECT_TRUE(got.empty()) << "recv returned " << got.size() << " bytes after disconnect";
 }
 
+// Receivers that keep connecting while writers stream, read past one ring lap
+// and disconnect, must never see a gap or a stalled writer. A receiver whose bit
+// a writer already stamped on an element it then skipped (the connect window),
+// or a mark a previous owner of the bit left unread, used to hold the writer up
+// one lap later: the receiver timed out after ~255 messages.
+template <typename Chan>
+void expect_receiver_churn_clean(char const *prefix, int writers, int rounds) {
+  std::string name = generate_unique_ipc_name(prefix);
+  struct msg_t { std::uint32_t writer, seq; };
+  std::atomic<bool> stop{false};
+  std::vector<std::thread> tx;
+  for (int w = 0; w < writers; ++w) {
+    tx.emplace_back([&, w] {
+      Chan s(name.c_str(), sender);
+      msg_t m{static_cast<std::uint32_t>(w), 0};
+      while (!stop.load()) {
+        if (s.recv_count() == 0) { std::this_thread::yield(); continue; }
+        if (s.send(&m, sizeof m, 100)) ++m.seq;
+      }
+    });
+  }
+  int stalls = 0, gaps = 0;
+  for (int r = 0; r < rounds && stalls == 0 && gaps == 0; ++r) {
+    Chan rx(name.c_str(), receiver);
+    std::uint32_t prev[2] = {0, 0};
+    bool seen[2] = {false, false};
+    for (int i = 0; i < 300; ++i) { // > 256 elements: the writers lap the ring
+      buffer b = rx.recv(1000);
+      if (b.empty()) { ++stalls; break; }
+      msg_t m; std::memcpy(&m, b.data(), sizeof m);
+      if (seen[m.writer] && m.seq != prev[m.writer] + 1) { ++gaps; break; }
+      prev[m.writer] = m.seq; seen[m.writer] = true;
+    }
+    rx.disconnect();
+  }
+  stop = true;
+  for (auto &t : tx) t.join();
+  EXPECT_EQ(stalls, 0) << "a writer stalled on an element no receiver would read";
+  EXPECT_EQ(gaps, 0) << "a receiver missed a message";
+}
+
+TEST_F(RouteTest, ReceiverChurnNeverStallsWriter) {
+  expect_receiver_churn_clean<route>("route_churn", 1, 1000);
+}
+
+TEST_F(ChannelTest, ReceiverChurnNeverStallsWriters) {
+  expect_receiver_churn_clean<channel>("channel_churn", 2, 1000);
+}
+
 TEST_F(RouteTest, DisconnectWakesBlockedRecvEmpty) {
   expect_disconnect_wakes_recv_empty<route>("route_disconnect_recv");
 }

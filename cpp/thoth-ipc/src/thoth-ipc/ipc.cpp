@@ -113,6 +113,8 @@ static_assert(sizeof(thoth::detail::slot_owner) == thoth::abi::liveness_slot_siz
               "abi drift: liveness_slot.size");
 static_assert(offsetof(thoth::detail::slot_owner, pid)       == thoth::abi::liveness_slot_pid_off,
               "abi drift: liveness_slot.pid_off");
+static_assert(offsetof(thoth::detail::slot_owner, since)     == thoth::abi::liveness_slot_since_off,
+              "abi drift: liveness_slot.since_off");
 static_assert(offsetof(thoth::detail::slot_owner, start_tok) == thoth::abi::liveness_slot_start_tok_off,
               "abi drift: liveness_slot.start_tok_off");
 } // namespace

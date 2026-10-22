@@ -172,6 +172,27 @@ public:
         if (cur == nullptr) return false;
         return head_.pop(que, *cur, std::forward<F>(f), std::forward<R>(out), block_);
     }
+
+    // Where a receiver that just claimed `cc_id` starts reading, given the
+    // cursor() it read just before claiming it. A broadcast writer may already
+    // have addressed elements to it in between; they must be read, or their
+    // unread mark stalls the writer one lap later (see the policy's adopt()).
+    cursor_t receiver_cursor(cursor_t since, cc_t cc_id) const noexcept {
+        if constexpr (requires { head_.adopt(since, cc_id, block_); }) {
+            return head_.adopt(since, cc_id, block_);
+        } else {
+            return cursor();
+        }
+    }
+
+    // Drop what a previous owner of `cc_id` left unread before `since`, where the
+    // policy can tell (the multi-producer broadcast, see its release_stale()).
+    // The single-producer broadcast's writer skips such marks instead (push()).
+    void release_stale(cursor_t since, cc_t cc_id) noexcept {
+        if constexpr (requires { head_.release_stale(since, cc_id, block_); }) {
+            head_.release_stale(since, cc_id, block_);
+        }
+    }
 };
 
 } // namespace circ
