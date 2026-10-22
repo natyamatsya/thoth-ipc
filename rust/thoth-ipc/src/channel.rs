@@ -381,12 +381,27 @@ const RING_LAP: u32 = RING_SIZE as u32;
 /// what that owner's pop would have: drop the mark, and release the slot if it
 /// was the last one. No writer can reuse such a slot meanwhile, since the (now
 /// connected) bit still marks it.
+///
+/// A slot that carries the bit but is not committed yet was claimed by a writer
+/// that has not finished writing it, so its position is unknown. A writer does
+/// not touch rc_ between claim and commit, so wait for the commit (bounded: a
+/// writer that died there blocks every reader anyway), then treat it like any
+/// other slot.
 fn release_stale(ring_ptr: *mut u8, since: u32, bit: u32) {
+    let committed = |fl: u64| fl >> 32 == 0xffff_ffff; // !position
+    let deadline = Instant::now() + Duration::from_millis(50);
     for idx in 0..RING_SIZE {
         let slot = unsafe { channel_slot(ring_ptr, idx as u8) };
-        let cur_fl = slot.f_ct_.load(Ordering::Acquire);
-        // Committed slots hold !position (the upper half all ones).
-        if cur_fl >> 32 != 0xffff_ffff {
+        let mut cur_fl = slot.f_ct_.load(Ordering::Acquire);
+        let mut k = 0u32;
+        while !committed(cur_fl)
+            && slot.rc_.load(Ordering::Acquire) & u64::from(bit) != 0
+            && Instant::now() < deadline
+        {
+            crate::spin_lock::adaptive_yield_pub(&mut k);
+            cur_fl = slot.f_ct_.load(Ordering::Acquire);
+        }
+        if !committed(cur_fl) {
             continue;
         }
         let pos = !cur_fl as u32;
