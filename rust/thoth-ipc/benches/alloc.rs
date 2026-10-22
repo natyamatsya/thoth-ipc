@@ -17,7 +17,8 @@
 //   medium — 256 bytes (just over one slot, triggers fragmentation)
 //   large  — 4096 bytes (large-message path, chunk storage)
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use std::hint::black_box;
 
 // ---------------------------------------------------------------------------
 // Workload sizes (mirrors channel.rs DATA_LENGTH = 64)

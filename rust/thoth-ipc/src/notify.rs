@@ -211,7 +211,6 @@ mod backend {
     use std::fs::File;
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    use std::os::unix::io::AsRawFd;
 
     use std::ffi::CString;
     use std::os::unix::io::RawFd;
@@ -241,6 +240,7 @@ mod backend {
 
     #[cfg(target_vendor = "apple")]
     fn set_nosigpipe(f: &File) {
+        use std::os::unix::io::AsRawFd;
         // F_SETNOSIGPIPE (73 on Darwin) is not re-exported by the libc crate.
         const F_SETNOSIGPIPE: libc::c_int = 73;
         unsafe { libc::fcntl(f.as_raw_fd(), F_SETNOSIGPIPE, 1) };

@@ -44,7 +44,5 @@ Open items left after the Linux Zig port and the cross-language demo matrix
 
 ## Minor
 
-- [ ] **Compiler warning.** Unused import `std::os::unix::io::AsRawFd` at
-  `rust/thoth-ipc/src/notify.rs:214` (pre-existing).
 - [ ] **chat bot exit codes.** The C++ and Rust bots exit 5 for both a receive
   timeout and a receive error, so the two cannot be told apart.
