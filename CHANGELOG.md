@@ -67,6 +67,12 @@ Notable changes to thoth-ipc. The format follows
   it (with libclang for bindgen) and requires it.
 
 ### Fixed
+- **A zombie mutex holder counts as dead, in every port.** The macOS mutexes
+  checked their holder with `kill(pid, 0)`, which succeeds for a zombie, so a
+  process that died holding a lock and was never reaped (its parent a debugger)
+  held it for every other process until the lock was cleared by hand. Their
+  dead-holder recovery now uses the liveness check that already treats a zombie
+  as dead. Linux (robust futex) and Windows (abandoned mutex) had no such hole.
 - **Zig's channel clear removes everything C++'s does.** `clearStorage` (and so
   the Zig demos' `clear` verbs) removed the ring and the `AC_CONN__` and
   `LV_CONN__` segments, but not the RD/WT/CC waiter conditions and mutexes,

@@ -33,3 +33,38 @@ pub const LockError = error{
     Deadlock,
     Unexpected,
 };
+
+// A holder that exited holding the lock and was not reaped (a zombie: its parent
+// cannot wait for it, e.g. while a debugger traces it) holds nothing, though
+// kill(pid, 0) still finds it: the next locker recovers the lock.
+test "a zombie holder's lock is recovered" {
+    const std = @import("std");
+    const isZombie = @import("../transport/liveness.zig").isZombie;
+    const name = "zig.mutex.zombie-holder";
+    Mutex.clearStorage(name);
+    var m = try Mutex.open(name);
+    defer {
+        m.deinit();
+        Mutex.clearStorage(name);
+    }
+    const pid = std.c.fork();
+    try std.testing.expect(pid >= 0);
+    if (pid == 0) {
+        m.lock() catch {};
+        std.c._exit(0); // dies holding the lock
+    }
+    var zombie = false;
+    var i: usize = 0;
+    while (i < 300 and !zombie) : (i += 1) {
+        zombie = isZombie(pid);
+        if (!zombie) {
+            const ts = std.c.timespec{ .sec = 0, .nsec = 10 * std.time.ns_per_ms };
+            _ = std.c.nanosleep(&ts, null);
+        }
+    }
+    const acquired = try m.lockTimeout(2 * std.time.ns_per_s);
+    if (acquired) m.unlock();
+    _ = std.c.waitpid(pid, null, 0);
+    try std.testing.expect(zombie);
+    try std.testing.expect(acquired);
+}

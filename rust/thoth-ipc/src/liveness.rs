@@ -134,7 +134,7 @@ fn is_zombie(pid: i32) -> bool {
 }
 
 #[cfg(unix)]
-fn is_process_alive(pid: i32, tok: u64) -> bool {
+pub(crate) fn is_process_alive(pid: i32, tok: u64) -> bool {
     if pid <= 0 {
         return false;
     }
@@ -156,7 +156,7 @@ fn is_process_alive(pid: i32, tok: u64) -> bool {
     cur == tok // mismatch ⇒ PID was reused ⇒ our owner is gone
 }
 #[cfg(windows)]
-fn is_process_alive(pid: i32, tok: u64) -> bool {
+pub(crate) fn is_process_alive(pid: i32, tok: u64) -> bool {
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_INVALID_PARAMETER};
     use windows_sys::Win32::System::Threading::{
         GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,

@@ -35,6 +35,7 @@
 #include "thoth-ipc/imp/log.h"
 #include "thoth-ipc/shm.h"
 #include "thoth-ipc/def.h"
+#include "thoth-ipc/liveness.h"
 
 namespace thoth {
 namespace detail {
@@ -97,9 +98,10 @@ class mutex {
 
     static constexpr int kSpinCount = 40;
 
+    // A zombie holder counts as dead (liveness.h): kill(pid, 0) succeeds for it,
+    // but it has exited and will never release the lock.
     static bool is_process_alive(pid_t pid) noexcept {
-        if (pid <= 0) return false;
-        return ::kill(pid, 0) == 0 || errno == EPERM;
+        return thoth::detail::is_process_alive(static_cast<std::int32_t>(pid));
     }
 
     bool try_lock_once() noexcept {

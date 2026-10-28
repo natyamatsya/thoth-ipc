@@ -23,6 +23,7 @@
 #include "thoth-ipc/utility/scope_guard.h"
 #include "thoth-ipc/mem/resource.h"
 #include "thoth-ipc/shm.h"
+#include "thoth-ipc/liveness.h"
 
 #include "thoth-ipc/platform/apple/spin_lock.h"
 #include "thoth-ipc/platform/apple/ulock.h"
@@ -145,10 +146,12 @@ class mutex {
         // Not found: already removed by a concurrent path. Do not double-free.
     }
 
-    // Check if a PID is alive. Returns false if the process does not exist.
+    // Whether the holder can still release the lock. A zombie cannot: it has
+    // exited and only waits for its parent to reap it, which may never happen
+    // (a parent that cannot wait for a child a debugger traces), yet kill(pid, 0)
+    // succeeds for it. liveness.h answers "dead" for one, as for a missing PID.
     static bool is_process_alive(pid_t pid) noexcept {
-        if (pid <= 0) return false;
-        return (::kill(pid, 0) == 0) || (errno != ESRCH);
+        return thoth::detail::is_process_alive(static_cast<std::int32_t>(pid));
     }
 
     // Attempt to recover a mutex whose holder has died.

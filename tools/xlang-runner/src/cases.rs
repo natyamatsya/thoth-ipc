@@ -601,6 +601,26 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                     channel: ch,
                     xfail: false,
                 });
+                // A killed holder its parent has not reaped yet (a zombie) holds the
+                // lock no more than a dead one: kill(pid, 0) still finds it, so every
+                // port must detect the zombie to recover the lock.
+                let ch = namer.next("p");
+                cases.push(Case {
+                    scenario: "primitives".into(),
+                    id: format!("{} killed holding mutex -> {} lock recovers zombie", a.name, b.name),
+                    kind: CaseKind::HoldProbe {
+                        holder: Proc::new(a, vec!["mhold".into(), ch.clone(), "20".into()]),
+                        kill_holder: true,
+                        zombie: true,
+                        probes: vec![Probe {
+                            proc: Proc::new(b, vec!["mlock".into(), ch.clone(), "5000".into()]),
+                            expect: "acquired".into(),
+                        }],
+                        then_group: None,
+                    },
+                    channel: ch,
+                    xfail: false,
+                });
                 // Semaphore: exactly 3 posts arrive, no surplus token remains.
                 let ch = namer.next("p");
                 cases.push(Case {

@@ -585,3 +585,38 @@ fn lock_timeout_times_out_when_held() {
     mtx.unlock().expect("unlock");
     IpcMutex::clear_storage(&name);
 }
+
+// A holder that exited holding the lock and was not reaped (a zombie: its parent
+// cannot wait for it, e.g. while a debugger traces it) holds nothing, though
+// kill(pid, 0) still finds it: the next locker recovers the lock.
+#[cfg(unix)]
+#[test]
+fn zombie_holder_lock_is_recovered() {
+    let name = unique_name("zombie_holder");
+    IpcMutex::clear_storage(&name);
+    let mtx = IpcMutex::open(&name).expect("open");
+    let pid = unsafe { libc::fork() };
+    assert!(pid >= 0, "fork failed");
+    if pid == 0 {
+        let _ = mtx.lock();
+        unsafe { libc::_exit(0) }; // dies holding the lock
+    }
+    // Wait for the child to exit without reaping it: it stays a zombie.
+    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    let rc = unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut info,
+            libc::WEXITED | libc::WNOWAIT,
+        )
+    };
+    assert_eq!(rc, 0, "waitid failed");
+    let acquired = mtx.lock_timeout(2000).expect("lock_timeout");
+    if acquired {
+        mtx.unlock().expect("unlock");
+    }
+    unsafe { libc::waitpid(pid, std::ptr::null_mut(), 0) };
+    assert!(acquired, "a zombie holder's lock was not recovered");
+    IpcMutex::clear_storage(&name);
+}

@@ -250,12 +250,11 @@ unsafe fn holder_atomic(mem: *mut u8) -> &'static AtomicU32 {
 // Dead-holder recovery (mirrors C++ try_recover_dead_holder).
 // ---------------------------------------------------------------------------
 
+// Whether the holder can still release the lock. A zombie cannot: it has exited
+// and only waits for its parent to reap it, yet `kill(pid, 0)` succeeds for it.
+// The liveness module answers "dead" for one, as for a missing PID.
 fn is_process_alive(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
-    }
-    let ret = unsafe { libc::kill(pid as libc::pid_t, 0) };
-    ret == 0 || unsafe { *libc::__error() } != libc::ESRCH
+    crate::liveness::is_process_alive(pid as i32, 0)
 }
 
 unsafe fn try_recover_dead_holder(mem: *mut u8) -> bool {

@@ -19,6 +19,7 @@
 
 #include "thoth-ipc/ipc.h"
 #include "thoth-ipc/liveness.h"
+#include "thoth-ipc/mutex.h"
 
 namespace {
 
@@ -280,6 +281,44 @@ TEST(Liveness, ZombieReceiverIsReaped) {
     }
     ::waitpid(pid, nullptr, 0);
     thoth::route::clear_storage(name);
+}
+
+// A mutex whose holder died holding it is recovered by the next locker, and a
+// zombie holder counts as dead just the same: kill(pid, 0) still finds it, but it
+// will never unlock. Without that, one crashed process a debugger still traces
+// (its parent cannot reap it) held the lock for every other process until the
+// lock was cleared by hand.
+TEST(Liveness, DeadMutexHolderIsRecovered) {
+    char const *name = "st.liveness.dead-mutex-holder";
+    thoth::sync::mutex::clear_storage(name);
+    thoth::sync::mutex m{name};
+    ASSERT_TRUE(m.valid());
+    pid_t pid = ::fork();
+    if (pid == 0) {
+        m.lock();
+        ::_exit(0); // dies holding the lock
+    }
+    ASSERT_GT(pid, 0);
+    ASSERT_EQ(::waitpid(pid, nullptr, 0), pid);
+    EXPECT_TRUE(m.lock(2000)) << "a dead holder's lock was not recovered";
+    m.unlock();
+    m.close();
+    thoth::sync::mutex::clear_storage(name);
+}
+
+TEST(Liveness, ZombieMutexHolderIsRecovered) {
+    char const *name = "st.liveness.zombie-mutex-holder";
+    thoth::sync::mutex::clear_storage(name);
+    thoth::sync::mutex m{name};
+    ASSERT_TRUE(m.valid());
+    pid_t pid = fork_zombie([&m] { m.lock(); });
+    ASSERT_GT(pid, 0);
+    ASSERT_TRUE(thoth::detail::is_zombie(pid)) << "the child did not become a zombie";
+    EXPECT_TRUE(m.lock(2000)) << "a zombie holder's lock was not recovered";
+    m.unlock();
+    ::waitpid(pid, nullptr, 0);
+    m.close();
+    thoth::sync::mutex::clear_storage(name);
 }
 
 #endif // !_WIN32

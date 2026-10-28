@@ -99,9 +99,11 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
         shmAtomicU32(at: cached.shm.ptr.advanced(by: 4))
     }
 
+    /// Whether the holder can still release the lock. A zombie cannot: it has
+    /// exited and only waits for its parent to reap it, yet `kill(pid, 0)`
+    /// succeeds for it. Liveness answers "dead" for one, as for a missing PID.
     private static func isProcessAlive(_ pid: UInt32) -> Bool {
-        if pid == 0 { return false }
-        return kill(pid_t(pid), 0) == 0 || errno != ESRCH
+        ThothIPC.isProcessAlive(Int32(bitPattern: pid), 0)
     }
 
     private func tryRecoverDeadHolder() -> Bool {

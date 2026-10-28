@@ -14,6 +14,7 @@ const ulock = @import("ulock.zig");
 const guard = @import("abi_guard.zig");
 const nowNs = @import("../transport/layout.zig").nowNs;
 const LockError = @import("mutex.zig").LockError;
+const liveness = @import("../transport/liveness.zig");
 
 const ShmHandle = shm.ShmHandle;
 const SPIN: usize = 40; // kMutexSpinCount
@@ -47,10 +48,11 @@ pub const Mutex = struct {
         return @bitCast(std.c.getpid());
     }
 
+    /// Whether the holder can still release the lock. A zombie cannot: it has
+    /// exited and only waits for its parent to reap it, yet `kill(pid, 0)`
+    /// succeeds for it. liveness answers "dead" for one, as for a missing PID.
     fn isAlive(pid: u32) bool {
-        if (pid == 0) return false;
-        const rc = std.c.kill(@bitCast(pid), @enumFromInt(0));
-        return rc == 0 or std.c._errno().* != @intFromEnum(std.c.E.SRCH);
+        return liveness.isProcessAlive(@bitCast(pid), 0);
     }
 
     fn tryRecoverDeadHolder(self: *const Mutex) bool {

@@ -148,7 +148,7 @@ const darwin = struct {
 
 /// Is the recorded process (pid + token) still alive? Conservative: any
 /// "can't determine" answer errs toward ALIVE so a live peer is never false-reaped.
-fn isProcessAlive(pid: i32, tok: u64) bool {
+pub fn isProcessAlive(pid: i32, tok: u64) bool {
     if (pid <= 0) return false;
     const rc = std.c.kill(pid, @enumFromInt(0)); // signal 0: existence check
     const esrch = @intFromEnum(std.c.E.SRCH);
