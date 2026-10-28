@@ -26,6 +26,10 @@
 #include <condition_variable>
 #include "thoth-ipc/ipc.h"
 #include "thoth-ipc/buffer.h"
+#include "thoth-ipc/shm.h"
+#include "thoth-ipc/msg_layout.h"
+#include "thoth-ipc/mem/resource.h"
+#include "thoth-ipc/utility/scope_guard.h"
 
 using namespace thoth;
 
@@ -272,6 +276,51 @@ TEST_F(RouteTest, TrySendWithoutReceiver) {
   bool sent = r.try_send(buf, 10);
   
   EXPECT_FALSE(sent);
+}
+
+// A large message goes in a chunk of shared storage, and the ring holds only its id.
+// try_send into a full ring took a chunk and kept it: after large_msg_cache (32)
+// such failures no chunk was left, every large message went in fragments, and one
+// larger than the ring could not be sent at all.
+TEST_F(RouteTest, TrySendIntoFullRingKeepsNoChunk) {
+  std::string name = generate_unique_ipc_name("route_try_send_full_chunk");
+  // Chunk pools are shared by every route under a prefix: a prefix of its own
+  // keeps other routes' (and other runs') chunks out of this count.
+  std::string pref = "chunkpool" + std::to_string(
+      std::chrono::steady_clock::now().time_since_epoch().count());
+  std::string const huge(20000, 'H');
+  // That pool is never unmapped and outlives the routes' clear_storage: unless it is
+  // removed by name, every run leaves one behind, until the next reboot.
+  auto remove_pool = thoth::guard([&pref, &huge] {
+    thoth::shm::handle::clear_storage(thoth::make_public_abi_prefix(
+        pref, "CHUNK_INFO__", thoth::detail::calc_chunk_size(huge.size() + 1)).c_str());
+  });
+
+  route sender_r(prefix{pref.c_str()}, name.c_str(), sender);
+  route receiver_r(prefix{pref.c_str()}, name.c_str(), receiver);
+  ASSERT_TRUE(sender_r.valid());
+  ASSERT_TRUE(receiver_r.valid());
+
+  // Fill the ring with small messages (one slot each, no chunk).
+  std::size_t queued = 0;
+  while (sender_r.try_send("x", 2, 0)) ++queued;
+  ASSERT_GT(queued, 0u);
+
+  // Larger than the ring in fragments: it only fits as a chunk (of its size's pool).
+  for (int i = 0; i < 2 * large_msg_cache; ++i) {
+    EXPECT_FALSE(sender_r.try_send(huge, 0));
+  }
+
+  for (std::size_t i = 0; i < queued; ++i) {
+    ASSERT_FALSE(receiver_r.recv(1000).empty());
+  }
+
+  EXPECT_TRUE(sender_r.try_send(huge, 0)) << "no chunk left: the failed sends kept theirs";
+  auto const got = receiver_r.recv(1000);
+  ASSERT_EQ(got.size(), huge.size() + 1);
+  EXPECT_EQ(std::memcmp(got.data(), huge.c_str(), huge.size()), 0);
+
+  route::clear_storage(prefix{pref.c_str()}, name.c_str());
 }
 
 // Test send and receive with buffer

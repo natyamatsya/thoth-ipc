@@ -707,8 +707,14 @@ static bool send(F&& gen_push, thoth::handle_t h, void const * data, std::size_t
         void * buf = dat.second;
         if (buf != nullptr) {
             std::memcpy(buf, data, size);
-            return try_push(static_cast<std::int32_t>(size) - 
-                            static_cast<std::int32_t>(thoth::data_length), &(dat.first), 0);
+            if (try_push(static_cast<std::int32_t>(size) - 
+                         static_cast<std::int32_t>(thoth::data_length), &(dat.first), 0)) {
+                return true;
+            }
+            // Not in the ring (try_send found it full, or no receiver is left): no
+            // reader will recycle the chunk, so it goes back to the pool here.
+            release_storage(dat.first, inf, size);
+            return false;
         }
         // try using message fragment
         //log.debug("fail: shm::handle for big message. msg_id: ", msg_id, ", size: ", size);

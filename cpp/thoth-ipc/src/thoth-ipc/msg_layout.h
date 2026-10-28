@@ -15,7 +15,8 @@
 #include <cstdint>
 #include <cstring>
 
-#include "thoth-ipc/def.h"                // byte_t, storage_id_t, large_msg_align, make_align
+#include "thoth-ipc/def.h"                // byte_t, storage_id_t, large_msg_align
+#include "thoth-ipc/utility/utility.h"    // make_align
 #include "thoth-ipc/circ/elem_def.h"      // circ::cc_t
 #include "thoth-ipc/rw_lock.h"            // spin_lock
 #include "thoth-ipc/platform/detail.h"    // THOTH_IPC_CONSTEXPR_

@@ -67,6 +67,13 @@ Notable changes to thoth-ipc. The format follows
   it (with libclang for bindgen) and requires it.
 
 ### Fixed
+- **A large message try_send could not push gives its chunk back (C++).** A
+  message over 64 bytes takes a chunk of the prefix's machine-wide pool (32 per
+  size), which its readers recycle. One that try_send could not push (a full
+  ring) or send found no receiver for kept its chunk for good: after 32 such
+  failures every message of that size went in fragments, and one larger than the
+  ring could not be sent at all. The ports send in fragments and were not
+  affected.
 - **A zombie mutex holder counts as dead, in every port.** The macOS mutexes
   checked their holder with `kill(pid, 0)`, which succeeds for a zombie, so a
   process that died holding a lock and was never reaped (its parent a debugger)
