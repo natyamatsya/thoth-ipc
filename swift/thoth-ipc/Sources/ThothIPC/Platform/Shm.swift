@@ -95,10 +95,21 @@ public struct ShmHandle: ~Copyable, @unchecked Sendable {
 
         fchmod(fd, perms)
 
-        if needTruncate {
-            guard ftruncate(fd, off_t(total)) == 0 else {
-                let err = errno; close(fd); throw .osError(err)
+        // Sizing contract (as in C++, Rust and Zig): XNU sizes a shm object exactly once, so
+        // only the exclusive creator sizes it, and an opener waits until that size shows.
+        // Mapped before it, the zero-length object failed: macOS refuses the mapping (EINVAL),
+        // and on Linux the ref-count increment below wrote past its end (SIGBUS).
+        do {
+            if needTruncate {
+                try truncate(fd, to: total)
+            } else if mode == .createOrOpen, !waitUntilSized(fd, total) {
+                // Still undersized: the creator died between shm_open and its ftruncate,
+                // leaving a zero-length husk. Size it ourselves.
+                try truncate(fd, to: total)
             }
+        } catch {
+            close(fd)
+            throw error
         }
 
         let raw = mmap(nil, total, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)
@@ -163,6 +174,34 @@ public struct ShmHandle: ~Copyable, @unchecked Sendable {
         munmap(mem, totalSize)
         if prev <= 1 { unlink() }
     }
+}
+
+// MARK: - Sizing helpers
+
+/// How long an opener waits for the creator to size a segment it just created before
+/// taking the creator for dead. The creator's window is one syscall; this is a liveness
+/// backstop (Rust SHM_SIZE_WAIT_TIMEOUT, Zig size_wait_timeout_ns).
+private let sizeWaitTimeout: Duration = .seconds(2)
+
+/// `ftruncate(fd, total)`, accepting XNU's EINVAL for an object a peer already sized to at
+/// least `total` bytes.
+private func truncate(_ fd: Int32, to total: Int) throws(IpcError) {
+    if ftruncate(fd, off_t(total)) == 0 { return }
+    let err = errno
+    if err == EINVAL, thoth_ipc_shm_size(fd) >= Int64(total) { return }
+    throw .osError(err)
+}
+
+/// Waits until the object behind `fd` is at least `total` bytes: its creator has sized it.
+/// False when the deadline passes first.
+private func waitUntilSized(_ fd: Int32, _ total: Int) -> Bool {
+    let deadline = ContinuousClock.now + sizeWaitTimeout
+    var k = 0
+    while thoth_ipc_shm_size(fd) < Int64(total) {
+        if ContinuousClock.now >= deadline { return false }
+        if k < 128 { k += 1; sched_yield() } else { usleep(100) }
+    }
+    return true
 }
 
 // MARK: - Ref-counter helper

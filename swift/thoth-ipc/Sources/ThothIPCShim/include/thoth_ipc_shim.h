@@ -19,6 +19,8 @@
 
 int thoth_ipc_shm_open_create(const char *name, mode_t mode);
 int thoth_ipc_shm_open_open(const char *name, mode_t mode);
+// The size of the shm object behind `fd` (fstat's st_size, page-rounded on macOS), or -1.
+long long thoth_ipc_shm_size(int fd);
 
 // The C standard streams. Glibc declares them as mutable globals, which Swift 6
 // code cannot read; these return them.

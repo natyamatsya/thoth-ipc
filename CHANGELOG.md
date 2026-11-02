@@ -67,6 +67,13 @@ Notable changes to thoth-ipc. The format follows
   it (with libclang for bindgen) and requires it.
 
 ### Fixed
+- **A Swift opener waits for a segment's creator to size it.** Swift mapped a
+  shm segment it opened at once, even while its creator was still between
+  `shm_open` and `ftruncate`: the zero-length object failed to map on macOS
+  (`EINVAL`), and on Linux the ref-count increment wrote past its end
+  (`SIGBUS`). Like C++, Rust and Zig, an opener now waits for the size, and
+  sizes a segment whose creator died before sizing it once that wait (2 s) runs
+  out, accepting the `EINVAL` of a segment a peer sized first.
 - **Zig opens channels on macOS again.** An opener of an existing shm segment
   waits for its creator to size it, reading the size with `lseek(SEEK_END)`.
   That works on Linux, but on macOS a shm fd isn't seekable (`ESPIPE`), so the

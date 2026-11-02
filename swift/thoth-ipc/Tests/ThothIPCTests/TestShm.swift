@@ -3,8 +3,14 @@
 //
 // Tests for ShmHandle — mirrors rust/thoth-ipc/tests/test_shm.rs
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Testing
 @testable import ThothIPC
+import ThothIPCShim
 
 @Suite("ShmHandle")
 struct TestShm {
@@ -89,5 +95,40 @@ struct TestShm {
         #expect(calcSize(4) == 8)
         #expect(calcSize(5) == 12)
         #expect(calcSize(64) == 68)
+    }
+
+    // An opener of a segment its creator has not sized yet waits for the size. It mapped
+    // the zero-length object at once: EINVAL on macOS, a SIGBUS on Linux.
+    @Test("an opener waits until the creator has sized the segment")
+    func openerWaitsForCreatorsSize() async throws {
+        let name = "swift_test_shm_slow_creator_\(UInt32.random(in: 0..<UInt32.max))"
+        defer { ShmHandle.clearStorage(name: name) }
+        // The creator, between its shm_open and its ftruncate.
+        let fd = makeShmName(name).withCString { thoth_ipc_shm_open_create($0, 0o666) }
+        try #require(fd != -1)
+        let creator = spawnPthread {
+            usleep(100_000)
+            _ = ftruncate(fd, off_t(calcSize(64)))
+            close(fd)
+        }
+        let shm = try ShmHandle.acquire(name: name, size: 64, mode: .createOrOpen)
+        await joinThread(creator)
+        #expect(shm.previousRefCount == 0)
+        shm.ptr.storeBytes(of: 0x5a, as: UInt8.self)
+        #expect(shm.ptr.load(as: UInt8.self) == 0x5a)
+    }
+
+    // A creator that died before sizing its segment left a zero-length husk: the next
+    // opener sizes it, after the wait for the creator runs out.
+    @Test("an opener sizes a segment its creator never sized")
+    func openerSizesAnUnsizedHusk() throws {
+        let name = "swift_test_shm_husk_\(UInt32.random(in: 0..<UInt32.max))"
+        defer { ShmHandle.clearStorage(name: name) }
+        let fd = makeShmName(name).withCString { thoth_ipc_shm_open_create($0, 0o666) }
+        try #require(fd != -1)
+        close(fd)
+        let shm = try ShmHandle.acquire(name: name, size: 64, mode: .createOrOpen)
+        #expect(shm.mappedSize >= 64)
+        #expect(shm.refCount == 1)
     }
 }
