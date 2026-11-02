@@ -126,6 +126,58 @@ func adoptCursor(_ hdr: UnsafeMutablePointer<RingHeader>, _ ringBase: UnsafeMuta
     return cur
 }
 
+/// Drop the mark `bit` from a channel slot that holds position `pos`, as its
+/// receiver's recv would have: release the slot if it was the last mark (C++
+/// `release_mark`).
+///
+/// Only while the slot still holds `pos`: the caller saw it committed there but
+/// may run late (a writer descheduled after its commit), and by then the slot
+/// may have been released, reused for `pos + 256` and stamped with the same bit
+/// as a live mark. So every rc_ value this works from is checked against
+/// `f_ct_ == ~pos`, loaded after it; a writer claims the slot again only after
+/// its release, with a releasing CAS. The release here is a CAS from `~pos`,
+/// so it never overwrites a later commit.
+func releaseMark(_ sb: UnsafeMutableRawPointer, pos: UInt32, bit: UInt32) {
+    let atPos = ~UInt64(pos)
+    var curRc = slotRc(sb).load(ordering: .acquiring)
+    while curRc & UInt64(bit) != 0, slotFct(sb).load(ordering: .acquiring) == atPos {
+        let nxt = incRc(curRc) & ~UInt64(bit)
+        let (ok, actual) = slotRc(sb).weakCompareExchange(
+            expected: curRc, desired: nxt, successOrdering: .releasing, failureOrdering: .acquiring)
+        if ok {
+            // Release as recv does: f_ct_ = the next lap's ct.
+            if nxt & chRcMask == 0 {
+                _ = slotFct(sb).compareExchange(
+                    expected: atPos, desired: UInt64(pos) &+ UInt64(ringSize),
+                    successOrdering: .releasing, failureOrdering: .relaxed)
+            }
+            return
+        }
+        curRc = actual
+    }
+}
+
+/// Commit the channel slot a writer claimed for `pos`, then drop the marks on
+/// it of receivers that started after `pos` (the owner of the bit changed
+/// between the claim and now): nobody would read the slot for them, and their
+/// marks would hold the writers up one lap later. The connecting receiver's
+/// `releaseStale` cannot tell where an uncommitted slot belongs, so the writer
+/// that commits it does this (C++ `prod_cons_impl::commit`). The commit store
+/// and the `since` load are sequentially consistent, as are the receiver's
+/// `since` store and its commit-flag loads: of a commit and a connect that
+/// cross, at least one sees the other.
+func commitSlot(_ sb: UnsafeMutableRawPointer, liveness lv: UnsafeMutableRawPointer, pos: UInt32) {
+    slotFct(sb).store(~UInt64(pos), ordering: .sequentiallyConsistent)
+    let marks = UInt32(truncatingIfNeeded: slotRc(sb).load(ordering: .acquiring) & chRcMask)
+    guard marks != 0 else { return }
+    var stale = marks & ~livenessLiveMarks(lv, marks, pos)
+    while stale != 0 {
+        let bit = stale & (~stale &+ 1)
+        stale &= stale &- 1
+        releaseMark(sb, pos: pos, bit: bit)
+    }
+}
+
 /// Multi-writer channel only (C++ `release_stale`): a receiver that read `since`
 /// and then claimed `bit` drops the marks a previous owner of the bit left
 /// unread. Every slot addressed to this receiver is at or after `since`, so its
@@ -135,38 +187,20 @@ func adoptCursor(_ hdr: UnsafeMutablePointer<RingHeader>, _ ringBase: UnsafeMuta
 /// a slot meanwhile, since the (now connected) bit still marks it.
 ///
 /// A slot that carries the bit but is not committed yet was claimed by a writer
-/// that has not finished writing it, so its position is unknown. A writer does
-/// not touch rc_ between claim and commit, so wait for the commit (bounded: a
-/// writer that died there blocks every reader anyway), then treat it like any
-/// other slot.
+/// that has not finished writing it, so its position is unknown. Its writer
+/// drops the mark when it commits, once it sees this receiver's `since`
+/// (`commitSlot`). This used to wait up to 50 ms for the commit, and a writer
+/// descheduled for longer left the mark behind.
 func releaseStale(_ ringBase: UnsafeMutableRawPointer, since: UInt32, bit: UInt32) {
     // Committed slots hold ~position (the upper half all ones).
     func committed(_ fl: UInt64) -> Bool { fl >> 32 == 0xffff_ffff }
-    let deadline = ContinuousClock.now + .milliseconds(50)
     for idx in 0..<ringSize {
         let sb = channelSlotBase(ringBase, UInt8(idx))
-        var curFl = slotFct(sb).load(ordering: .acquiring)
-        var k: UInt32 = 0
-        while !committed(curFl), slotRc(sb).load(ordering: .acquiring) & UInt64(bit) != 0,
-              ContinuousClock.now < deadline {
-            adaptiveYieldSync(&k)
-            curFl = slotFct(sb).load(ordering: .acquiring)
-        }
+        let curFl = slotFct(sb).load(ordering: .sequentiallyConsistent) // see commitSlot
         guard committed(curFl) else { continue }
         let pos = UInt32(truncatingIfNeeded: ~curFl)
         guard Int32(bitPattern: pos &- since) < 0 else { continue } // ours to read
-        var curRc = slotRc(sb).load(ordering: .acquiring)
-        while curRc & UInt64(bit) != 0 {
-            let nxt = incRc(curRc) & ~UInt64(bit)
-            let (ok, actual) = slotRc(sb).weakCompareExchange(
-                expected: curRc, desired: nxt, successOrdering: .releasing, failureOrdering: .acquiring)
-            if ok {
-                // Release as recv does: f_ct_ = the next lap's ct.
-                if nxt & chRcMask == 0 { slotFct(sb).store(UInt64(pos) &+ UInt64(ringSize), ordering: .releasing) }
-                break
-            }
-            curRc = actual
-        }
+        releaseMark(sb, pos: pos, bit: bit)
     }
 }
 
@@ -766,7 +800,10 @@ extension ChanInner {
                 }
             }
             let desired = incMask(epoch | (curRc & chEpMask)) | cc
-            let (rcOk, _) = slotRc(sb).weakCompareExchange(expected: curRc, desired: desired, successOrdering: .relaxed, failureOrdering: .relaxed)
+            // .releasing: a writer that drops a stale mark checks the slot is
+            // still on its lap after loading rc_ (releaseMark); a claim seen
+            // there must bring the f_ct_ this writer saw free.
+            let (rcOk, _) = slotRc(sb).weakCompareExchange(expected: curRc, desired: desired, successOrdering: .releasing, failureOrdering: .relaxed)
             if rcOk {
                 // Won the slot; re-validate the epoch has not moved. An acquire
                 // load is equivalent to the old self-CAS (a no-op store publishes
@@ -782,7 +819,7 @@ extension ChanInner {
         writeMsgHeader(sb, ccId: ccId, id: msgId, remain: remain, storage: false)
         let dst = sb.advanced(by: msgPayload)
         payload.withUnsafeBytes { dst.copyMemory(from: $0.baseAddress!, byteCount: payload.count) }
-        slotFct(sb).store(~UInt64(claimedCt), ordering: .releasing) // publish commit flag
+        commitSlot(sb, liveness: livenessShm.ptr, pos: claimedCt) // publish commit flag
         try? rdWaiter.broadcast()
         return true
     }

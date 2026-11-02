@@ -67,6 +67,21 @@ Notable changes to thoth-ipc. The format follows
   it (with libclang for bindgen) and requires it.
 
 ### Fixed
+- **The writer that commits a channel claim drops its stale marks, in every
+  port.** A receiver that takes over the id of one that left drops the marks
+  that one left unread (1.3.0). A writer's claim still uncommitted at that
+  moment has no position yet, so the receiver waited up to 50 ms for the commit
+  and otherwise left the mark; a writer descheduled for longer (common on a
+  loaded or background-QoS macOS runner) stalled one lap later.
+  `ChannelRing.StaleMarkOnUncommittedClaimIsReleased` failed on every GitHub
+  macOS run, and on every run here under `taskpolicy -b`. Now the writer, right
+  after it commits, drops each mark on the element whose receiver started
+  after it, and the receiver skips uncommitted elements; the commit and the
+  `since` store and loads are seq_cst, so of a commit and a connect that cross,
+  one sees the other. A new C++ test,
+  `ChannelRing.StaleMarkOnClaimCommittedAfterConnectIsReleased`, commits only
+  after the connect and fails without the fix. Spec:
+  `context/xlang-channel-abi.md` §9a.
 - **A receiver that connects wakes the writers waiting for room (C++).** A
   writer whose push found no receiver at all, or only marks that a previous
   owner of the new receiver's id left, slept until a read woke it. No read

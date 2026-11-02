@@ -97,6 +97,49 @@ fn adopt(base: [*]u8, since: u32, bit: u32) u32 {
     return cur;
 }
 
+/// Drop the mark `bit` from a slot that holds position `pos`, as its receiver's
+/// recv would have: release the slot if it was the last mark (C++
+/// `release_mark`).
+///
+/// Only while the slot still holds `pos`: the caller saw it committed there but
+/// may run late (a writer descheduled after its commit), and by then the slot
+/// may have been released, reused for `pos + 256` and stamped with the same bit
+/// as a live mark. So every rc_ value this works from is checked against
+/// f_ct_ == ~pos, loaded after it; a writer claims the slot again only after
+/// its release, with a .release CAS. The release here is a CAS from ~pos, so it
+/// never overwrites a later commit.
+fn releaseMark(sb: [*]u8, pos: u32, bit: u32) void {
+    const at_pos = ~@as(u64, pos);
+    var cur_rc = @atomicLoad(u64, slotRc(sb), .acquire);
+    while (cur_rc & bit != 0 and @atomicLoad(u64, slotFct(sb), .acquire) == at_pos) {
+        const nxt_rc = incRc(cur_rc) & ~@as(u64, bit);
+        cur_rc = @cmpxchgWeak(u64, slotRc(sb), cur_rc, nxt_rc, .release, .acquire) orelse {
+            // Release as recv does: f_ct_ = the next lap's ct.
+            if (nxt_rc & rc_mask == 0) _ = @cmpxchgStrong(u64, slotFct(sb), at_pos, @as(u64, pos) + layout.ring_size, .release, .monotonic);
+            return;
+        };
+    }
+}
+
+/// Commit the slot a writer claimed for `pos`, then drop the marks on it of
+/// receivers that started after `pos` (the owner of the bit changed between
+/// the claim and now): nobody would read the slot for them, and their marks
+/// would hold the writers up one lap later. The connecting receiver's
+/// releaseStale cannot tell where an uncommitted slot belongs, so the writer
+/// that commits it does this (C++ `prod_cons_impl::commit`). The commit store
+/// and the `since` load are seq_cst, as are the receiver's `since` store and its
+/// commit-flag loads: of a commit and a connect that cross, at least one sees
+/// the other.
+fn commit(sb: [*]u8, lv: [*]u8, pos: u32) void {
+    @atomicStore(u64, slotFct(sb), ~@as(u64, pos), .seq_cst);
+    const marks: u32 = @truncate(@atomicLoad(u64, slotRc(sb), .acquire) & rc_mask);
+    if (marks == 0) return;
+    var stale = marks & ~liveness.liveMarks(lv, marks, pos);
+    while (stale != 0) : (stale &= stale - 1) {
+        releaseMark(sb, pos, stale & (~stale +% 1));
+    }
+}
+
 /// A receiver that read `since` and then claimed `bit` drops the marks a previous
 /// owner of the bit left unread (C++ `release_stale`). Every slot addressed to
 /// this receiver is at or after `since`, so its bit on a committed slot from
@@ -106,34 +149,18 @@ fn adopt(base: [*]u8, since: u32, bit: u32) u32 {
 /// (now connected) bit still marks it.
 ///
 /// A slot that carries the bit but is not committed yet was claimed by a writer
-/// that has not finished writing it, so its position is unknown. A writer does
-/// not touch rc_ between claim and commit, so wait for the commit (bounded: a
-/// writer that died there blocks every reader anyway), then treat it like any
-/// other slot.
+/// that has not finished writing it, so its position is unknown. Its writer
+/// drops the mark when it commits, once it sees this receiver's `since`
+/// (commit). This used to wait up to 50 ms for the commit, and a writer
+/// descheduled for longer left the mark behind.
 fn releaseStale(base: [*]u8, since: u32, bit: u32) void {
-    const deadline = layout.nowNs() + 50 * std.time.ns_per_ms;
     for (0..layout.ring_size) |idx| {
         const sb = slotBase(base, idx);
-        var cur_fl = @atomicLoad(u64, slotFct(sb), .acquire);
-        var k: u32 = 0;
-        while (!committed(cur_fl) and @atomicLoad(u64, slotRc(sb), .acquire) & bit != 0 and
-            layout.nowNs() < deadline)
-        {
-            layout.adaptiveYield(&k);
-            cur_fl = @atomicLoad(u64, slotFct(sb), .acquire);
-        }
+        const cur_fl = @atomicLoad(u64, slotFct(sb), .seq_cst); // see commit
         if (!committed(cur_fl)) continue;
         const pos: u32 = @truncate(~cur_fl);
         if (@as(i32, @bitCast(pos -% since)) >= 0) continue; // ours to read
-        var cur_rc = @atomicLoad(u64, slotRc(sb), .acquire);
-        while (cur_rc & bit != 0) {
-            const nxt_rc = incRc(cur_rc) & ~@as(u64, bit);
-            cur_rc = @cmpxchgWeak(u64, slotRc(sb), cur_rc, nxt_rc, .release, .acquire) orelse {
-                // Release as recv does: f_ct_ = the next lap's ct.
-                if (nxt_rc & rc_mask == 0) @atomicStore(u64, slotFct(sb), @as(u64, pos) + layout.ring_size, .release);
-                break;
-            };
-        }
+        releaseMark(sb, pos, bit);
     }
 }
 
@@ -366,7 +393,10 @@ pub const ChannelInner = struct {
                 continue :claim;
             }
             const desired = incMask(epoch | (cur_rc & ep_mask)) | cc;
-            if (@cmpxchgWeak(u64, rc_p, cur_rc, desired, .monotonic, .monotonic) == null) {
+            // .release: a writer that drops a stale mark checks the slot is
+            // still on its lap after loading rc_ (releaseMark); a claim seen
+            // there must bring the f_ct_ this writer saw free.
+            if (@cmpxchgWeak(u64, rc_p, cur_rc, desired, .release, .monotonic) == null) {
                 // Won the slot; re-validate the epoch hasn't moved (force_push).
                 // An acquire load is equivalent to the old self-CAS (a no-op store
                 // publishes nothing) without the weak-CAS spurious-failure retry.
@@ -386,7 +416,7 @@ pub const ChannelInner = struct {
         const sb = slotBase(base, claimed_ct % layout.ring_size);
         layout.writeMsgHeader(sb, .{ .cc_id = self.cc_id, .id = msg_id, .remain = remain, .storage = false });
         @memcpy((sb + layout.msg_payload)[0..payload.len], payload);
-        @atomicStore(u64, slotFct(sb), ~@as(u64, claimed_ct), .release);
+        commit(sb, self.liveness_shm.ptr(), claimed_ct);
         try self.rd_waiter.broadcast();
         return true;
     }

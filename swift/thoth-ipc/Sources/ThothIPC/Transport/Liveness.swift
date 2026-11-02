@@ -134,10 +134,13 @@ func livenessSetOwner(_ lv: UnsafeMutableRawPointer, _ bit: UInt32) {
 /// mark of `bit` on an element from before it can only be a previous owner's
 /// leftover. Store it right after the claim (byte-exact with C++
 /// `liveness_set_since`); a writer that still sees the previous owner's value
-/// treats the mark as live and retries.
+/// treats the mark as live and retries. Sequentially consistent, as is the
+/// writers' load in `livenessLiveMarks`: a channel writer that commits a slot
+/// and a receiver that then looks for its stale marks must not both miss the
+/// other (Channel.swift, `commitSlot` and `releaseStale`).
 func livenessSetSince(_ lv: UnsafeMutableRawPointer, _ bit: UInt32, _ since: UInt32) {
     guard bit != 0 else { return }
-    ownerSince(lv, slotIndex(bit)).store(since, ordering: .releasing)
+    ownerSince(lv, slotIndex(bit)).store(since, ordering: .sequentiallyConsistent)
 }
 
 /// Of the marks `bits` found on the element that held position `pos`, those
@@ -150,7 +153,7 @@ func livenessLiveMarks(_ lv: UnsafeMutableRawPointer, _ bits: UInt32, _ pos: UIn
     while m != 0 {
         let bit = m & (~m &+ 1)
         m &= m &- 1
-        let since = ownerSince(lv, slotIndex(bit)).load(ordering: .acquiring)
+        let since = ownerSince(lv, slotIndex(bit)).load(ordering: .sequentiallyConsistent)
         if Int32(bitPattern: pos &- since) >= 0 { live |= bit } // pos at or after since (wrapping)
     }
     return live

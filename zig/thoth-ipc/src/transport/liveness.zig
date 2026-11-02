@@ -176,9 +176,12 @@ pub fn setOwner(lv: [*]u8, bit: u32) void {
 /// leftover. Store it right after the claim (byte-exact with C++
 /// `liveness_set_since`); a writer that still sees the previous owner's value
 /// treats the mark as live and retries.
+/// seq_cst, as is the writers' load in liveMarks: a channel writer that commits
+/// a slot and a receiver that then looks for its stale marks must not both miss
+/// the other (channel_multi.zig, commit and releaseStale).
 pub fn setSince(lv: [*]u8, bit: u32, since: u32) void {
     if (bit == 0) return;
-    @atomicStore(u32, sincePtr(lv, slotIndex(bit)), since, .release);
+    @atomicStore(u32, sincePtr(lv, slotIndex(bit)), since, .seq_cst);
 }
 
 /// Of the marks `bits` found on the element that held position `pos`, those
@@ -190,7 +193,7 @@ pub fn liveMarks(lv: [*]u8, bits: u32, pos: u32) u32 {
     var m = bits;
     while (m != 0) : (m &= m - 1) {
         const bit = m & (~m +% 1);
-        const since = @atomicLoad(u32, sincePtr(lv, slotIndex(bit)), .acquire);
+        const since = @atomicLoad(u32, sincePtr(lv, slotIndex(bit)), .seq_cst);
         if (@as(i32, @bitCast(pos -% since)) >= 0) live |= bit; // pos at or after since (wrapping)
     }
     return live;

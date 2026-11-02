@@ -401,8 +401,12 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
                 }
             }
             // consider rem_cc to be 0 here
+            // release: a writer that drops a stale mark checks the element is
+            // still on its lap after loading rc_ (release_mark()); a claim seen
+            // there must bring the f_ct_ this writer saw free.
             if (el->rc_.compare_exchange_weak(
-                        cur_rc, inc_mask(epoch | (cur_rc & ep_mask)) | static_cast<rc_t>(cc), std::memory_order_relaxed) &&
+                        cur_rc, inc_mask(epoch | (cur_rc & ep_mask)) | static_cast<rc_t>(cc),
+                        std::memory_order_release, std::memory_order_relaxed) &&
                 epoch_.compare_exchange_weak(epoch, epoch, std::memory_order_acq_rel)) {
                 break;
             }
@@ -412,7 +416,7 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
         ct_.store(cur_ct + 1, std::memory_order_release);
         std::forward<F>(f)(&(el->data_));
         // set flag & try update wt
-        el->f_ct_.store(~static_cast<flag_t>(cur_ct), std::memory_order_release);
+        commit(wrapper, el, cur_ct);
         return true;
     }
 
@@ -436,7 +440,8 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
             }
             // just compare & exchange
             if (el->rc_.compare_exchange_weak(
-                        cur_rc, inc_mask(epoch | (cur_rc & ep_mask)) | static_cast<rc_t>(cc), std::memory_order_relaxed)) {
+                        cur_rc, inc_mask(epoch | (cur_rc & ep_mask)) | static_cast<rc_t>(cc),
+                        std::memory_order_release, std::memory_order_relaxed)) { // see push()
                 if (epoch == epoch_.load(std::memory_order_acquire)) {
                     break;
                 }
@@ -451,7 +456,7 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
         ct_.store(cur_ct + 1, std::memory_order_release);
         std::forward<F>(f)(&(el->data_));
         // set flag & try update wt
-        el->f_ct_.store(~static_cast<flag_t>(cur_ct), std::memory_order_release);
+        commit(wrapper, el, cur_ct);
         return true;
     }
 
@@ -484,6 +489,63 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
         }
     }
 
+    // Drop the mark `bit` from `el`, which holds position `pos`, as its
+    // receiver's pop() would have: release the element if it was the last one.
+    //
+    // Only while the element still holds `pos`: the caller saw it committed
+    // there, but may run late (a writer descheduled after its commit), and by
+    // then the element may have been released, reused for `pos + 256` and
+    // stamped with the same bit as a live mark. So every rc_ value this works
+    // from is checked against f_ct_ == ~pos, loaded after it. Leaving `pos`
+    // takes a release (f_ct_ = pos + 256, after the last mark's CAS) before a
+    // writer can claim the element again, and that claim's release CAS makes
+    // its f_ct_ visible here; inc_rc() changes rc_ on every update, so the CAS
+    // cannot succeed on a value from another lap. The release itself is a CAS
+    // from ~pos, so it never overwrites a later commit.
+    template <typename E>
+    static void release_mark(E& el, circ::u2_t pos, circ::cc_t bit) noexcept {
+        flag_t const at_pos = ~static_cast<flag_t>(pos);
+        auto cur_rc = el.rc_.load(std::memory_order_acquire);
+        while ((cur_rc & bit) && (el.f_ct_.load(std::memory_order_acquire) == at_pos)) {
+            auto nxt_rc = inc_rc(cur_rc) & ~static_cast<rc_t>(bit);
+            if (el.rc_.compare_exchange_weak(cur_rc, nxt_rc, std::memory_order_release,
+                                             std::memory_order_acquire)) {
+                if ((nxt_rc & rc_mask) == 0) {
+                    flag_t expected = at_pos; // as pop() releases
+                    el.f_ct_.compare_exchange_strong(expected, static_cast<flag_t>(pos) + detail_pc::ring_lap,
+                                                     std::memory_order_release, std::memory_order_relaxed);
+                }
+                return;
+            }
+        }
+    }
+
+    // Of the marks on `el`, committed for `pos`, drop those of receivers that
+    // started after `pos` (release_mark() checks it still holds `pos`).
+    template <typename W, typename E>
+    static void drop_stale_marks(W* wrapper, E* el, circ::u2_t pos) noexcept {
+        auto marks = static_cast<circ::cc_t>(el->rc_.load(std::memory_order_acquire) & rc_mask);
+        if (marks == 0) return;
+        circ::cc_t stale = marks & ~detail_pc::live_marks(wrapper, marks, pos);
+        for (circ::cc_t m = stale; m != 0; m &= m - 1) {
+            release_mark(*el, pos, m & (~m + 1));
+        }
+    }
+
+    // Commit the element a writer claimed for `pos`, then drop the marks on it of
+    // receivers that started after `pos` (the owner of the bit changed between
+    // the claim and now): nobody would read the element for them, and their
+    // marks would hold the writers up one lap later. The connecting receiver's
+    // release_stale() cannot tell where an uncommitted element belongs, so the
+    // writer that commits it does this. Commit store and `since` load are
+    // seq_cst, as are the receiver's `since` store and its commit flag loads:
+    // of a commit and a connect that cross, at least one sees the other.
+    template <typename W, typename E>
+    static void commit(W* wrapper, E* el, circ::u2_t pos) noexcept {
+        el->f_ct_.store(~static_cast<flag_t>(pos), std::memory_order_seq_cst);
+        drop_stale_marks(wrapper, el, pos);
+    }
+
     // A receiver that read `since` and then claimed `cc_id` drops the marks a
     // previous owner of the id left unread: every element addressed to this
     // receiver is at or after `since`, so its id on a committed element from
@@ -493,35 +555,20 @@ struct prod_cons_impl<wr<relat::multi, relat::multi, trans::broadcast>> {
     // meanwhile, since the (now connected) id still marks it.
     //
     // An element that carries the id but is not committed yet was claimed by a
-    // writer that has not finished writing it, so its position is unknown. A
-    // writer does not touch rc_ between claim and commit, so wait for the
-    // commit (bounded: a writer that died there blocks every reader anyway),
-    // then treat the element like any other.
+    // writer that has not finished writing it, so its position is unknown. Its
+    // writer drops the mark when it commits, once it sees this receiver's
+    // `since` (commit()). This used to wait up to 50 ms for the commit, and a
+    // writer descheduled for longer left the mark behind.
     template <typename E, std::size_t N>
     void release_stale(circ::u2_t since, circ::cc_t cc_id, E (&elems)[N]) noexcept {
+        static_assert(N == detail_pc::ring_lap, "a cursor addresses its element modulo the ring size");
         auto committed = [](flag_t fl) { return (fl >> 32) == 0xffffffffu; }; // ~position
-        auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
         for (auto& el : elems) {
-            auto cur_fl = el.f_ct_.load(std::memory_order_acquire);
-            for (unsigned k = 0; !committed(cur_fl) && (el.rc_.load(std::memory_order_acquire) & cc_id)
-                                 && std::chrono::steady_clock::now() < deadline;) {
-                thoth::yield(k);
-                cur_fl = el.f_ct_.load(std::memory_order_acquire);
-            }
+            auto cur_fl = el.f_ct_.load(std::memory_order_seq_cst); // see commit()
             if (!committed(cur_fl)) continue;
             auto pos = static_cast<circ::u2_t>(~cur_fl);
             if (static_cast<std::int32_t>(pos - since) >= 0) continue; // ours to read
-            auto cur_rc = el.rc_.load(std::memory_order_acquire);
-            while (cur_rc & cc_id) {
-                auto nxt_rc = inc_rc(cur_rc) & ~static_cast<rc_t>(cc_id);
-                if (el.rc_.compare_exchange_weak(cur_rc, nxt_rc, std::memory_order_release,
-                                                 std::memory_order_acquire)) {
-                    if ((nxt_rc & rc_mask) == 0) {
-                        el.f_ct_.store(pos + N, std::memory_order_release); // as pop() releases
-                    }
-                    break;
-                }
-            }
+            release_mark(el, pos, cc_id);
         }
     }
 

@@ -273,7 +273,10 @@ pub fn set_since(lv: *mut ConnLiveness, bit: u32, since: u32) {
         return;
     }
     let s = unsafe { &(*lv).slots[slot_index(bit)] };
-    s.since.store(since, Ordering::Release);
+    // SeqCst, as is the writers' load in live_marks(): a channel writer that
+    // commits a slot and a receiver that then looks for its stale marks must not
+    // both miss the other (channel.rs, commit_multi and release_stale).
+    s.since.store(since, Ordering::SeqCst);
 }
 
 /// Of the marks `bits` found on the element that held position `pos`, those
@@ -289,7 +292,7 @@ pub fn live_marks(lv: *const ConnLiveness, bits: u32, pos: u32) -> u32 {
     while m != 0 {
         let bit = m & m.wrapping_neg();
         m &= m - 1;
-        let since = unsafe { (*lv).slots[slot_index(bit)].since.load(Ordering::Acquire) };
+        let since = unsafe { (*lv).slots[slot_index(bit)].since.load(Ordering::SeqCst) };
         if pos.wrapping_sub(since) as i32 >= 0 {
             live |= bit; // pos at or after since (wrapping)
         }

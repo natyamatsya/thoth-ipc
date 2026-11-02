@@ -252,9 +252,12 @@ inline void liveness_set_owner(conn_liveness *lv, thoth::circ::cc_t bit) noexcep
 // mark of `bit` on an element from before it can only be a previous owner's
 // leftover. Store it right after the claim; a writer that still sees the
 // previous owner's value treats the mark as live and retries.
+// seq_cst, as is the writers' load in liveness_live_marks(): a channel writer
+// that commits an element and a receiver that then looks for its stale marks
+// must not both miss the other (prod_cons.h, commit() and release_stale()).
 inline void liveness_set_since(conn_liveness *lv, thoth::circ::cc_t bit, std::uint32_t since) noexcept {
     if (lv == nullptr || bit == 0) return;
-    lv->slots[slot_index(bit)].since.store(since, std::memory_order_release);
+    lv->slots[slot_index(bit)].since.store(since, std::memory_order_seq_cst);
 }
 
 // Of the marks `bits` found on the element at position `pos`, those that belong
@@ -266,7 +269,7 @@ inline thoth::circ::cc_t liveness_live_marks(conn_liveness const *lv, thoth::cir
     thoth::circ::cc_t live = 0;
     for (thoth::circ::cc_t m = bits; m != 0; m &= m - 1) {
         thoth::circ::cc_t bit = m & (~m + 1);
-        std::uint32_t since = lv->slots[slot_index(bit)].since.load(std::memory_order_acquire);
+        std::uint32_t since = lv->slots[slot_index(bit)].since.load(std::memory_order_seq_cst);
         if (static_cast<std::int32_t>(pos - since) >= 0) live |= bit; // pos at/after since (wrapping)
     }
     return live;

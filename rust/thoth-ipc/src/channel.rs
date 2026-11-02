@@ -405,6 +405,43 @@ const OFF_BLOCK: usize = abi::ring_header_size;
 /// Elements per ring: a cursor addresses its slot modulo this.
 const RING_LAP: u32 = RING_SIZE as u32;
 
+/// Drop the mark `bit` from a channel slot that holds position `pos`, as its
+/// receiver's recv would have: release the slot if it was the last mark (C++
+/// `prod_cons_impl<multi,multi,broadcast>::release_mark`).
+///
+/// Only while the slot still holds `pos`: the caller saw it committed there but
+/// may run late (a writer descheduled after its commit), and by then the slot
+/// may have been released, reused for `pos + 256` and stamped with the same bit
+/// as a live mark. So every `rc_` value this works from is checked against
+/// `f_ct_ == !pos`, loaded after it; a writer claims the slot again only after
+/// its release, with a Release CAS. The release here is a CAS from `!pos`, so
+/// it never overwrites a later commit.
+fn release_mark(slot: &ChannelElemT, pos: u32, bit: u32) {
+    let at_pos = !u64::from(pos);
+    let mut cur_rc = slot.rc_.load(Ordering::Acquire);
+    while cur_rc & u64::from(bit) != 0 && slot.f_ct_.load(Ordering::Acquire) == at_pos {
+        let nxt_rc = inc_rc(cur_rc) & !u64::from(bit);
+        match slot
+            .rc_
+            .compare_exchange_weak(cur_rc, nxt_rc, Ordering::Release, Ordering::Acquire)
+        {
+            Ok(_) => {
+                if nxt_rc & RC_MASK == 0 {
+                    // Release as recv does: f_ct_ = the next lap's ct.
+                    let _ = slot.f_ct_.compare_exchange(
+                        at_pos,
+                        u64::from(pos) + RING_SIZE as u64,
+                        Ordering::Release,
+                        Ordering::Relaxed,
+                    );
+                }
+                return;
+            }
+            Err(actual) => cur_rc = actual,
+        }
+    }
+}
+
 /// Multi-writer channel only (C++ `prod_cons_impl<multi,multi,broadcast>::
 /// release_stale`): a receiver that read `since` and then claimed `bit` drops the
 /// marks a previous owner of the bit left unread. Every slot addressed to this
@@ -415,24 +452,15 @@ const RING_LAP: u32 = RING_SIZE as u32;
 /// connected) bit still marks it.
 ///
 /// A slot that carries the bit but is not committed yet was claimed by a writer
-/// that has not finished writing it, so its position is unknown. A writer does
-/// not touch rc_ between claim and commit, so wait for the commit (bounded: a
-/// writer that died there blocks every reader anyway), then treat it like any
-/// other slot.
+/// that has not finished writing it, so its position is unknown. Its writer
+/// drops the mark when it commits, once it sees this receiver's `since`
+/// (`commit_multi`). This used to wait up to 50 ms for the commit, and a writer
+/// descheduled for longer left the mark behind.
 fn release_stale(ring_ptr: *mut u8, since: u32, bit: u32) {
     let committed = |fl: u64| fl >> 32 == 0xffff_ffff; // !position
-    let deadline = Instant::now() + Duration::from_millis(50);
     for idx in 0..RING_SIZE {
         let slot = unsafe { channel_slot(ring_ptr, idx as u8) };
-        let mut cur_fl = slot.f_ct_.load(Ordering::Acquire);
-        let mut k = 0u32;
-        while !committed(cur_fl)
-            && slot.rc_.load(Ordering::Acquire) & u64::from(bit) != 0
-            && Instant::now() < deadline
-        {
-            crate::spin_lock::adaptive_yield_pub(&mut k);
-            cur_fl = slot.f_ct_.load(Ordering::Acquire);
-        }
+        let cur_fl = slot.f_ct_.load(Ordering::SeqCst); // see commit_multi
         if !committed(cur_fl) {
             continue;
         }
@@ -440,26 +468,7 @@ fn release_stale(ring_ptr: *mut u8, since: u32, bit: u32) {
         if pos.wrapping_sub(since) as i32 >= 0 {
             continue; // ours to read
         }
-        let mut cur_rc = slot.rc_.load(Ordering::Acquire);
-        while cur_rc & u64::from(bit) != 0 {
-            let nxt_rc = inc_rc(cur_rc) & !u64::from(bit);
-            match slot.rc_.compare_exchange_weak(
-                cur_rc,
-                nxt_rc,
-                Ordering::Release,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => {
-                    if nxt_rc & RC_MASK == 0 {
-                        // Release as pop does: f_ct_ = the next lap's ct.
-                        slot.f_ct_
-                            .store(u64::from(pos) + RING_SIZE as u64, Ordering::Release);
-                    }
-                    break;
-                }
-                Err(actual) => cur_rc = actual,
-            }
-        }
+        release_mark(slot, pos, bit);
     }
 }
 
@@ -909,6 +918,29 @@ impl ChanInner {
         u64::from(crate::liveness::live_marks(lv, bits as u32, pos))
     }
 
+    /// Commit the channel slot this writer claimed for `pos`, then drop the marks
+    /// on it of receivers that started after `pos` (the owner of the bit changed
+    /// between the claim and now): nobody would read the slot for them, and
+    /// their marks would hold the writers up one lap later. The connecting
+    /// receiver's `release_stale` cannot tell where an uncommitted slot belongs,
+    /// so the writer that commits it does this (C++ `prod_cons_impl::commit`).
+    /// The commit store and the `since` load are SeqCst, as are the receiver's
+    /// `since` store and its commit-flag loads: of a commit and a connect that
+    /// cross, at least one sees the other.
+    fn commit_multi(&self, slot: &ChannelElemT, pos: u32) {
+        slot.f_ct_.store(!(pos as u64), Ordering::SeqCst);
+        let marks = slot.rc_.load(Ordering::Acquire) & RC_MASK;
+        if marks == 0 {
+            return;
+        }
+        let mut stale = marks & !self.live_marks(marks, pos);
+        while stale != 0 {
+            let bit = stale & stale.wrapping_neg();
+            stale &= stale - 1;
+            release_mark(slot, pos, bit as u32);
+        }
+    }
+
     /// Claim the next ring slot (C++ prod_cons broadcast push / force_push) and
     /// write one msg_t fragment, then advance wt_ and wake receivers.
     fn push_fragment(
@@ -1197,9 +1229,12 @@ impl ChanInner {
                 }
             }
             let desired = inc_mask(epoch | (cur_rc & CH_EP_MASK)) | cc;
+            // Release: a writer that drops a stale mark checks the slot is still
+            // on its lap after loading rc_ (release_mark); a claim seen there
+            // must bring the f_ct_ this writer saw free.
             if slot
                 .rc_
-                .compare_exchange_weak(cur_rc, desired, Ordering::Relaxed, Ordering::Relaxed)
+                .compare_exchange_weak(cur_rc, desired, Ordering::Release, Ordering::Relaxed)
                 .is_ok()
             {
                 // Won the slot; re-validate the epoch has not moved. An acquire
@@ -1218,7 +1253,7 @@ impl ChanInner {
             .store(claimed_ct.wrapping_add(1), Ordering::Release); // advance ct_
         let slot = unsafe { channel_slot(ring_ptr, claimed_ct as u8) };
         unsafe { slot.write_msg(self.cc_id, msg_id, remain, false, payload) };
-        slot.f_ct_.store(!(claimed_ct as u64), Ordering::Release); // publish commit flag
+        self.commit_multi(slot, claimed_ct); // publish commit flag
         let _ = self.rd_waiter.broadcast();
         Ok(true)
     }
@@ -1721,5 +1756,41 @@ impl Channel {
     /// Remove all backing storage with a prefix.
     pub fn clear_storage_with_prefix(prefix: &str, name: &str) {
         Route::clear_storage_with_prefix(prefix, name);
+    }
+}
+
+#[cfg(test)]
+mod release_mark_tests {
+    use super::{inc_rc, release_mark, ChannelElemT, MSG_SIZE, RC_MASK, RING_SIZE};
+    use std::cell::UnsafeCell;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn slot(rc: u64, f_ct: u64) -> ChannelElemT {
+        ChannelElemT {
+            data_: UnsafeCell::new([0; MSG_SIZE]),
+            rc_: AtomicU64::new(rc),
+            f_ct_: AtomicU64::new(f_ct),
+        }
+    }
+
+    /// A slot still committed for `pos` loses the mark, and is released when it
+    /// was the last one.
+    #[test]
+    fn drops_a_mark_on_the_lap_it_was_seen_on() {
+        let s = slot(inc_rc(0) | 1, !0u64);
+        release_mark(&s, 0, 1);
+        assert_eq!(s.rc_.load(Ordering::Relaxed) & RC_MASK, 0);
+        assert_eq!(s.f_ct_.load(Ordering::Relaxed), RING_SIZE as u64);
+    }
+
+    /// A late drop for `pos` finds the slot reused for `pos + 256`, stamped with
+    /// the same bit as a live mark: it leaves the mark and the commit alone.
+    #[test]
+    fn spares_the_next_lap() {
+        let next = RING_SIZE as u32;
+        let s = slot(inc_rc(inc_rc(0)) | 1, !u64::from(next));
+        release_mark(&s, 0, 1);
+        assert_eq!(s.rc_.load(Ordering::Relaxed) & RC_MASK, 1);
+        assert_eq!(s.f_ct_.load(Ordering::Relaxed), !u64::from(next));
     }
 }

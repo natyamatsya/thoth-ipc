@@ -405,7 +405,7 @@ write cursor that its receiver read *before* it claimed the bit.
 - **Connect (receiver), in this order:**
   1. Read `since = cursor()` (acquire).
   2. Claim the bit (§6).
-  3. Store `since` into the slot (release).
+  3. Store `since` into the slot (seq_cst, see below).
   4. Multi-producer only: release stale marks (below).
   5. Adopt: start at `cursor()` and walk back through `[since, cursor)` while each
      element carries this bit in the current epoch. Start reading at the first
@@ -428,20 +428,50 @@ write cursor that its receiver read *before* it claimed the bit.
   `since` and this bit set in `rc_`. It CASes `rc_ = inc_rc(rc_) & ~bit` and, if
   no mark remains, sets `f_ct_ = pos + 256` (released). An element that carries
   this bit but is not committed yet is a writer's claim in progress, with a
-  position not yet known. Writers never touch `rc_` between claim and commit, so
-  the receiver waits for its commit (at most 50 ms in total, since a writer that
-  died there blocks every reader anyway) and then handles it like the others.
+  position not yet known; the receiver skips it.
+- **Channel: the committing writer releases too.** A writer that commits the
+  element it claimed for `pos` stores `f_ct_ = ~pos` (seq_cst), then reads the
+  `since` of every bit still marked on it (seq_cst) and drops, as above, each
+  mark whose receiver started after `pos` (`(int32)(pos - since) < 0`). The bit
+  changed owner between the claim and the commit, and nobody will read the
+  element for the new owner. Of a commit and a connect that cross, one of the
+  two sees the other: the receiver's `since` store and its `f_ct_` loads are
+  seq_cst too. Until this, the receiver waited up to 50 ms for a commit in
+  progress; a writer descheduled for longer (common on a loaded or
+  background-QoS macOS runner) left the mark behind and stalled a lap later.
+- **Drops check the lap.** Either side may drop late: the writer can be
+  descheduled after its commit, and meanwhile the element can be released,
+  reused for `pos + 256` and stamped with the same bit as a live mark. A drop
+  for `pos` therefore checks `f_ct_ == ~pos` (acquire) after every `rc_` load,
+  the first and each one a failed CAS returns, and gives up otherwise. A writer
+  claims an element only once it is released, and its claim CAS on `rc_` is
+  release, so a claim the drop sees comes with the `f_ct_` it was made on; `rc_`
+  changes on every update (`inc_rc`), so the CAS cannot succeed on another
+  lap's value. The release after the last mark is a CAS `f_ct_: ~pos -> pos +
+  256`, so it never overwrites a later commit. (A writer that reuses an element
+  whose remaining marks it does not count, departed bits or an older epoch,
+  stamps it while `f_ct_` still reads `~pos`; a drop that runs in exactly that
+  window still sees the old lap. 1.3.0's receiver-side release had the same
+  window.)
 - **Older peers** never write `since` (the field reads 0) and do not filter or
   release. A 1.3.0 writer then counts their marks as it did before 1.3.0, so mixed
-  versions interoperate and only lose the fix.
+  versions interoperate and only lose the fix. A 1.3.0 writer that does not
+  release on commit leaves an uncommitted claim's mark to a receiver that no
+  longer waits for it: that pairing has the hole the wait narrowed.
 
 **Verification.** The C++ `RouteTest.ReceiverChurnNeverStallsWriter` and
 `ChannelTest.ReceiverChurnNeverStallsWriters` tests and the Rust
 `*_receiver_churn_*` tests run 1000 connect → read 300 → disconnect rounds against
 streaming writers. They fail without the fix and require zero stalls and gaps.
-The C++ `ChannelRing.StaleMarkOnUncommittedClaimIsReleased` test holds a writer
-between claim and commit while a new receiver takes over the id. It then laps
-the ring and fails if the writer finds the leftover mark.
+The C++ `ChannelRing.StaleMarkOnUncommittedClaimIsReleased` and
+`ChannelRing.StaleMarkOnClaimCommittedAfterConnectIsReleased` tests hold a
+writer between claim and commit while a new receiver takes over the id; the
+second commits only after the connect has returned. Each then laps the ring and
+fails if the writer finds the leftover mark.
+`ChannelRing.LateStaleMarkDropSparesTheNextLap` runs a writer's commit-time drop
+for a position after the element was released and reused a lap later with the
+same bit, and fails if that live mark is dropped; the Rust
+`release_mark_tests` check the same at the slot level.
 
 ## 10. Sync primitives — mutex / condition payloads (Waiter, `IpcMutex`, `IpcCondition`)
 
