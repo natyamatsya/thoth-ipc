@@ -278,6 +278,9 @@ TEST_F(RouteTest, TrySendWithoutReceiver) {
   EXPECT_FALSE(sent);
 }
 
+#if !defined(THOTH_IPC_OS_WIN)
+// Not on Windows: there a large message always goes in fragments, never in a chunk
+// (ipc.cpp, large_msg_in_chunk_storage), so there is no chunk to keep.
 // A large message goes in a chunk of shared storage, and the ring holds only its id.
 // try_send into a full ring took a chunk and kept it: after large_msg_cache (32)
 // such failures no chunk was left, every large message went in fragments, and one
@@ -322,6 +325,7 @@ TEST_F(RouteTest, TrySendIntoFullRingKeepsNoChunk) {
 
   route::clear_storage(prefix{pref.c_str()}, name.c_str());
 }
+#endif // !THOTH_IPC_OS_WIN
 
 // Test send and receive with buffer
 TEST_F(RouteTest, SendReceiveBuffer) {
