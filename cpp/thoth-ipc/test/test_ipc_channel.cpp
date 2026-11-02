@@ -19,6 +19,7 @@
 #include <thread>
 #include <chrono>
 #include <atomic>
+#include <memory>
 #include <vector>
 #include <string>
 #include <cstring>
@@ -746,6 +747,62 @@ void expect_receiver_churn_clean(char const *prefix, int writers, int rounds) {
   for (auto &t : tx) t.join();
   EXPECT_EQ(stalls, 0) << "a writer stalled on an element no receiver would read";
   EXPECT_EQ(gaps, 0) << "a receiver missed a message";
+}
+
+// A writer waiting for room is woken when a receiver connects, not only when
+// one reads. Here the ring is full of a receiver's unread marks; it leaves (the
+// writer now waits for any receiver at all), and a new one takes over its id:
+// the old marks no longer count, so the writer can go on. It used to sleep out
+// its whole timeout instead and then force-push. In the churn test below that
+// left a writer asleep while the next receiver waited for its first message,
+// and two writers force-pushing at once evicted that receiver.
+template <typename Chan>
+void expect_connect_wakes_writer(char const *prefix) {
+  // Unique across processes too: the machine's shm namespace is shared.
+  std::string name = generate_unique_ipc_name(prefix) + "_" +
+      std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+  Chan tx(name.c_str(), sender);
+  auto rx = std::make_unique<Chan>(name.c_str(), receiver);
+  ASSERT_TRUE(rx->valid());
+  std::uint32_t seq = 0;
+  for (; seq < 256; ++seq) { // one ring lap: every element unread
+    ASSERT_TRUE(tx.send(&seq, sizeof seq, 100)) << "send " << seq;
+  }
+
+  std::atomic<bool> sent{false};
+  std::chrono::steady_clock::duration took{};
+  std::thread writer([&] {
+    auto const start = std::chrono::steady_clock::now();
+    sent = tx.send(&seq, sizeof seq, 5000);
+    took = std::chrono::steady_clock::now() - start;
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(100)); // writer waits for room
+  rx->disconnect();
+  std::this_thread::sleep_for(std::chrono::milliseconds(100)); // ...then for a receiver
+  Chan rx2(name.c_str(), receiver);
+  ASSERT_TRUE(rx2.valid());
+  writer.join();
+
+  EXPECT_TRUE(sent.load());
+  EXPECT_LT(took, std::chrono::milliseconds(2000))
+      << "the writer slept through the receiver's connect";
+  buffer b = rx2.recv(1000);
+  ASSERT_EQ(b.size(), sizeof seq);
+  std::uint32_t got;
+  std::memcpy(&got, b.data(), sizeof got);
+  EXPECT_EQ(got, 256u);
+  rx.reset();
+  rx2.disconnect();
+  tx.disconnect();
+  Chan::clear_storage(name.c_str());
+}
+
+TEST_F(RouteTest, ReceiverConnectWakesWaitingWriter) {
+  expect_connect_wakes_writer<route>("route_connect_wake");
+}
+
+TEST_F(ChannelTest, ReceiverConnectWakesWaitingWriter) {
+  expect_connect_wakes_writer<channel>("channel_connect_wake");
 }
 
 TEST_F(RouteTest, ReceiverChurnNeverStallsWriter) {

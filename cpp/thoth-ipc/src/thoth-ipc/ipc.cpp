@@ -631,6 +631,11 @@ static bool reconnect(thoth::handle_t * ph, bool start_to_recv) {
                 info_of(*ph)->liveness_set_owner(que->connected_id());
             }
             info_of(*ph)->cc_waiter_.broadcast();
+            // A writer may be waiting for room: for any receiver at all (its
+            // push found none), or on an element only marks a previous owner of
+            // our id left hold up (dropped or discounted now that we connected).
+            // Nobody reads yet, so no read would wake it before its timeout.
+            info_of(*ph)->wt_waiter_.broadcast();
 #if defined(THOTH_IPC_NOTIFY_FD)
             // Now that we own a reader slot, create its readiness FIFO.
             info_of(*ph)->notify_open_sink(que->connected_id());

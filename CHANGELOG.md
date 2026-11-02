@@ -67,6 +67,17 @@ Notable changes to thoth-ipc. The format follows
   it (with libclang for bindgen) and requires it.
 
 ### Fixed
+- **A receiver that connects wakes the writers waiting for room (C++).** A
+  writer whose push found no receiver at all, or only marks that a previous
+  owner of the new receiver's id left, slept until a read woke it. No read
+  comes before the new receiver gets a message, so the writer slept out its
+  whole timeout and then force-pushed. In
+  `ChannelTest.ReceiverChurnNeverStallsWriters` both writers did so at once
+  after many reconnects, and a force-push that found the other writer's claim
+  in progress evicted the new receiver: its next `recv` failed ("a writer
+  stalled"). Connecting now wakes the WT waiter too. New
+  `RouteTest`/`ChannelTest.ReceiverConnectWakesWaitingWriter` tests fail
+  without the fix (the send took its full 5 s).
 - **A wake no longer slips past a waiter that is about to sleep (C++, Swift).**
   A waiter checks its predicate under its lock and only then reads the
   condition's sequence number to sleep on. The wake (`notify`/`broadcast`) no
