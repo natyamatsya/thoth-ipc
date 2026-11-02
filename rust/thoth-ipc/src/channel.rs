@@ -686,6 +686,11 @@ impl ChanInner {
                 crate::liveness::set_owner(liveness_ptr, conn_id);
                 // Broadcast that a new receiver connected
                 let _ = cc_waiter.broadcast();
+                // A sender may be waiting for room on a slot only a previous
+                // owner of our bit held up (dropped or discounted now), or, in
+                // the C++ sender, for any receiver at all. No read wakes it
+                // before we get a message, so wake it now (C++ reconnect()).
+                let _ = wt_waiter.broadcast();
             }
         }
 

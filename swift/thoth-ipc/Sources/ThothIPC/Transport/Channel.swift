@@ -403,6 +403,11 @@ final class ChanInner: @unchecked Sendable {
             readCursor = adoptCursor(hdr, ringShm.ptr, multi: multi, since: since, bit: connId)
             livenessSetOwner(lv, connId)
             try? ccWaiter.broadcast()
+            // A sender may be waiting for room on a slot only a previous owner
+            // of our bit held up (dropped or discounted now), or, in the C++
+            // sender, for any receiver at all. No read wakes it before we get a
+            // message, so wake it now (C++ reconnect()).
+            try? wtWaiter.broadcast()
         }
 
         let inner = ChanInner(name: name, prefix: prefix, chunkPrefix: chunkPrefix, mode: mode,
@@ -479,6 +484,11 @@ final class ChanInner: @unchecked Sendable {
             readCursor = adoptCursor(hdr, ringShm.ptr, multi: multi, since: since, bit: connId)
             livenessSetOwner(lv, connId)
             try? ccWaiter.broadcast()
+            // A sender may be waiting for room on a slot only a previous owner
+            // of our bit held up (dropped or discounted now), or, in the C++
+            // sender, for any receiver at all. No read wakes it before we get a
+            // message, so wake it now (C++ reconnect()).
+            try? wtWaiter.broadcast()
         }
 
         let inner = ChanInner(name: name, prefix: prefix, chunkPrefix: chunkPrefix, mode: mode,

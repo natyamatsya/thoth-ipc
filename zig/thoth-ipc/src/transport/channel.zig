@@ -154,6 +154,11 @@ pub const ChanInner = struct {
             liveness.setOwner(lv, self.conn_id);
             // Wake any sender parked in waitForRecv (CC waiter).
             try self.cc_waiter.broadcast();
+            // A sender may be waiting for room on a slot only a previous owner
+            // of our bit held up (dropped or discounted now), or, in the C++
+            // sender, for any receiver at all. No read wakes it before we get a
+            // message, so wake it now (C++ reconnect()).
+            try self.wt_waiter.broadcast();
         } else {
             // A route has one sender: claim it (taking over from a dead holder).
             _ = self.senderReady();

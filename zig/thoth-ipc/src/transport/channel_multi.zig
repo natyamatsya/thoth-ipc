@@ -269,6 +269,11 @@ pub const ChannelInner = struct {
             self.read_cursor = adopt(base, since, self.conn_id);
             liveness.setOwner(lv, self.conn_id);
             try self.cc_waiter.broadcast();
+            // A sender may be waiting for room on a slot only a previous owner
+            // of our bit held up (dropped or discounted now), or, in the C++
+            // sender, for any receiver at all. No read wakes it before we get a
+            // message, so wake it now (C++ reconnect()).
+            try self.wt_waiter.broadcast();
         }
         return self;
     }
