@@ -67,6 +67,14 @@ Notable changes to thoth-ipc. The format follows
   it (with libclang for bindgen) and requires it.
 
 ### Fixed
+- **Zig opens channels on macOS again.** An opener of an existing shm segment
+  waits for its creator to size it, reading the size with `lseek(SEEK_END)`.
+  That works on Linux, but on macOS a shm fd isn't seekable (`ESPIPE`), so the
+  size always read 0: the opener waited out its 2 s backstop, tried to size the
+  segment itself, got `EINVAL` because it was already sized, and failed. Every
+  Zig `connect` that met an existing segment failed this way, as did every
+  macOS xlang case with a Zig endpoint. On macOS the size now comes from
+  `fstat`, as in C++ and Rust. Linux is unchanged.
 - **A large message try_send could not push gives its chunk back (C++).** A
   message over 64 bytes takes a chunk of the prefix's machine-wide pool (32 per
   size), which its readers recycle. One that try_send could not push (a full

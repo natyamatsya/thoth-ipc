@@ -10,6 +10,7 @@
 // (shm_open/shm_unlink have no std.posix wrapper). No hand-rolled externs.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const posix = std.posix;
 const c = std.c;
 const shmname = @import("shmname.zig");
@@ -149,7 +150,16 @@ pub const ShmHandle = struct {
     }
 };
 
+/// Current size of the shm object behind `fd`, 0 if it can't be read.
+/// XNU shm fds aren't seekable (lseek fails with ESPIPE), so Darwin asks
+/// fstat, which reports the size rounded up to a page, as C++ and Rust do.
+/// std.c has no fstat on Linux, where lseek on the tmpfs fd works.
 fn objectSize(fd: c_int) usize {
+    if (comptime builtin.os.tag.isDarwin()) {
+        var st: c.Stat = undefined;
+        if (c.fstat(fd, &st) != 0 or st.size < 0) return 0;
+        return @intCast(st.size);
+    }
     const end = c.lseek(fd, 0, c.SEEK.END);
     return if (end < 0) 0 else @intCast(end);
 }
@@ -185,4 +195,25 @@ test "calcSize matches C++ calc_size" {
     try std.testing.expectEqual(@as(usize, 22788), calcSize(22784));
     try std.testing.expectEqual(@as(usize, 8), calcSize(4));
     try std.testing.expectEqual(@as(usize, 8), calcSize(1));
+}
+
+test "an opener maps a segment another handle already sized" {
+    // The opener path waits for the creator's size via objectSize(); on macOS
+    // that once read 0 forever (lseek ESPIPE), failing after the 2 s backstop.
+    var name_buf: [64]u8 = undefined;
+    const name = try std.fmt.bufPrint(&name_buf, "zig_shm_opener_{d}", .{std.c.getpid()});
+    ShmHandle.clearStorage(name);
+    defer ShmHandle.clearStorage(name);
+
+    var creator = try ShmHandle.acquire(name, 64, .create);
+    defer creator.release();
+
+    const start = layout.nowNs();
+    var opener = try ShmHandle.acquire(name, 64, .create_or_open);
+    defer opener.release();
+    try std.testing.expect(layout.nowNs() - start < size_wait_timeout_ns);
+    try std.testing.expectEqual(@as(i32, 2), opener.refCount());
+
+    opener.ptr()[0] = 0x5a;
+    try std.testing.expectEqual(@as(u8, 0x5a), creator.ptr()[0]);
 }
