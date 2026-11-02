@@ -607,7 +607,10 @@ pub fn plan(cfg: &FileConfig, ready: &BTreeMap<String, Harness>, filter: &[Strin
                 let ch = namer.next("p");
                 cases.push(Case {
                     scenario: "primitives".into(),
-                    id: format!("{} killed holding mutex -> {} lock recovers zombie", a.name, b.name),
+                    id: format!(
+                        "{} killed holding mutex -> {} lock recovers zombie",
+                        a.name, b.name
+                    ),
                     kind: CaseKind::HoldProbe {
                         holder: Proc::new(a, vec!["mhold".into(), ch.clone(), "20".into()]),
                         kill_holder: true,
