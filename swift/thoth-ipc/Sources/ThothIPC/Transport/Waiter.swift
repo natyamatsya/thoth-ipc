@@ -93,15 +93,16 @@ public struct Waiter: ~Copyable, @unchecked Sendable {
         try cond.broadcast(mutex: lock)
     }
 
-    /// On Linux, take the lock once before a wake: a waiter between its
-    /// predicate check and its sleep holds it, so the wake cannot slip past it
-    /// (the ulock condition needs no barrier: its sequence word catches that).
+    /// Take the lock once before a wake: a waiter between its predicate check
+    /// and its sleep holds it, so the wake cannot slip past it. The ulock
+    /// condition's sequence word does not catch that on macOS either: the
+    /// waiter reads it only once it is about to sleep, after the check, so a
+    /// wake in between is already counted and the waiter sleeps out its
+    /// timeout.
     @inline(__always)
     private func barrier() throws(IpcError) {
-        #if !os(macOS)
         try lock.lock()
         try lock.unlock()
-        #endif
     }
 
     /// Signal quit and broadcast to wake all waiters.
