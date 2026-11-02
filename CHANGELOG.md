@@ -67,6 +67,18 @@ Notable changes to thoth-ipc. The format follows
   it (with libclang for bindgen) and requires it.
 
 ### Fixed
+- **Threads or processes that open a fresh segment at once share it (C++,
+  macOS).** XNU refuses a second `ftruncate` while the creator's first one is
+  still allocating, and the object then reads as size 0. The opener took that
+  for a stale object from an earlier run, unlinked it and created another under
+  the same name. Its creator, and every handle opened before, kept the old
+  object; later openers got the new one. A channel whose endpoints opened
+  together could so end up with its waiters' conditions and mutexes split in
+  two: a wake went to one object while the sleeper waited on the other, and
+  writers and readers sat out their timeouts. The opener now waits for the
+  creator's size (up to 2 s) and only then judges the object. Rust and Zig
+  already did so. `ShmTest.ConcurrentOpenersShareOneObject` fails without the
+  fix within a few rounds.
 - **A Swift opener waits for a segment's creator to size it.** Swift mapped a
   shm segment it opened at once, even while its creator was still between
   `shm_open` and `ftruncate`: the zero-length object failed to map on macOS

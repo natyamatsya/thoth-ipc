@@ -12,7 +12,11 @@
 
 #include <gtest/gtest.h>
 #include <cstring>
+#include <atomic>
+#include <chrono>
 #include <memory>
+#include <thread>
+#include <vector>
 #include <string>
 #include "thoth-ipc/shm.h"
 
@@ -547,5 +551,41 @@ TEST_F(ShmTest, LargeSegment) {
       for (std::size_t i = 0; i < 1024; ++i) {
           EXPECT_EQ(mem[i], static_cast<char>(i % 256));
       }
+  }
+}
+
+// Threads that open one fresh segment at the same moment all get the same
+// object. On macOS a second ftruncate fails while the creator's is still
+// allocating; an opener that saw that took the object for a stale one,
+// unlinked it and created another under the same name, so the openers split
+// across two objects (a waiter's lock and condition then were not shared).
+TEST_F(ShmTest, ConcurrentOpenersShareOneObject) {
+  constexpr int openers = 8;
+  std::string const base = generate_unique_name("concurrent_open") + "_" +
+      std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+  int split = 0;
+  for (int round = 0; round < 200 && split == 0; ++round) {
+    std::string const name = base + "_" + std::to_string(round);
+    std::atomic<bool> go{false};
+    std::vector<std::unique_ptr<shm::handle>> handles(openers);
+    std::vector<std::thread> threads;
+    for (int i = 0; i < openers; ++i) {
+      threads.emplace_back([&, i] {
+        while (!go.load()) std::this_thread::yield();
+        handles[i] = std::make_unique<shm::handle>(name.c_str(), sizeof(int));
+      });
+    }
+    go = true;
+    for (auto &t : threads) t.join();
+    for (int i = 0; i < openers; ++i) {
+      ASSERT_TRUE(handles[i]->valid()) << "round " << round << ": opener " << i << " failed";
+    }
+    *static_cast<int *>(handles[0]->get()) = round + 1;
+    for (int i = 1; i < openers; ++i) {
+      if (*static_cast<int *>(handles[i]->get()) != round + 1) ++split;
+    }
+    EXPECT_EQ(split, 0) << "round " << round << ": openers mapped different objects";
+    handles.clear();
+    shm::handle::clear_storage(name.c_str());
   }
 }

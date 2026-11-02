@@ -13,6 +13,8 @@
 #include <string>
 #include <utility>
 #include <cstring>
+#include <chrono>
+#include <thread>
 
 #include "thoth-ipc/shm.h"
 #include "thoth-ipc/def.h"
@@ -74,6 +76,24 @@ constexpr std::size_t calc_size(std::size_t size) {
 inline auto& acc_of(void* mem, std::size_t size) {
     return reinterpret_cast<info_t*>(static_cast<thoth::byte_t*>(mem) + size - sizeof(info_t))->acc_;
 }
+
+#if defined(THOTH_IPC_OS_APPLE)
+// Wait for an object that reads as size 0 to get its size from its creator,
+// which is between its shm_open and its (one-shot, on XNU) ftruncate. True once
+// it is at least `size` bytes; false if it still is not after a deadline (the
+// creator died there), or got a size that is too small. `st` holds the last
+// fstat. The window is one syscall, so this rarely waits at all.
+inline bool wait_until_sized(int fd, std::size_t size, struct stat &st) noexcept {
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    for (unsigned k = 0; st.st_size == 0; ++k) {
+        if (std::chrono::steady_clock::now() >= deadline) return false;
+        if (k < 64) std::this_thread::yield();
+        else std::this_thread::sleep_for(std::chrono::microseconds(100));
+        if (::fstat(fd, &st) != 0) return false;
+    }
+    return static_cast<std::size_t>(st.st_size) >= size;
+}
+#endif
 
 } // internal-linkage
 
@@ -195,10 +215,20 @@ void * get_mem(id_t id, std::size_t * size) {
             // macOS returns EINVAL when ftruncate is called on an already-sized
             // shm object. Check if the existing size is compatible.
             if (errno == EINVAL) {
-                struct stat st;
+                struct stat st {}; // reads as size 0 if fstat fails
                 if (::fstat(fd, &st) == 0
                     && static_cast<std::size_t>(st.st_size) >= ii->size_) {
                     goto ftruncate_ok; // existing object already has the correct size
+                }
+                // Size 0: another opener created the object and is sizing it
+                // right now (XNU refuses a second ftruncate while the first is
+                // still allocating). Wait for that size. Unlinking here took the
+                // name from an object its creator, and every handle since,
+                // already used: later openers got a new object under the same
+                // name, so a waiter's lock and condition were no longer shared
+                // and wakes were lost.
+                if (st.st_size == 0 && wait_until_sized(fd, ii->size_, st)) {
+                    goto ftruncate_ok;
                 }
                 // Size mismatch — stale object from a previous run.
                 // Unlink it, recreate, and retry ftruncate.
