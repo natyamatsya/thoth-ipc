@@ -134,12 +134,16 @@ public:
         // Snapshot the sequence counter while holding the mutex.
         // This prevents a lost-wakeup: if notify() fires between unlock and
         // __ulock_wait, the seq will have changed and the kernel won't sleep.
+        // (A notify before the snapshot is the caller's to exclude: waiter's
+        // notify/broadcast take the mutex first.)
         std::uint32_t seq = cond_->seq.load(std::memory_order_acquire);
+        // Count this waiter while still holding the mutex, so a notifier that
+        // took the mutex after us is sure to see it and wake the kernel queue.
+        cond_->waiters.fetch_add(1, std::memory_order_relaxed);
 
         // Release the mutex before sleeping.
         mtx.unlock();
 
-        cond_->waiters.fetch_add(1, std::memory_order_relaxed);
         bool notified = false;
         if (tm == invalid_value) {
             // Infinite wait: loop on EINTR.

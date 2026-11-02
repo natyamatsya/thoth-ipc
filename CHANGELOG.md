@@ -67,6 +67,16 @@ Notable changes to thoth-ipc. The format follows
   it (with libclang for bindgen) and requires it.
 
 ### Fixed
+- **A wake no longer slips past a waiter that is about to sleep (C++).** A
+  waiter checks its predicate under its lock and only then reads the condition's
+  sequence number to sleep on. The wake (`notify`/`broadcast`) no longer took
+  that lock first, since the macOS ulock tuning assumed the sequence number catches
+  every wake; it only catches those after it was read. A state change and wake
+  between the check and that read were lost, and the waiter slept out its whole
+  timeout: a receiver missed a message that had arrived, a writer missed the
+  room a read made. The wake takes the lock once again, as in cpp-ipc and in the
+  Rust and Zig ports, and the macOS condition counts a waiter before it lets go
+  of the lock. `Waiter.WakeBetweenCheckAndSleepIsNotLost` fails without the fix.
 - **Threads or processes that open a fresh segment at once share it (C++,
   macOS).** XNU refuses a second `ftruncate` while the creator's first one is
   still allocating, and the object then reads as size 0. The opener took that
