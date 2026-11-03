@@ -206,11 +206,7 @@ public struct IpcMutex: ~Copyable, @unchecked Sendable {
                 return false
             }
 
-            let remainingUs: UInt32 = {
-                let ns = (deadline - now).components.attoseconds / 1_000_000_000
-                let us = ns / 1_000
-                return us > 0 && us < Int64(UInt32.max) ? UInt32(us) : UInt32.max
-            }()
+            let remainingUs = ulockTimeoutUs(deadline - now)
 
             let ret = _ulockWait(kULCompareAndWaitShared, stateWordPtr, 2, remainingUs)
             contended = true

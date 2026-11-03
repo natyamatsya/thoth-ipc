@@ -90,17 +90,19 @@ struct TestRouteDepth {
         defer { Task { await Route.clearStorage(name: name) } }
         let sender = try await Route.connect(name: name, mode: .sender)
 
-        // Connect receiver after a short delay in a separate task
-        let recvTask = Task {
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            let r = try! await Route.connect(name: name, mode: .receiver)
-            try? await Task.sleep(nanoseconds: 200_000_000)
+        // Connect the receiver after a short delay on its own thread: a task
+        // would need a free cooperative thread while this test blocks one in
+        // waitForRecv, and under the parallel suite none may be free in time.
+        let recvThread = spawnPthread {
+            usleep(50_000)
+            let r = Route.connectBlocking(name: name, mode: .receiver)
+            usleep(200_000)
             r.disconnect()
         }
 
         let waited = try sender.waitForRecv(count: 1, timeout: .seconds(1))
         #expect(waited)
-        await recvTask.value // no task may outlive the test
+        await joinThread(recvThread) // no thread may outlive the test
         sender.disconnect()
     }
 

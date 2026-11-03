@@ -110,6 +110,28 @@ struct TestConditionDepth {
         #expect(elapsed >= .milliseconds(80))
     }
 
+    // A timeout over a second used to be cut to its fraction of a second.
+    @Test("timed wait of over a second lasts its whole timeout")
+    func timedWaitOverASecond() async throws {
+        let cvName  = "swift_cvd_twl_cv_\(UInt32.random(in: 0..<UInt32.max))"
+        let mtxName = "swift_cvd_twl_mx_\(UInt32.random(in: 0..<UInt32.max))"
+        defer {
+            Task { await IpcCondition.clearStorage(name: cvName) }
+            Task { await IpcMutex.clearStorage(name: mtxName) }
+        }
+        let cv  = try await IpcCondition.open(name: cvName)
+        let mtx = try await IpcMutex.open(name: mtxName)
+
+        let t0 = ContinuousClock.now
+        try mtx.lock()
+        let signalled = try cv.wait(mutex: mtx, timeout: .milliseconds(1_300))
+        try mtx.unlock()
+        let elapsed = ContinuousClock.now - t0
+
+        #expect(!signalled)
+        #expect(elapsed >= .milliseconds(1_250))
+    }
+
     // Port of ConditionTest.ProducerConsumer — predicate-based wait
     @Test("producer/consumer with predicate loop")
     func producerConsumer() async throws {

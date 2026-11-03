@@ -190,6 +190,24 @@ struct TestMutexDepth {
         #expect(timedOut)
     }
 
+    // A timeout over a second used to be cut to its fraction of a second.
+    @Test("lock(timeout:) of over a second waits its whole timeout")
+    func lockTimeoutOverASecond() async throws {
+        let name = "swift_mtxd_ltlong_\(UInt32.random(in: 0..<UInt32.max))"
+        defer { Task { await IpcMutex.clearStorage(name: name) } }
+        nonisolated(unsafe) var elapsed = Duration.zero
+        nonisolated(unsafe) var timedOut = false
+        await whileHeld(name) {
+            let mtx2 = try! IpcMutex.openSync(name: name)
+            let t0 = ContinuousClock.now
+            let acquired = try! runBlocking { try await mtx2.lock(timeout: .milliseconds(1_300)) }
+            elapsed = ContinuousClock.now - t0
+            timedOut = !acquired
+        }
+        #expect(timedOut)
+        #expect(elapsed >= .milliseconds(1_250))
+    }
+
     // Port of MutexTest.try_lock_contended
     @Test("tryLock returns false when held by another thread")
     func tryLockContended() async throws {

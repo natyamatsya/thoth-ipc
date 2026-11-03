@@ -39,6 +39,12 @@ func durationNs(_ d: Duration) -> Int64 {
     return o2 ? .max : t
 }
 
+/// `d` as a `__ulock_wait` timeout in microseconds: at least 1, as 0 waits
+/// forever, and saturating at `UInt32.max`.
+func ulockTimeoutUs(_ d: Duration) -> UInt32 {
+    UInt32(clamping: max(durationNs(d) / 1_000, 1))
+}
+
 /// The C stdout and stderr streams, readable from Swift 6 code on every
 /// platform (Glibc declares the globals mutable).
 public var stdoutStream: UnsafeMutablePointer<FILE> { thoth_ipc_stdout() }

@@ -135,18 +135,14 @@ public struct IpcCondition: ~Copyable, @unchecked Sendable {
             }
             let now = ContinuousClock.now
             if now >= deadline { break }
-            let remainingUs: UInt32 = {
-                let ns = (deadline - now).components.attoseconds / 1_000_000_000
-                let us = ns / 1_000
-                return us > 0 && us < Int64(UInt32.max) ? UInt32(us) : UInt32.max
-            }()
+            let remainingUs = ulockTimeoutUs(deadline - now)
             let ret = _ulockWait(kULCompareAndWaitShared, seqWordPtr, UInt64(expectedSeq), remainingUs)
             if ret >= 0 {
                 continue
             }
             let err = errno
-            if err == EINTR { continue }
-            if err == ETIMEDOUT { break }
+            // The loop's deadline check ends a timed-out wait.
+            if err == EINTR || err == ETIMEDOUT { continue }
             break outer
         }
         if seqAtomic.load(ordering: .acquiring) != expectedSeq { notified = true }

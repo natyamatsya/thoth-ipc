@@ -67,6 +67,16 @@ Notable changes to thoth-ipc. The format follows
   it (with libclang for bindgen) and requires it.
 
 ### Fixed
+- **A Swift timed wait on macOS lasts its whole timeout.** `IpcCondition`'s
+  timed wait and `IpcMutex.lock(timeout:)` passed `__ulock_wait` only the
+  fraction of a second left, so a 5 s wait gave up after under a second, and
+  the condition then took the kernel's timeout as its own. A wake that came
+  late, as under the parallel test suite where the notifier waits for a free
+  cooperative thread, was reported as a timeout: "notify wakes a waiting
+  task" and "quitWaiting unblocks waitIf" failed on GitHub macOS runs. The
+  semaphore already converted the whole duration. "waitForRecv unblocked by
+  late receiver" now connects its receiver from a thread of its own rather
+  than a task.
 - **The writer that commits a channel claim drops its stale marks, in every
   port.** A receiver that takes over the id of one that left drops the marks
   that one left unread (1.3.0). A writer's claim still uncommitted at that
