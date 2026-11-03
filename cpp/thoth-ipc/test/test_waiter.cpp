@@ -12,14 +12,26 @@
 #include <string>
 #include <thread>
 
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 
 #include "thoth-ipc/waiter.h"
 
 namespace {
 
+int current_pid() {
+#ifdef _WIN32
+    return ::_getpid();
+#else
+    return static_cast<int>(::getpid());
+#endif
+}
+
 std::string unique_waiter_name(char const *what) {
-    return "thoth_test_waiter_" + std::to_string(::getpid()) + "_" + what;
+    return "thoth_test_waiter_" + std::to_string(current_pid()) + "_" + what;
 }
 
 } // namespace
