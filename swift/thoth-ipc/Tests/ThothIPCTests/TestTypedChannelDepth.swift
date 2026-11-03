@@ -27,8 +27,9 @@ private func makeRawPayload(_ tag: UInt32) -> [UInt8] {
     return v
 }
 
-private func readRawPayload(_ data: [UInt8]) -> UInt32 {
-    precondition(data.count >= 8)
+/// The tag, or nil for a buffer too short to hold one (an empty recv).
+private func readRawPayload(_ data: [UInt8]) -> UInt32? {
+    guard data.count >= 8 else { return nil }
     return UInt32(data[4]) | UInt32(data[5]) << 8 | UInt32(data[6]) << 16 | UInt32(data[7]) << 24
 }
 
@@ -232,8 +233,12 @@ struct TestTypedChannelDepth {
             try await TypedChannel<PingMsg>.connect(name: name, mode: .receiver)
         }
 
-        final class State: @unchecked Sendable { var results: [UInt32] = []; var mu = pthread_mutex_t(); init() { pthread_mutex_init(&mu, nil) }; deinit { pthread_mutex_destroy(&mu) } }
+        final class State: @unchecked Sendable { var results: [UInt32?] = []; var mu = pthread_mutex_t(); init() { pthread_mutex_init(&mu, nil) }; deinit { pthread_mutex_destroy(&mu) } }
         let state = State()
+
+        // The sender connects before the receivers start their timed recv, so
+        // that timeout does not depend on a cooperative thread being free.
+        let sender = try await TypedChannel<PingMsg>.connect(name: name, mode: .sender)
 
         let recvThreads = receivers.map { ch in
             spawnPthread {
@@ -243,11 +248,9 @@ struct TestTypedChannelDepth {
             }
         }
 
-        try? await Task.sleep(nanoseconds: 50_000_000)
-
-        let sender = try await TypedChannel<PingMsg>.connect(name: name, mode: .sender)
         let payload = makeRawPayload(33)
         let sendThread = spawnPthread {
+            usleep(50_000) // let the receivers start waiting
             _ = try! sender.waitForRecv(count: nReceivers, timeout: .seconds(1))
             _ = try! sender.send(data: payload, timeout: .seconds(2))
         }

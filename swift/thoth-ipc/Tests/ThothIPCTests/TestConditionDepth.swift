@@ -122,11 +122,13 @@ struct TestConditionDepth {
         let cv  = try await IpcCondition.open(name: cvName)
         let mtx = try await IpcMutex.open(name: mtxName)
 
-        let t0 = ContinuousClock.now
-        try mtx.lock()
-        let signalled = try cv.wait(mutex: mtx, timeout: .milliseconds(1_300))
-        try mtx.unlock()
-        let elapsed = ContinuousClock.now - t0
+        let (signalled, elapsed) = try await onOwnThread {
+            let t0 = ContinuousClock.now
+            try mtx.lock()
+            let signalled = try cv.wait(mutex: mtx, timeout: .milliseconds(1_300))
+            try mtx.unlock()
+            return (signalled, ContinuousClock.now - t0)
+        }
 
         #expect(!signalled)
         #expect(elapsed >= .milliseconds(1_250))

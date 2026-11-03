@@ -21,7 +21,8 @@ struct AsyncRouteTests {
         let ar = try await AsyncRoute.connect(name: name)
         #expect(ar.recvCount >= 0)
 
-        let sender = Task.detached {
+        // The sender blocks, so it gets a thread of its own.
+        let sender = spawnPthread {
             let s = Route.connectBlocking(name: name, mode: .sender)
             _ = try? s.waitForRecv(count: 1, timeout: .seconds(3))
             for i in 0 ..< 5 {
@@ -36,6 +37,6 @@ struct AsyncRouteTests {
             #expect(bytes.count == 100)
             #expect(bytes.allSatisfy { $0 == UInt8(65 + i) })
         }
-        await sender.value
+        await joinThread(sender)
     }
 }

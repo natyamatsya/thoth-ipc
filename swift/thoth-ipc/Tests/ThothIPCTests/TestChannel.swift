@@ -3,6 +3,11 @@
 
 import Testing
 @testable import ThothIPC
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 // MARK: - Route tests
 
@@ -150,16 +155,20 @@ struct TestRoute {
     func waitForRecv() async throws {
         let tx = try await Route.connect(name: "test_route_wfr", mode: .sender)
 
-        let connectTask = Task {
-            try await Task.sleep(for: .milliseconds(30))
-            return try await Route.connect(name: "test_route_wfr", mode: .receiver)
+        // This test blocks a cooperative thread in waitForRecv, so the
+        // receiver connects from a thread of its own, not a task that would
+        // need another cooperative thread to be free.
+        nonisolated(unsafe) var rx: Route?
+        let connectThread = spawnPthread {
+            usleep(30_000)
+            rx = Route.connectBlocking(name: "test_route_wfr", mode: .receiver)
         }
 
         let ok = try tx.waitForRecv(count: 1, timeout: .seconds(2))
         #expect(ok == true)
 
-        let rx = try await connectTask.value
-        rx.disconnect(); tx.disconnect()
+        await joinThread(connectThread)
+        rx?.disconnect(); tx.disconnect()
         await Route.clearStorage(name: "test_route_wfr")
     }
 }

@@ -4,7 +4,13 @@
 // Tests for IpcCondition — mirrors rust/thoth-ipc/tests/test_condition.rs
 
 import Testing
+import Atomics
 @testable import ThothIPC
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 @Suite("IpcCondition")
 struct TestCondition {
@@ -63,18 +69,25 @@ struct TestCondition {
         let mtx  = try await IpcMutex.open(name: mtxName)
         let cond = try await IpcCondition.open(name: condName)
 
-        let waiterTask = Task {
-            try mtx.lock()
-            let signalled = try cond.wait(mutex: mtx, timeout: .seconds(5))
-            try mtx.unlock()
-            return signalled
+        // The waiter blocks, so it gets a thread of its own. A notify without
+        // a waiter is lost, so the wake comes only once the waiter is in the
+        // wait: it holds the mutex from before it says so until the wait
+        // releases it.
+        let entered = ManagedAtomic<Bool>(false)
+        nonisolated(unsafe) var signalled = false
+        let waiter = spawnPthread {
+            try! mtx.lock()
+            entered.store(true, ordering: .releasing)
+            signalled = try! cond.wait(mutex: mtx, timeout: .seconds(5))
+            try! mtx.unlock()
         }
 
-        // Give the waiter time to enter the wait.
-        try await Task.sleep(for: .milliseconds(20))
+        while !entered.load(ordering: .acquiring) { usleep(1_000) }
+        try mtx.lock()
+        try mtx.unlock()
         try cond.notify(mutex: mtx)
 
-        let signalled = try await waiterTask.value
+        await joinThread(waiter)
         #expect(signalled)
     }
 }

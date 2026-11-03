@@ -121,14 +121,18 @@ struct TestShm {
     // A creator that died before sizing its segment left a zero-length husk: the next
     // opener sizes it, after the wait for the creator runs out.
     @Test("an opener sizes a segment its creator never sized")
-    func openerSizesAnUnsizedHusk() throws {
+    func openerSizesAnUnsizedHusk() async throws {
         let name = "swift_test_shm_husk_\(UInt32.random(in: 0..<UInt32.max))"
         defer { ShmHandle.clearStorage(name: name) }
         let fd = makeShmName(name).withCString { thoth_ipc_shm_open_create($0, 0o666) }
         try #require(fd != -1)
         close(fd)
-        let shm = try ShmHandle.acquire(name: name, size: 64, mode: .createOrOpen)
-        #expect(shm.mappedSize >= 64)
-        #expect(shm.refCount == 1)
+        // The opener waits out its 2 s for a creator that never sizes it.
+        let (mappedSize, refCount) = try await onOwnThread {
+            let shm = try ShmHandle.acquire(name: name, size: 64, mode: .createOrOpen)
+            return (shm.mappedSize, shm.refCount)
+        }
+        #expect(mappedSize >= 64)
+        #expect(refCount == 1)
     }
 }

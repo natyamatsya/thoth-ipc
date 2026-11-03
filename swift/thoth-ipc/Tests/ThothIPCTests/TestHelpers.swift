@@ -55,6 +55,16 @@ func joinThread(_ tid: pthread_t) async {
     }
 }
 
+/// Run `body`, which blocks, on a thread of its own and return its result.
+/// The parallel suite shares a few cooperative threads (three on a GitHub
+/// macOS runner); a test that blocks one for long starves the tasks other
+/// tests are waiting on, and their timeouts run out.
+func onOwnThread<T>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
+    nonisolated(unsafe) var result: Result<T, any Error>?
+    await joinThread(spawnPthread { result = Result { try body() } })
+    return try result!.get()
+}
+
 /// Non-async wrapper so the compiler allows pthread_join.
 private func joinThreadSync(_ tid: pthread_t) {
     pthread_join(tid, nil)

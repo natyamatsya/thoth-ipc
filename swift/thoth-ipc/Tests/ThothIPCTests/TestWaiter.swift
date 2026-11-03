@@ -4,6 +4,11 @@
 import Testing
 import Atomics
 @testable import ThothIPC
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 @Suite("Waiter")
 struct TestWaiter {
@@ -20,15 +25,18 @@ struct TestWaiter {
         let w = try await Waiter.open(name: "test_waiter_notify")
         let flag = ManagedAtomic<Bool>(false)
 
-        let waiter = Task {
-            try w.waitIf({ !flag.load(ordering: .acquiring) }, timeout: .seconds(5))
+        // The waiter blocks, so it gets a thread of its own rather than one of
+        // the cooperative threads the rest of the suite runs on.
+        nonisolated(unsafe) var result = false
+        let waiter = spawnPthread {
+            result = try! w.waitIf({ !flag.load(ordering: .acquiring) }, timeout: .seconds(5))
         }
 
-        try await Task.sleep(for: .milliseconds(20))
+        usleep(20_000)
         flag.store(true, ordering: .releasing)
         try w.notify()
 
-        let result = try await waiter.value
+        await joinThread(waiter)
         #expect(result == true)
         await Waiter.clearStorage(name: "test_waiter_notify")
     }
@@ -45,14 +53,15 @@ struct TestWaiter {
     func quitUnblocks() async throws {
         let w = try await Waiter.open(name: "test_waiter_quit")
 
-        let waiter = Task {
-            try w.waitIf({ true }, timeout: .seconds(5))
+        nonisolated(unsafe) var result = false
+        let waiter = spawnPthread {
+            result = try! w.waitIf({ true }, timeout: .seconds(5))
         }
 
-        try await Task.sleep(for: .milliseconds(20))
+        usleep(20_000)
         try w.quitWaiting()
 
-        let result = try await waiter.value
+        await joinThread(waiter)
         #expect(result == true)
         await Waiter.clearStorage(name: "test_waiter_quit")
     }

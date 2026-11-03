@@ -230,6 +230,13 @@ struct TestChannelDepth {
         }
         let state = State()
 
+        // The senders connect before the receiver starts its timed recv, so
+        // those timeouts do not depend on a cooperative thread being free.
+        var senders: [Channel] = []
+        for _ in 0..<numSenders {
+            senders.append(try await Channel.connect(name: name, mode: .sender))
+        }
+
         let recvThread = spawnPthread {
             for _ in 0..<numSenders {
                 let buf = try! receiver.recv(timeout: .seconds(2))
@@ -239,13 +246,10 @@ struct TestChannelDepth {
             }
         }
 
-        // Small delay so receiver is ready
-        try? await Task.sleep(nanoseconds: 50_000_000)
-
         var sendThreads: [pthread_t] = []
-        for i in 0..<numSenders {
-            let ch = try await Channel.connect(name: name, mode: .sender)
+        for (i, ch) in senders.enumerated() {
             sendThreads.append(spawnPthread {
+                usleep(50_000) // let the receiver start waiting
                 _ = try! ch.waitForRecv(count: 1, timeout: .seconds(1))
                 _ = try! ch.send(data: Array("Sender\(i)".utf8), timeout: .seconds(2))
                 ch.disconnect()
@@ -310,6 +314,12 @@ struct TestChannelDepth {
         }
         let state = State()
 
+        // As above: the senders connect before the receivers' timed recv.
+        var senders: [Channel] = []
+        for _ in 0..<numSenders {
+            senders.append(try await Channel.connect(name: name, mode: .sender))
+        }
+
         let recvThreads = receivers.map { ch in
             spawnPthread {
                 var got = 0
@@ -323,13 +333,10 @@ struct TestChannelDepth {
             }
         }
 
-        // Small delay so receivers are ready
-        try? await Task.sleep(nanoseconds: 200_000_000)
-
         var sendThreads: [pthread_t] = []
-        for i in 0..<numSenders {
-            let ch = try await Channel.connect(name: name, mode: .sender)
+        for (i, ch) in senders.enumerated() {
             sendThreads.append(spawnPthread {
+                usleep(200_000) // let the receivers start waiting
                 _ = try! ch.waitForRecv(count: numReceivers, timeout: .seconds(2))
                 for j in 0..<msgsPerSender {
                     _ = try! ch.send(data: Array("S\(i)M\(j)".utf8), timeout: .seconds(2))
